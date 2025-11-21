@@ -1,12 +1,12 @@
-
 import React, { useState } from 'react';
-import { DatabaseSchema, AppStep, BuilderState, QueryResult } from './types';
+import { DatabaseSchema, AppStep, BuilderState, QueryResult, DbCredentials } from './types';
 import Sidebar from './components/Sidebar';
 import ConnectionStep from './components/steps/ConnectionStep';
 import BuilderStep from './components/steps/BuilderStep';
 import PreviewStep from './components/steps/PreviewStep';
 import ResultsStep from './components/steps/ResultsStep';
-import { generateSqlFromBuilderState, validateSqlQuery, generateMockData } from './services/geminiService';
+import { generateSqlFromBuilderState, validateSqlQuery } from './services/geminiService';
+import { executeQueryReal } from './services/dbService';
 
 function App() {
   // Navigation State
@@ -14,6 +14,8 @@ function App() {
   
   // App Data State
   const [schema, setSchema] = useState<DatabaseSchema | null>(null);
+  const [credentials, setCredentials] = useState<DbCredentials | null>(null);
+
   const [builderState, setBuilderState] = useState<BuilderState>({
     selectedTables: [],
     selectedColumns: [],
@@ -25,14 +27,15 @@ function App() {
   });
   
   const [queryResult, setQueryResult] = useState<QueryResult | null>(null);
-  const [mockResults, setMockResults] = useState<any[]>([]);
+  const [dbResults, setDbResults] = useState<any[]>([]);
   
   const [isProcessing, setIsProcessing] = useState(false);
 
   // --- Handlers ---
 
-  const handleSchemaLoaded = (newSchema: DatabaseSchema) => {
+  const handleSchemaLoaded = (newSchema: DatabaseSchema, creds: DbCredentials) => {
     setSchema(newSchema);
+    setCredentials(creds);
     // Reset downstream state
     setBuilderState({ 
       selectedTables: [], 
@@ -44,7 +47,7 @@ function App() {
       limit: 100 
     });
     setQueryResult(null);
-    setMockResults([]);
+    setDbResults([]);
     setCurrentStep('builder');
   };
 
@@ -73,15 +76,16 @@ function App() {
   };
 
   const handleExecuteQuery = async () => {
-    if (!schema || !queryResult) return;
+    if (!schema || !queryResult || !credentials) return;
     setIsProcessing(true);
     try {
-      const data = await generateMockData(schema, queryResult.sql);
-      setMockResults(data);
+      // Execute on real DB via backend
+      const data = await executeQueryReal(credentials, queryResult.sql);
+      setDbResults(data);
       setCurrentStep('results');
-    } catch (e) {
+    } catch (e: any) {
       console.error(e);
-      alert("Execution failed.");
+      alert("Execution failed: " + e.message);
     } finally {
       setIsProcessing(false);
     }
@@ -90,8 +94,9 @@ function App() {
   const handleReset = () => {
     setCurrentStep('connection');
     setSchema(null);
+    setCredentials(null);
     setQueryResult(null);
-    setMockResults([]);
+    setDbResults([]);
   };
 
   return (
@@ -142,7 +147,7 @@ function App() {
 
           {currentStep === 'results' && (
             <ResultsStep 
-              data={mockResults}
+              data={dbResults}
               sql={queryResult?.sql || ''}
               onBackToBuilder={() => setCurrentStep('builder')}
               onNewConnection={handleReset}

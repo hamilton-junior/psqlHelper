@@ -16,7 +16,15 @@ export interface Table {
 export interface DatabaseSchema {
   name: string;
   tables: Table[];
-  connectionSource?: 'ai' | 'ddl' | 'simulated';
+  connectionSource?: 'ai' | 'ddl' | 'simulated' | 'real';
+}
+
+export interface DbCredentials {
+  host: string;
+  port: string;
+  user: string;
+  password?: string;
+  database: string;
 }
 
 export interface ValidationResult {

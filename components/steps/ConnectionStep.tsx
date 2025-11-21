@@ -1,15 +1,16 @@
-
 import React, { useState } from 'react';
-import { DatabaseSchema } from '../../types';
-import { generateSchemaFromTopic } from '../../services/geminiService';
-import { Server, Shield, Info, Loader2, Database } from 'lucide-react';
+import { DatabaseSchema, DbCredentials } from '../../types';
+import { connectToDatabase } from '../../services/dbService';
+import { Server, Shield, Info, Loader2, Database, AlertCircle } from 'lucide-react';
 
 interface ConnectionStepProps {
-  onSchemaLoaded: (schema: DatabaseSchema) => void;
+  onSchemaLoaded: (schema: DatabaseSchema, credentials: DbCredentials) => void;
 }
 
 const ConnectionStep: React.FC<ConnectionStepProps> = ({ onSchemaLoaded }) => {
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  
   const [host, setHost] = useState('localhost');
   const [port, setPort] = useState('5432');
   const [user, setUser] = useState('postgres');
@@ -21,19 +22,22 @@ const ConnectionStep: React.FC<ConnectionStepProps> = ({ onSchemaLoaded }) => {
     if (!dbName) return;
 
     setLoading(true);
-    
-    // Simulate network delay
-    await new Promise(resolve => setTimeout(resolve, 1200));
+    setError('');
+
+    const creds: DbCredentials = {
+      host,
+      port,
+      user,
+      password,
+      database: dbName
+    };
 
     try {
-      // AI Simulation for browser environment
-      const context = `A database named ${dbName}`;
-      const schema = await generateSchemaFromTopic(dbName, context);
-      schema.name = dbName;
-      schema.connectionSource = 'simulated';
-      onSchemaLoaded(schema);
-    } catch (error) {
-      alert("Connection failed.");
+      const schema = await connectToDatabase(creds);
+      onSchemaLoaded(schema, creds);
+    } catch (err: any) {
+      console.error(err);
+      setError(err.message || "Connection failed. Ensure server.js is running on port 3000.");
     } finally {
       setLoading(false);
     }
@@ -46,7 +50,7 @@ const ConnectionStep: React.FC<ConnectionStepProps> = ({ onSchemaLoaded }) => {
           <Server className="w-6 h-6 text-indigo-600" />
           Database Connection
         </h2>
-        <p className="text-slate-500 mt-2">Connect to your PostgreSQL database instance to start building queries.</p>
+        <p className="text-slate-500 mt-2">Connect to your local PostgreSQL database instance.</p>
       </div>
 
       <form onSubmit={handleConnect} className="bg-white p-8 rounded-2xl shadow-sm border border-slate-200 space-y-6">
@@ -107,21 +111,25 @@ const ConnectionStep: React.FC<ConnectionStepProps> = ({ onSchemaLoaded }) => {
           </div>
         </div>
 
+        {error && (
+          <div className="bg-red-50 text-red-600 p-3 rounded-lg text-sm flex items-center gap-2 border border-red-100">
+            <AlertCircle className="w-4 h-4 shrink-0" />
+            {error}
+          </div>
+        )}
+
         <div className="pt-6 border-t border-slate-100 flex items-center justify-between">
            <div className="flex items-center gap-2 text-slate-400 text-xs">
               <Shield className="w-4 h-4" />
-              <span>SSL Connection Preferred</span>
+              <span>Credentials stored locally only</span>
            </div>
            <div className="flex gap-3">
-             <button type="button" className="px-6 py-2.5 text-slate-600 font-semibold hover:bg-slate-50 rounded-lg transition-colors">
-               Test Connection
-             </button>
              <button 
                type="submit" 
                disabled={loading}
                className="px-8 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg shadow-lg shadow-indigo-200 transition-all flex items-center gap-2"
              >
-               {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Connect to Database'}
+               {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Connect to Local DB'}
              </button>
            </div>
         </div>
@@ -130,8 +138,8 @@ const ConnectionStep: React.FC<ConnectionStepProps> = ({ onSchemaLoaded }) => {
       <div className="mt-6 bg-blue-50 border border-blue-100 rounded-xl p-4 flex gap-3">
         <Info className="w-5 h-5 text-blue-600 shrink-0 mt-0.5" />
         <div className="text-sm text-blue-800">
-          <p className="font-bold mb-1">Environment Note</p>
-          <p>Since this application is running in a browser, it cannot directly connect to your localhost TCP port. We will use AI Schema Inference to simulate the database structure based on your input.</p>
+          <p className="font-bold mb-1">Local Backend Required</p>
+          <p>Ensure you are running the backend server in a separate terminal using <code>npm run server</code>.</p>
         </div>
       </div>
     </div>

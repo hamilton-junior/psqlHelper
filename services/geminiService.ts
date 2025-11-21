@@ -1,4 +1,4 @@
-import { GoogleGenAI, Type } from "@google/genai";
+import { GoogleGenAI, Type, Schema } from "@google/genai";
 import { DatabaseSchema, QueryResult, ValidationResult, BuilderState } from "../types";
 
 // Vite will replace 'process.env.API_KEY' with the actual string from your .env file at build time.
@@ -6,39 +6,6 @@ import { DatabaseSchema, QueryResult, ValidationResult, BuilderState } from "../
 const apiKey = process.env.API_KEY;
 
 const ai = new GoogleGenAI({ apiKey: apiKey });
-
-const SCHEMA_RESPONSE_SCHEMA = {
-  type: Type.OBJECT,
-  properties: {
-    name: { type: Type.STRING },
-    tables: {
-      type: Type.ARRAY,
-      items: {
-        type: Type.OBJECT,
-        properties: {
-          name: { type: Type.STRING },
-          description: { type: Type.STRING },
-          columns: {
-            type: Type.ARRAY,
-            items: {
-              type: Type.OBJECT,
-              properties: {
-                name: { type: Type.STRING },
-                type: { type: Type.STRING },
-                isPrimaryKey: { type: Type.BOOLEAN },
-                isForeignKey: { type: Type.BOOLEAN },
-                references: { type: Type.STRING }
-              },
-              required: ["name", "type"]
-            }
-          }
-        },
-        required: ["name", "columns"]
-      }
-    }
-  },
-  required: ["name", "tables"]
-};
 
 export const validateSqlQuery = async (sql: string): Promise<ValidationResult> => {
   const prompt = `
@@ -83,7 +50,7 @@ export const generateSqlFromBuilderState = async (
   state: BuilderState
 ): Promise<QueryResult> => {
   const schemaDescription = schema.tables.map(t => 
-    `Table ${t.name} (${t.description}):\n  Columns: ${t.columns.map(c => `${c.name} (${c.type})`).join(', ')}`
+    `Table ${t.name} (${t.description || ''}):\n  Columns: ${t.columns.map(c => `${c.name} (${c.type})`).join(', ')}`
   ).join('\n\n');
 
   const systemInstruction = `
@@ -167,47 +134,47 @@ export const generateSqlFromBuilderState = async (
   }
 };
 
-export const generateMockData = async (
-  schema: DatabaseSchema,
-  sql: string
-): Promise<any[]> => {
+export const generateSchemaFromTopic = async (topic: string, context: string): Promise<DatabaseSchema> => {
   const prompt = `
-    Given the following SQL query and the implied schema context, generate 5 rows of realistic mock data that would result from running this query.
-    Return ONLY the raw JSON array of objects.
+    Generate a comprehensive PostgreSQL database schema for a "${topic}".
+    Context/Description: ${context}
     
-    SQL: ${sql}
-    
-    Context (Tables): ${schema.tables.map(t => t.name).join(', ')}
+    Include 3-5 relevant tables with realistic columns, primary keys, and foreign key relationships.
+    Ensure data types are valid PostgreSQL types (e.g., SERIAL, VARCHAR, INTEGER, TIMESTAMP, BOOLEAN).
   `;
 
-  try {
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: prompt,
-      config: {
-        responseMimeType: "application/json"
+  const schemaStructure: Schema = {
+    type: Type.OBJECT,
+    properties: {
+      name: { type: Type.STRING },
+      tables: {
+        type: Type.ARRAY,
+        items: {
+          type: Type.OBJECT,
+          properties: {
+            name: { type: Type.STRING },
+            description: { type: Type.STRING },
+            columns: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  name: { type: Type.STRING },
+                  type: { type: Type.STRING },
+                  isPrimaryKey: { type: Type.BOOLEAN },
+                  isForeignKey: { type: Type.BOOLEAN },
+                  references: { type: Type.STRING, description: "Format: table.column" }
+                },
+                required: ["name", "type"]
+              }
+            }
+          },
+          required: ["name", "columns"]
+        }
       }
-    });
-
-    if (response.text) {
-      return JSON.parse(response.text);
-    }
-    return [];
-  } catch (error) {
-    console.error("GenAI Mock Data Error:", error);
-    return [];
-  }
-};
-
-export const parseSchemaFromDDL = async (ddlString: string): Promise<DatabaseSchema> => {
-  const prompt = `
-    Parse the following PostgreSQL DDL (CREATE TABLE statements) and extract the schema structure into a JSON format.
-    Extract table names, column names, types, and foreign key relationships.
-    Guess a short description for each table based on its name and columns.
-    
-    DDL:
-    ${ddlString}
-  `;
+    },
+    required: ["name", "tables"]
+  };
 
   try {
     const response = await ai.models.generateContent({
@@ -215,48 +182,81 @@ export const parseSchemaFromDDL = async (ddlString: string): Promise<DatabaseSch
       contents: prompt,
       config: {
         responseMimeType: "application/json",
-        responseSchema: SCHEMA_RESPONSE_SCHEMA
+        responseSchema: schemaStructure
       }
     });
 
     if (response.text) {
-      const schema = JSON.parse(response.text) as DatabaseSchema;
-      schema.connectionSource = 'ddl';
-      return schema;
+      const result = JSON.parse(response.text) as DatabaseSchema;
+      result.connectionSource = 'simulated';
+      return result;
     }
-    throw new Error("Failed to parse DDL");
+    throw new Error("Empty response from AI");
   } catch (error) {
-    console.error("DDL Parse Error:", error);
-    throw new Error("Could not parse the provided SQL schema.");
+    console.error("Schema Generation Error:", error);
+    throw new Error("Failed to generate schema.");
   }
 };
 
-export const generateSchemaFromTopic = async (topic: string, dbContext?: string): Promise<DatabaseSchema> => {
-   let prompt = `Create a realistic PostgreSQL database schema for a "${topic}" application. Include 3-5 related tables with appropriate data types.`;
-   
-   if (dbContext) {
-     prompt = `Create a realistic PostgreSQL database schema for a database named "${topic}". 
-     Context provided by user: "${dbContext}".
-     Include appropriate tables that would exist in such a database.`;
-   }
+export const parseSchemaFromDDL = async (ddl: string): Promise<DatabaseSchema> => {
+  const prompt = `
+    Parse the following SQL DDL (CREATE TABLE statements) into a structured JSON schema.
+    
+    DDL:
+    ${ddl}
+  `;
 
-   try {
-     const response = await ai.models.generateContent({
-       model: 'gemini-2.5-flash',
-       contents: prompt,
-       config: {
-         responseMimeType: "application/json",
-         responseSchema: SCHEMA_RESPONSE_SCHEMA
-       }
-     });
+  const schemaStructure: Schema = {
+    type: Type.OBJECT,
+    properties: {
+      name: { type: Type.STRING, description: "Inferred database name or 'Imported Schema'" },
+      tables: {
+        type: Type.ARRAY,
+        items: {
+          type: Type.OBJECT,
+          properties: {
+            name: { type: Type.STRING },
+            description: { type: Type.STRING },
+            columns: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  name: { type: Type.STRING },
+                  type: { type: Type.STRING },
+                  isPrimaryKey: { type: Type.BOOLEAN },
+                  isForeignKey: { type: Type.BOOLEAN },
+                  references: { type: Type.STRING, description: "Format: table.column" }
+                },
+                required: ["name", "type"]
+              }
+            }
+          },
+          required: ["name", "columns"]
+        }
+      }
+    },
+    required: ["name", "tables"]
+  };
 
-     if (response.text) {
-       const schema = JSON.parse(response.text) as DatabaseSchema;
-       schema.connectionSource = 'ai';
-       return schema;
-     }
-     throw new Error("Failed to generate schema");
-   } catch (error) {
-     throw error;
-   }
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: schemaStructure
+      }
+    });
+
+    if (response.text) {
+      const parsed = JSON.parse(response.text) as DatabaseSchema;
+      parsed.connectionSource = 'ddl';
+      return parsed;
+    }
+    throw new Error("Empty response from AI");
+  } catch (error) {
+    console.error("DDL Parsing Error:", error);
+    throw new Error("Failed to parse DDL.");
+  }
 };
