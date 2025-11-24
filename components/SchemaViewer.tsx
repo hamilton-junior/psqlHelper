@@ -130,33 +130,61 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({ schema, onRegenerateClick, 
     return { parents, children };
   }, [hoveredTable, schema.tables]);
 
-  // Helper to determine row style based on relationships
-  const getTableStyle = (tableName: string) => {
-    if (!hoveredTable && !hoveredFkTarget) return 'opacity-100 border-transparent'; // Default state
-
-    // Specific FK Hover Mode
-    if (hoveredFkTarget) {
-      if (tableName === hoveredFkTarget) return 'opacity-100 ring-2 ring-amber-400 bg-amber-50 border-amber-200';
-      if (expandedTables.has(tableName) && schema.tables.find(t => t.name === tableName)?.columns.some(c => c.references?.startsWith(hoveredFkTarget))) {
-         return 'opacity-100'; // Keep source table visible
-      }
-      return 'opacity-30 blur-[1px]';
+  // Helper to determine visuals based on relationships
+  const getTableVisuals = (tableName: string) => {
+    // Default State (No hover)
+    if (!hoveredTable && !hoveredFkTarget) {
+      return {
+        containerClass: 'opacity-100 border-l-4 border-l-transparent border-slate-200',
+        label: null
+      };
     }
 
-    // General Table Hover Mode
-    if (tableName === hoveredTable) return 'opacity-100 ring-2 ring-indigo-500 bg-indigo-50 border-indigo-200';
-    if (relationships.parents.includes(tableName)) return 'opacity-100 border-amber-400 bg-amber-50 shadow-sm';
-    if (relationships.children.includes(tableName)) return 'opacity-100 border-emerald-400 bg-emerald-50 shadow-sm';
+    // FK Hover Mode (Hovering a specific column)
+    if (hoveredFkTarget) {
+      if (tableName === hoveredFkTarget) {
+        return {
+          containerClass: 'opacity-100 ring-1 ring-amber-400 bg-amber-50/50 border-amber-200 border-l-4 border-l-amber-500 shadow-md transform scale-[1.01]',
+          label: <span className="text-[10px] font-bold text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded ml-auto flex items-center gap-1">Target <ArrowDownLeft className="w-3 h-3" /></span>
+        };
+      }
+      // Keep the source table visible but standard
+      if (expandedTables.has(tableName) && schema.tables.find(t => t.name === tableName)?.columns.some(c => c.references?.startsWith(hoveredFkTarget))) {
+         return {
+           containerClass: 'opacity-100 border-l-4 border-l-indigo-300 border-indigo-200 bg-indigo-50/30',
+           label: <span className="text-[10px] font-bold text-indigo-600 px-1.5 py-0.5 rounded ml-auto">Source</span>
+         };
+      }
+      return { containerClass: 'opacity-30 blur-[1px] grayscale border-slate-100', label: null };
+    }
 
-    return 'opacity-30 blur-[1px]'; // Unrelated
-  };
+    // General Table Hover Mode (Hovering a table header)
+    if (tableName === hoveredTable) {
+      return {
+        containerClass: 'opacity-100 ring-1 ring-indigo-500 bg-indigo-50 border-indigo-200 border-l-4 border-l-indigo-600 shadow-md z-10 transform scale-[1.01]',
+        label: <span className="text-[10px] font-bold text-indigo-700 bg-indigo-100 px-1.5 py-0.5 rounded ml-auto">Focus</span>
+      };
+    }
+    
+    if (relationships.parents.includes(tableName)) {
+      return {
+        containerClass: 'opacity-100 border-amber-300 bg-amber-50/50 border-l-4 border-l-amber-400 shadow-sm',
+        label: <span className="text-[10px] font-bold text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded ml-auto flex items-center gap-1"><ArrowUpRight className="w-3 h-3" /> Parent</span>
+      };
+    }
+    
+    if (relationships.children.includes(tableName)) {
+      return {
+        containerClass: 'opacity-100 border-emerald-300 bg-emerald-50/50 border-l-4 border-l-emerald-400 shadow-sm',
+        label: <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded ml-auto flex items-center gap-1"><ArrowDownLeft className="w-3 h-3" /> Child</span>
+      };
+    }
 
-  const getRelationshipLabel = (tableName: string) => {
-    if (hoveredFkTarget === tableName) return <span className="text-[10px] font-bold text-amber-600 bg-amber-100 px-1.5 py-0.5 rounded ml-auto">Target</span>;
-    if (tableName === hoveredTable) return <span className="text-[10px] font-bold text-indigo-600 bg-indigo-100 px-1.5 py-0.5 rounded ml-auto">Selected</span>;
-    if (relationships.parents.includes(tableName)) return <span className="text-[10px] font-bold text-amber-600 bg-amber-100 px-1.5 py-0.5 rounded ml-auto flex items-center gap-1"><ArrowUpRight className="w-3 h-3" /> Parent</span>;
-    if (relationships.children.includes(tableName)) return <span className="text-[10px] font-bold text-emerald-600 bg-emerald-100 px-1.5 py-0.5 rounded ml-auto flex items-center gap-1"><ArrowDownLeft className="w-3 h-3" /> Child</span>;
-    return null;
+    // Unrelated tables
+    return {
+      containerClass: 'opacity-40 grayscale-[0.5] scale-[0.98] border-slate-100',
+      label: null
+    };
   };
 
   const SortIcon = ({ field }: { field: SortField }) => {
@@ -214,7 +242,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({ schema, onRegenerateClick, 
       </div>
       
       {/* Content Area */}
-      <div className="flex-1 overflow-y-auto p-3 space-y-2" onMouseLeave={() => { setHoveredTable(null); setHoveredFkTarget(null); }}>
+      <div className="flex-1 overflow-y-auto p-3 space-y-2 relative" onMouseLeave={() => { setHoveredTable(null); setHoveredFkTarget(null); }}>
         {loading ? (
           // Skeleton Loader
           <div className="space-y-4 animate-pulse">
@@ -234,13 +262,12 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({ schema, onRegenerateClick, 
         ) : (
           filteredTables.map((table) => {
             const isExpanded = expandedTables.has(table.name);
-            const styleClass = getTableStyle(table.name);
-            const badge = getRelationshipLabel(table.name);
+            const { containerClass, label } = getTableVisuals(table.name);
 
             return (
               <div 
                 key={table.name} 
-                className={`border rounded-lg transition-all duration-200 ${styleClass} ${isExpanded ? 'bg-white' : 'bg-white hover:bg-slate-50'}`}
+                className={`border rounded-lg transition-all duration-200 ${containerClass} ${isExpanded ? 'bg-white' : 'bg-white hover:bg-slate-50'}`}
                 onMouseEnter={() => !hoveredFkTarget && setHoveredTable(table.name)}
               >
                 {/* Table Header */}
@@ -253,7 +280,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({ schema, onRegenerateClick, 
                   <div className="flex-1 min-w-0">
                      <div className="flex items-center gap-2">
                         <span className="font-medium text-sm text-slate-700 truncate">{table.name}</span>
-                        {badge}
+                        {label}
                      </div>
                      {table.description && (
                        <p className="text-[10px] text-slate-400 truncate">{table.description}</p>
@@ -305,7 +332,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({ schema, onRegenerateClick, 
                                     {col.name}
                                   </span>
                                   {col.isForeignKey && (
-                                    <span className="text-[9px] text-blue-400 flex items-center gap-0.5">
+                                    <span className="text-[9px] text-blue-400 flex items-center gap-0.5 group-hover:text-blue-600 transition-colors">
                                       <ArrowRight className="w-2 h-2" /> {col.references}
                                     </span>
                                   )}
@@ -324,11 +351,12 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({ schema, onRegenerateClick, 
         )}
       </div>
       
+      {/* Legend */}
       <div className="p-3 bg-slate-50 border-t border-slate-200 text-[10px] text-slate-500 shrink-0">
-        <p className="flex items-center gap-2">
-          <span className="w-2 h-2 rounded-full bg-indigo-500"></span> Selected
-          <span className="w-2 h-2 rounded-full bg-amber-400"></span> Parent
-          <span className="w-2 h-2 rounded-full bg-emerald-400"></span> Child
+        <p className="flex items-center gap-3">
+          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-indigo-500"></span> Selected</span>
+          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-400"></span> Parent</span>
+          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-400"></span> Child</span>
         </p>
       </div>
     </div>

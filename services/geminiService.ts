@@ -101,7 +101,12 @@ export const generateSqlFromBuilderState = async (
   
   // Richer schema description for generation including types and keys
   const schemaDescription = schema.tables.map(t => 
-    `TABLE: ${t.name}\nCOLUMNS: ${t.columns.map(c => `${c.name} (${c.type})`).join(', ')}`
+    `TABLE: ${t.name}\nCOLUMNS: ${t.columns.map(c => {
+      let colDesc = `${c.name} (${c.type})`;
+      if (c.isPrimaryKey) colDesc += ' [PK]';
+      if (c.isForeignKey && c.references) colDesc += ` [FK -> ${c.references}]`;
+      return colDesc;
+    }).join(', ')}`
   ).join('\n\n');
 
   const systemInstruction = `

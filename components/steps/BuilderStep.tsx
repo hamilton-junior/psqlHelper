@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { DatabaseSchema, BuilderState, ExplicitJoin, JoinType, Filter, Operator, OrderBy } from '../../types';
-import { Layers, ChevronRight, Settings2, RefreshCw, Search, X, CheckSquare, Square, Plus, Trash2, ArrowRightLeft, Filter as FilterIcon, ArrowDownAZ, List, Link2, Check } from 'lucide-react';
+import { Layers, ChevronRight, Settings2, RefreshCw, Search, X, CheckSquare, Square, Plus, Trash2, ArrowRightLeft, Filter as FilterIcon, ArrowDownAZ, List, Link2, Check, ChevronDown } from 'lucide-react';
 
 interface BuilderStepProps {
   schema: DatabaseSchema;
@@ -19,6 +19,9 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
   
   // State for column search within specific tables
   const [columnSearchTerms, setColumnSearchTerms] = useState<Record<string, string>>({});
+  
+  // State for collapsible tables
+  const [collapsedTables, setCollapsedTables] = useState<Set<string>>(new Set());
 
   // --- Helpers ---
   const getColumnsForTable = (tableName: string) => {
@@ -35,6 +38,16 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
       }
     });
     return cols;
+  };
+
+  const toggleTableCollapse = (tableName: string) => {
+    const newSet = new Set(collapsedTables);
+    if (newSet.has(tableName)) {
+      newSet.delete(tableName);
+    } else {
+      newSet.add(tableName);
+    }
+    setCollapsedTables(newSet);
   };
 
   // --- Table Selection Logic ---
@@ -304,7 +317,7 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
              
              {/* --- COLUMNS TAB --- */}
              {activeTab === 'columns' && (
-               <div className="space-y-6">
+               <div className="space-y-4">
                  {state.selectedTables.length === 0 ? (
                    <div className="flex flex-col items-center justify-center h-64 text-slate-400">
                      <Layers className="w-12 h-12 mb-2 opacity-20" />
@@ -320,78 +333,88 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
                         col.name.toLowerCase().includes(colSearch.toLowerCase())
                      );
                      
-                     // Calculate if fully selected based on FILTERED columns or ALL columns?
-                     // UX choice: All/None usually applies to filtered set in many tools, or the whole table.
-                     // Let's apply All/None to visible (filtered) columns for flexibility.
                      const visibleColNames = filteredColumns.map(c => c.name);
+                     const isCollapsed = collapsedTables.has(tableName);
                      
                      return (
                        <div key={tableName} className="bg-white rounded-lg border border-slate-200 overflow-hidden shadow-sm">
-                         {/* Card Header */}
-                         <div className="px-4 py-3 bg-slate-50 border-b border-slate-100 flex justify-between items-center">
+                         {/* Card Header (Clickable to Collapse) */}
+                         <div 
+                           className="px-4 py-3 bg-slate-50 border-b border-slate-100 flex justify-between items-center cursor-pointer hover:bg-slate-100 transition-colors"
+                           onClick={() => toggleTableCollapse(tableName)}
+                         >
                            <div className="flex items-center gap-2">
+                              {isCollapsed ? <ChevronRight className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
                               <h4 className="font-bold text-slate-700">{tableName}</h4>
                               <span className="text-xs text-slate-400 px-2 py-0.5 bg-white border border-slate-100 rounded-full">
                                 {state.selectedColumns.filter(c => c.startsWith(tableName)).length} selected
                               </span>
                            </div>
-                           <div className="flex gap-2">
-                              <button onClick={() => selectAllColumns(tableName, visibleColNames)} className="text-xs font-bold text-indigo-600 hover:bg-indigo-50 px-2 py-1 rounded">All</button>
-                              <button onClick={() => selectNoneColumns(tableName, visibleColNames)} className="text-xs font-bold text-slate-400 hover:bg-slate-100 px-2 py-1 rounded">None</button>
+                           <div className="flex gap-2" onClick={e => e.stopPropagation()}>
+                              <button onClick={() => selectAllColumns(tableName, visibleColNames)} className="text-xs font-bold text-indigo-600 hover:bg-indigo-50 px-2 py-1 rounded transition-colors">All</button>
+                              <button onClick={() => selectNoneColumns(tableName, visibleColNames)} className="text-xs font-bold text-slate-400 hover:bg-slate-100 px-2 py-1 rounded transition-colors">None</button>
                            </div>
                          </div>
 
-                         {/* Column Search Bar */}
-                         <div className="px-3 py-2 border-b border-slate-50 bg-white">
-                            <div className="relative">
-                               <Search className="absolute left-2.5 top-1.5 w-3.5 h-3.5 text-slate-300" />
-                               <input 
-                                  type="text" 
-                                  value={colSearch}
-                                  onChange={(e) => setColumnSearchTerms(prev => ({...prev, [tableName]: e.target.value}))}
-                                  placeholder={`Filter columns in ${tableName}...`}
-                                  className="w-full pl-8 pr-2 py-1 bg-slate-50 border border-slate-100 rounded text-xs focus:ring-1 focus:ring-indigo-500 outline-none transition-all placeholder-slate-400"
-                               />
-                               {colSearch && (
-                                  <button 
-                                    onClick={() => setColumnSearchTerms(prev => ({...prev, [tableName]: ''}))}
-                                    className="absolute right-2 top-1.5 text-slate-300 hover:text-slate-500"
-                                  >
-                                    <X className="w-3.5 h-3.5" />
-                                  </button>
-                               )}
-                            </div>
-                         </div>
+                         {!isCollapsed && (
+                           <>
+                             {/* Column Search Bar */}
+                             <div className="px-3 py-2 border-b border-slate-50 bg-white">
+                                <div className="relative">
+                                   <Search className="absolute left-2.5 top-1.5 w-3.5 h-3.5 text-slate-300" />
+                                   <input 
+                                      type="text" 
+                                      value={colSearch}
+                                      onChange={(e) => setColumnSearchTerms(prev => ({...prev, [tableName]: e.target.value}))}
+                                      placeholder={`Filter columns in ${tableName}...`}
+                                      className="w-full pl-8 pr-2 py-1 bg-slate-50 border border-slate-100 rounded text-xs focus:ring-1 focus:ring-indigo-500 outline-none transition-all placeholder-slate-400"
+                                   />
+                                   {colSearch && (
+                                      <button 
+                                        onClick={() => setColumnSearchTerms(prev => ({...prev, [tableName]: ''}))}
+                                        className="absolute right-2 top-1.5 text-slate-300 hover:text-slate-500"
+                                      >
+                                        <X className="w-3.5 h-3.5" />
+                                      </button>
+                                   )}
+                                </div>
+                             </div>
 
-                         {/* Columns Grid */}
-                         <div className="p-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-                           {filteredColumns.length === 0 ? (
-                              <div className="col-span-full text-center py-4 text-xs text-slate-400 italic">
-                                 No columns match "{colSearch}"
-                              </div>
-                           ) : (
-                              filteredColumns.map(col => {
-                                const isChecked = state.selectedColumns.includes(`${tableName}.${col.name}`);
-                                return (
-                                  <div 
-                                    key={col.name}
-                                    onClick={() => toggleColumn(tableName, col.name)}
-                                    className={`flex items-center p-2 rounded border cursor-pointer transition-all hover:shadow-sm ${
-                                      isChecked ? 'bg-indigo-50 border-indigo-400' : 'bg-white border-slate-100 hover:border-indigo-200'
-                                    }`}
-                                  >
-                                    <div className={`w-4 h-4 rounded border flex items-center justify-center mr-2 transition-colors ${isChecked ? 'bg-indigo-600 border-indigo-600' : 'border-slate-300 bg-white'}`}>
-                                       {isChecked && <div className="w-2 h-2 bg-white rounded-sm"></div>}
-                                    </div>
-                                    <div className="flex-1 min-w-0">
-                                       <div className="text-sm font-medium text-slate-700 truncate">{col.name}</div>
-                                       <div className="text-[10px] text-slate-400">{col.type}</div>
-                                    </div>
+                             {/* Columns Grid */}
+                             <div className="p-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                               {filteredColumns.length === 0 ? (
+                                  <div className="col-span-full text-center py-4 text-xs text-slate-400 italic">
+                                     No columns match "{colSearch}"
                                   </div>
-                                );
-                              })
-                           )}
-                         </div>
+                               ) : (
+                                  filteredColumns.map(col => {
+                                    const isChecked = state.selectedColumns.includes(`${tableName}.${col.name}`);
+                                    return (
+                                      <div 
+                                        key={col.name}
+                                        onClick={() => toggleColumn(tableName, col.name)}
+                                        className={`flex items-center p-2 rounded border cursor-pointer transition-all duration-200 ease-in-out ${
+                                          isChecked 
+                                            ? 'bg-indigo-50 border-indigo-500 ring-1 ring-indigo-500 shadow-sm scale-[1.01]' 
+                                            : 'bg-white border-slate-100 hover:border-indigo-200 hover:bg-slate-50 hover:scale-[1.01]'
+                                        }`}
+                                      >
+                                        <div className={`w-4 h-4 rounded border flex items-center justify-center mr-2 transition-all ${
+                                            isChecked ? 'bg-indigo-600 border-indigo-600 shadow-sm' : 'border-slate-300 bg-white'
+                                          }`}>
+                                           {isChecked && <div className="w-1.5 h-1.5 bg-white rounded-[1px]"></div>}
+                                        </div>
+                                        <div className="flex-1 min-w-0">
+                                           <div className={`text-sm font-medium truncate transition-colors ${isChecked ? 'text-indigo-900' : 'text-slate-700'}`}>{col.name}</div>
+                                           <div className="text-[10px] text-slate-400">{col.type}</div>
+                                        </div>
+                                      </div>
+                                    );
+                                  })
+                               )}
+                             </div>
+                           </>
+                         )}
                        </div>
                      );
                    })
