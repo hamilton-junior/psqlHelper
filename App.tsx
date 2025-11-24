@@ -19,15 +19,18 @@ function App() {
   });
   const [showSettings, setShowSettings] = useState(false);
 
-  // Apply Theme
+  // Global State for Quota Limits
+  const [quotaExhausted, setQuotaExhausted] = useState(false);
+
+  // Apply Theme - STRICT MODE for Tailwind
   useEffect(() => {
+    const root = window.document.documentElement;
+    root.classList.remove('dark'); // Clean slate first
     if (settings.theme === 'dark') {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
+      root.classList.add('dark');
     }
     localStorage.setItem('psql-buddy-settings', JSON.stringify(settings));
-  }, [settings]);
+  }, [settings.theme]); // Depend strictly on the theme string value
 
   // Navigation State
   const [currentStep, setCurrentStep] = useState<AppStep>('connection');
@@ -83,13 +86,16 @@ function App() {
     setError(null);
     setIsProcessing(true);
     
+    // NOTE: Removed quota blocker here to allow generation attempt even if previous validation failed.
+    // If generation itself fails due to quota, it will be caught in the catch block.
+
     try {
       // 1. Generate SQL from visual state
       const result = await generateSqlFromBuilderState(schema, builderState, settings.enableAiTips);
 
       // Check for NO_RELATIONSHIP signal
       if (result.sql === 'NO_RELATIONSHIP') {
-        setError("AI could not find a relationship between these tables. Please go to the 'Joins' tab and define the connection manually.");
+        setError("A IA não encontrou relacionamento entre estas tabelas. Vá para a aba 'Joins' e defina a conexão manualmente.");
         setIsProcessing(false);
         return;
       }
@@ -99,8 +105,8 @@ function App() {
       setCurrentStep('preview');
       setIsProcessing(false);
 
-      // 3. Run Validation in Background (if enabled)
-      if (settings.enableAiValidation) {
+      // 3. Run Validation in Background (if enabled and quota ok)
+      if (settings.enableAiValidation && !quotaExhausted) {
         setIsValidating(true);
         // PASS THE SCHEMA HERE so validation can check column existence
         validateSqlQuery(result.sql, schema)
@@ -108,7 +114,12 @@ function App() {
             setQueryResult(prev => prev ? { ...prev, validation } : null);
           })
           .catch(err => {
-            console.error("Background validation failed:", err);
+             console.error("Validação em segundo plano falhou:", err);
+             // If validation fails due to quota, just silently fail validation but don't break flow
+             if (err.message === "QUOTA_ERROR") {
+                setQuotaExhausted(true);
+                // Don't show global error, just disable validation silently in background
+             }
           })
           .finally(() => {
             setIsValidating(false);
@@ -117,7 +128,12 @@ function App() {
 
     } catch (e: any) {
       console.error(e);
-      setError(e.message || "Failed to generate SQL from your selection.");
+      if (e.message === "QUOTA_ERROR") {
+        setQuotaExhausted(true);
+        setError("Você atingiu o limite gratuito da IA. Aguarde um momento.");
+      } else {
+        setError(e.message || "Falha ao gerar SQL a partir da seleção.");
+      }
       setIsProcessing(false);
     }
   };
@@ -133,7 +149,7 @@ function App() {
       setCurrentStep('results');
     } catch (e: any) {
       console.error(e);
-      setError("Execution failed: " + e.message);
+      setError("Falha na execução: " + e.message);
     } finally {
       setIsProcessing(false);
     }
@@ -220,6 +236,7 @@ function App() {
               onBack={() => handleNavigate('builder')}
               isExecuting={isProcessing}
               isValidating={isValidating}
+              validationDisabled={!settings.enableAiValidation || quotaExhausted}
             />
           )}
 
@@ -240,6 +257,7 @@ function App() {
           settings={settings}
           onClose={() => setShowSettings(false)}
           onSave={(newSettings) => setSettings(newSettings)}
+          quotaExhausted={quotaExhausted}
         />
       )}
     </div>

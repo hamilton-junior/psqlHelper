@@ -78,6 +78,14 @@ export interface BuilderState {
   limit: number;
 }
 
+export interface SavedQuery {
+  id: string;
+  name: string;
+  createdAt: number;
+  schemaName: string; // To ensure we only load queries for the correct DB
+  state: BuilderState;
+}
+
 export interface AppSettings {
   theme: 'light' | 'dark';
   defaultDbHost: string;

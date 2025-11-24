@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { ChatMessage, MessageRole } from '../types';
-import { Send, Play, AlertCircle, Loader2, Sparkles, CheckCircle2, XCircle, ShieldAlert, ShieldCheck } from 'lucide-react';
+import { Send, Play, AlertCircle, Loader2, Sparkles, CheckCircle2, XCircle, ShieldAlert, ShieldCheck, Activity } from 'lucide-react';
 
 interface QueryBuilderProps {
   messages: ChatMessage[];
@@ -28,6 +28,9 @@ const QueryBuilder: React.FC<QueryBuilderProps> = ({ messages, onSendMessage, lo
     }
   };
 
+  // Status unificado
+  const isBusy = loading || validating;
+  
   return (
     <div className="flex flex-col h-full bg-slate-50">
       <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6" ref={scrollRef}>
@@ -173,29 +176,30 @@ const QueryBuilder: React.FC<QueryBuilderProps> = ({ messages, onSendMessage, lo
             )}
           </div>
         ))}
-
-        {/* Loading States */}
-        {loading && (
-          <div className="flex items-center gap-3 text-slate-500 animate-pulse ml-2 mt-4">
-            <div className="p-2 bg-indigo-50 rounded-full">
-               <Loader2 className="w-4 h-4 animate-spin text-indigo-600" />
-            </div>
-            <span className="text-xs font-medium uppercase tracking-wider">Generating SQL...</span>
-          </div>
-        )}
-        
-        {!loading && validating && (
-           <div className="flex items-center gap-3 text-emerald-600 animate-pulse ml-2 mt-4">
-             <div className="p-2 bg-emerald-50 rounded-full">
-               <ShieldCheck className="w-4 h-4 animate-pulse text-emerald-600" />
-             </div>
-             <span className="text-xs font-medium uppercase tracking-wider">Validating Syntax...</span>
-           </div>
-        )}
-
       </div>
 
-      <div className="p-4 bg-white border-t border-slate-200 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] z-10">
+      <div className="p-4 bg-white border-t border-slate-200 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] z-10 space-y-3">
+        {/* Dynamic Unified Status Indicator */}
+        {isBusy && (
+          <div className="flex justify-center -mt-8 mb-2 pointer-events-none">
+            <div className={`
+              flex items-center gap-2 px-4 py-1.5 rounded-full shadow-md text-xs font-bold border backdrop-blur-sm transition-all duration-300
+              ${loading 
+                ? 'bg-indigo-600/90 text-white border-indigo-500' 
+                : 'bg-emerald-500/90 text-white border-emerald-400'}
+            `}>
+              {loading ? (
+                 <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                 <ShieldCheck className="w-3.5 h-3.5 animate-pulse" />
+              )}
+              <span>
+                {loading ? "Gerando SQL com IA..." : "Validando Sintaxe & Segurança..."}
+              </span>
+            </div>
+          </div>
+        )}
+
         <form onSubmit={handleSubmit} className="max-w-4xl mx-auto relative flex items-center">
           <div className="absolute left-4 text-slate-400">
             <Play className="w-4 h-4 fill-current" />
@@ -206,11 +210,11 @@ const QueryBuilder: React.FC<QueryBuilderProps> = ({ messages, onSendMessage, lo
             onChange={(e) => setInput(e.target.value)}
             placeholder="Ask a question about your data (e.g., 'Count users by country')"
             className="w-full pl-10 pr-12 py-3.5 bg-slate-100 border border-transparent rounded-xl text-slate-800 placeholder-slate-400 focus:ring-2 focus:ring-indigo-500 focus:bg-white focus:border-indigo-200 transition-all shadow-inner"
-            disabled={loading || validating}
+            disabled={isBusy}
           />
           <button
             type="submit"
-            disabled={!input.trim() || loading || validating}
+            disabled={!input.trim() || isBusy}
             className="absolute right-2 p-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm"
           >
             <Send className="w-4 h-4" />

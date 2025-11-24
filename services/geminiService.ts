@@ -29,39 +29,39 @@ export const validateSqlQuery = async (sql: string, schema?: DatabaseSchema): Pr
   let schemaContext = "";
   if (schema) {
     schemaContext = `
-    REFERENCE SCHEMA (JSON Format):
+    SCHEMA DE REFERÊNCIA (Formato JSON):
     ${formatSchemaForPrompt(schema)}
 
-    VALIDATION RULES:
-    1. **STRICT COLUMN CHECK**: You must verify that EVERY column name used in the SQL (SELECT list, WHERE clause, JOIN ON clause, ORDER BY) exists EXACTLY in the Reference Schema above for the corresponding table.
-    2. **NO GUESSING**: Do NOT assume a column exists just because it makes sense. If table 'lancto' only has ['id', 'date'], and the query uses 'lancto.movto', it is INVALID.
-    3. **JOIN VALIDATION**: Check the ON clause carefully. Does the column on the right side of the equals sign actually belong to that table?
-    4. **KEYWORD INTEGRITY**: Check for reserved keywords appearing inside identifiers. Example: "c ON ta_creditar" is a SYNTAX ERROR if the intended column was "conta_creditar". Keywords like ON, FROM, WHERE should not split words.
-    5. **GROUP BY RULES**: If an aggregate function (COUNT, SUM, AVG) is used, ensure all non-aggregated columns in SELECT are present in the GROUP BY clause.
+    REGRAS DE VALIDAÇÃO:
+    1. **VERIFICAÇÃO RIGOROSA DE COLUNAS**: Você deve verificar se TODA coluna usada no SQL (SELECT list, WHERE clause, JOIN ON clause, ORDER BY) existe EXATAMENTE no Schema de Referência acima para a tabela correspondente.
+    2. **SEM ADIVINHAÇÃO**: NÃO assuma que uma coluna existe só porque faz sentido. Se a tabela 'lancto' tem apenas ['id', 'data'], e a query usa 'lancto.movto', é INVÁLIDO.
+    3. **VALIDAÇÃO DE JOIN**: Verifique a cláusula ON cuidadosamente. A coluna do lado direito do igual pertence realmente àquela tabela?
+    4. **INTEGRIDADE DE PALAVRAS-CHAVE**: Verifique se há palavras reservadas aparecendo dentro de identificadores. Exemplo: "c ON ta_creditar" é um ERRO DE SINTAXE se a coluna pretendida era "conta_creditar". Palavras como ON, FROM, WHERE não devem dividir palavras.
+    5. **REGRAS DE GROUP BY**: Se uma função de agregação (COUNT, SUM, AVG) for usada, assegure-se de que todas as colunas não agregadas no SELECT estejam presentes na cláusula GROUP BY.
     `;
   }
 
   const prompt = `
-    Act as a Senior PostgreSQL DBA and Educator.
+    Atue como um DBA PostgreSQL Sênior e Educador.
     
     ${schemaContext}
 
-    SQL Query to Validate: 
+    Consulta SQL para Validar: 
     "${sql}"
 
-    Task:
-    1. Parse the SQL to identify all tables and columns referenced.
-    2. Compare them against the REFERENCE SCHEMA.
-    3. Identify if any column used does not exist in the schema.
-    4. Check for syntax errors, especially broken words/identifiers or missing keywords.
-    5. Check for PostgreSQL specific logic errors (e.g. GROUP BY requirements).
+    Tarefa:
+    1. Analise o SQL para identificar todas as tabelas e colunas referenciadas.
+    2. Compare-as com o SCHEMA DE REFERÊNCIA.
+    3. Identifique se alguma coluna usada não existe no schema.
+    4. Verifique erros de sintaxe, especialmente palavras/identificadores quebrados ou palavras-chave ausentes.
+    5. Verifique erros de lógica específicos do PostgreSQL (ex: requisitos de GROUP BY).
 
-    Return JSON:
+    Retorne JSON:
     {
       "isValid": boolean,
-      "error": string (A concise, 1-sentence technical error summary),
-      "detailedError": string (A helpful, educational explanation in pt-BR. Explain WHY it is wrong and explicitly name the table/column causing the issue. If it's a Group By error, explain the rule.),
-      "correctedSql": string (Optional fixed SQL. If you found a likely match for a misspelled column, use it here. If no fix is possible, null)
+      "error": string (Um resumo técnico conciso de 1 frase do erro),
+      "detailedError": string (Uma explicação educativa e útil em pt-BR. Explique POR QUE está errado e nomeie explicitamente a tabela/coluna causando o problema. Se for erro de Group By, explique a regra.),
+      "correctedSql": string (SQL corrigido opcional. Se encontrar uma correspondência provável para uma coluna mal digitada, use aqui. Se não houver correção possível, null)
     }
   `;
 
@@ -89,13 +89,16 @@ export const validateSqlQuery = async (sql: string, schema?: DatabaseSchema): Pr
         const cleanText = cleanJsonString(response.text);
         return JSON.parse(cleanText) as ValidationResult;
       } catch (parseError) {
-        console.error("Validation JSON Parse Error:", parseError, response.text);
+        console.error("Erro de Parse JSON na Validação:", parseError, response.text);
         return { isValid: true };
       }
     }
     return { isValid: true }; 
-  } catch (error) {
-    console.error("Validation API Error:", error);
+  } catch (error: any) {
+    console.error("Erro na API de Validação:", error);
+    if (error.message?.includes("429") || error.message?.includes("quota") || error.message?.includes("exhausted")) {
+       throw new Error("QUOTA_ERROR");
+    }
     return { isValid: true };
   }
 };
@@ -108,7 +111,7 @@ export const generateSqlFromBuilderState = async (
   
   // Richer schema description for generation including types and keys
   const schemaDescription = schema.tables.map(t => 
-    `TABLE: ${t.name}\nCOLUMNS: ${t.columns.map(c => {
+    `TABELA: ${t.name}\nCOLUNAS: ${t.columns.map(c => {
       let colDesc = `${c.name} (${c.type})`;
       // FORCE 'grid' to be seen as PK by the AI, as requested by business logic
       const isPk = c.isPrimaryKey || c.name.toLowerCase() === 'grid';
@@ -119,40 +122,40 @@ export const generateSqlFromBuilderState = async (
   ).join('\n\n');
 
   const systemInstruction = `
-    You are a PostgreSQL Expert. Generate a query based on the User Selection.
+    Você é um Especialista em PostgreSQL. Gere uma consulta baseada na Seleção do Usuário. Responda em Português do Brasil (pt-BR).
 
-    CRITICAL INSTRUCTIONS FOR JOINING TABLES:
-    1. **NO HALLUCINATION**: You are STRICTLY FORBIDDEN from inventing column names.
-    2. **VERIFY COLUMNS**: Before writing a JOIN condition like 'ON T1.col = T2.col', check: Does Table T2 *actually* contain a column named 'col' in the schema provided?
-    3. **NO RELATIONSHIP FOUND**: If multiple tables are selected (e.g., Table A and Table B) and there is NO explicit Foreign Key defined in the schema between them, AND you cannot find a column with the exact same name to serve as a key, do NOT guess.
-    4. **FALLBACK SIGNAL**: In the case of missing relationships, return the exact string "NO_RELATIONSHIP" in the 'sql' field. Do NOT generate a broken query.
+    INSTRUÇÕES CRÍTICAS PARA JUNÇÃO DE TABELAS (JOINS):
+    1. **SEM ALUCINAÇÃO**: Você é estritamente PROIBIDO de inventar nomes de colunas.
+    2. **VERIFICAR COLUNAS**: Antes de escrever uma condição de JOIN como 'ON T1.col = T2.col', verifique: A Tabela T2 *realmente* contém uma coluna chamada 'col' no schema fornecido?
+    3. **NENHUM RELACIONAMENTO ENCONTRADO**: Se múltiplas tabelas forem selecionadas (ex: Tabela A e Tabela B) e NÃO houver chave estrangeira explícita definida no schema entre elas, E você não conseguir encontrar uma coluna com exatamente o mesmo nome para servir de chave, NÃO adivinhe.
+    4. **SINAL DE FALLBACK**: No caso de relacionamentos ausentes, retorne a string exata "NO_RELATIONSHIP" no campo 'sql'. NÃO gere uma consulta quebrada.
     
-    CRITICAL INSTRUCTIONS FOR ORDERING:
-    5. **ORDER BY**: If the user provides 'OrderBy' instructions, you MUST append an 'ORDER BY' clause. Do not ignore it.
+    INSTRUÇÕES CRÍTICAS PARA ORDENAÇÃO:
+    5. **ORDER BY**: Se o usuário fornecer instruções de 'OrderBy', você DEVE anexar uma cláusula 'ORDER BY'. Não ignore.
 
-    Formatting:
-    - Use strict spacing (e.g., 'SELECT * FROM' not 'SELECT*FROM').
-    - Alias tables as t1, t2, etc., for brevity, but map them correctly.
+    Formatação:
+    - Use espaçamento estrito (ex: 'SELECT * FROM' não 'SELECT*FROM').
+    - Use alias para tabelas como t1, t2, etc., para brevidade, mas mapeie corretamente.
   `;
 
   const prompt = `
-    DATABASE SCHEMA (Use ONLY these columns):
+    SCHEMA DO BANCO DE DADOS (Use APENAS estas colunas):
     ${schemaDescription}
 
-    USER REQUEST:
-    - Tables: ${state.selectedTables.join(', ')}
-    - Columns: ${state.selectedColumns.join(', ')}
-    - Explicit Joins: ${JSON.stringify(state.joins)}
-    - Filters: ${JSON.stringify(state.filters)}
-    - GroupBy: ${state.groupBy.join(', ')}
-    - OrderBy: ${JSON.stringify(state.orderBy)}
-    - Limit: ${state.limit}
+    SOLICITAÇÃO DO USUÁRIO:
+    - Tabelas: ${state.selectedTables.join(', ')}
+    - Colunas: ${state.selectedColumns.join(', ')}
+    - Joins Explícitos: ${JSON.stringify(state.joins)}
+    - Filtros: ${JSON.stringify(state.filters)}
+    - Agrupamento (GroupBy): ${state.groupBy.join(', ')}
+    - Ordenação (OrderBy): ${JSON.stringify(state.orderBy)}
+    - Limite: ${state.limit}
 
-    Generate valid JSON:
+    Gere um JSON válido:
     {
-      "sql": "string", (OR "NO_RELATIONSHIP" if no valid join found)
-      "explanation": "string (pt-BR)",
-      "tips": ["string"] (Only if requested)
+      "sql": "string", (OU "NO_RELATIONSHIP" se nenhum join válido for encontrado)
+      "explanation": "string (pt-BR - Explique a lógica da query de forma didática)",
+      "tips": ["string"] (Apenas se solicitado, dicas de otimização em pt-BR)
     }
   `;
   
@@ -188,8 +191,8 @@ export const generateSqlFromBuilderState = async (
         const cleanText = cleanJsonString(response.text);
         result = JSON.parse(cleanText) as QueryResult;
       } catch (parseError) {
-        console.error("Builder JSON Parse Error:", parseError, response.text);
-        throw new Error("Invalid AI response.");
+        console.error("Erro de Parse JSON no Builder:", parseError, response.text);
+        throw new Error("Resposta inválida da IA.");
       }
       
       // Check for the specific no-relationship signal
@@ -210,19 +213,98 @@ export const generateSqlFromBuilderState = async (
 
       return result;
     }
-    throw new Error("No response from AI");
+    throw new Error("Sem resposta da IA");
   } catch (error: any) {
-    console.error("Builder Gen Error:", error);
-    throw new Error(error.message || "Failed to build SQL.");
+    console.error("Erro na Geração do Builder:", error);
+    // Add logic to check for quota exhaustion
+    if (error.message?.includes("429") || error.message?.includes("quota") || error.message?.includes("exhausted")) {
+       throw new Error("QUOTA_ERROR");
+    }
+    throw new Error(error.message || "Falha ao construir SQL.");
   }
 };
 
 export const generateSchemaFromTopic = async (topic: string, context: string): Promise<DatabaseSchema> => {
-  throw new Error("Simulation mode deprecated. Please connect to a real DB.");
+  const prompt = `
+    Gere um Schema de Banco de Dados PostgreSQL realista para um sistema sobre: "${topic}".
+    Contexto adicional: ${context}
+    
+    O schema deve ser complexo o suficiente para ser interessante (mínimo 3 tabelas, máximo 6).
+    Inclua chaves primárias (PK) e estrangeiras (FK) adequadas.
+    
+    Retorne JSON estritamente com esta estrutura:
+    {
+      "name": "string",
+      "tables": [
+        {
+          "name": "string",
+          "description": "string",
+          "columns": [
+             { "name": "string", "type": "string (ex: SERIAL, VARCHAR(50), INTEGER)", "isPrimaryKey": boolean, "isForeignKey": boolean, "references": "string (opcional, ex: users.id)" }
+          ]
+        }
+      ]
+    }
+  `;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: prompt,
+      config: { 
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            name: { type: Type.STRING },
+            tables: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  name: { type: Type.STRING },
+                  description: { type: Type.STRING },
+                  columns: {
+                    type: Type.ARRAY,
+                    items: {
+                      type: Type.OBJECT,
+                      properties: {
+                        name: { type: Type.STRING },
+                        type: { type: Type.STRING },
+                        isPrimaryKey: { type: Type.BOOLEAN },
+                        isForeignKey: { type: Type.BOOLEAN },
+                        references: { type: Type.STRING }
+                      },
+                      required: ["name", "type"]
+                    }
+                  }
+                },
+                required: ["name", "columns"]
+              }
+            }
+          },
+          required: ["name", "tables"]
+        }
+      }
+    });
+
+    if (response.text) {
+      const parsed = JSON.parse(cleanJsonString(response.text)) as DatabaseSchema;
+      parsed.connectionSource = 'simulated';
+      return parsed;
+    }
+    throw new Error("Resposta da IA vazia na simulação.");
+  } catch (error: any) {
+    console.error(error);
+    if (error.message?.includes("429") || error.message?.includes("quota") || error.message?.includes("exhausted")) {
+       throw new Error("QUOTA_ERROR");
+    }
+    throw new Error("Falha ao gerar simulação.");
+  }
 };
 
 export const parseSchemaFromDDL = async (ddl: string): Promise<DatabaseSchema> => {
-  const prompt = `Parse SQL DDL to JSON: ${ddl}`;
+  const prompt = `Faça o parse deste SQL DDL para JSON: ${ddl}`;
   const schemaStructure: Schema = {
     type: Type.OBJECT,
     properties: {
@@ -268,8 +350,11 @@ export const parseSchemaFromDDL = async (ddl: string): Promise<DatabaseSchema> =
       parsed.connectionSource = 'ddl';
       return parsed;
     }
-    throw new Error("Empty AI response");
-  } catch (error) {
-    throw new Error("Failed to parse DDL.");
+    throw new Error("Resposta da IA vazia");
+  } catch (error: any) {
+    if (error.message?.includes("429") || error.message?.includes("quota") || error.message?.includes("exhausted")) {
+       throw new Error("QUOTA_ERROR");
+    }
+    throw new Error("Falha ao analisar DDL.");
   }
 };

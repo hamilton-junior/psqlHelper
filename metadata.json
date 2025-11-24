@@ -1,5 +1,5 @@
 {
   "name": "PSQL Buddy",
-  "description": "An AI-powered PostgreSQL query builder designed for beginners. Translate natural language into complex SQL queries, visualize database schemas, and preview mock results instantly.",
+  "description": "Um construtor de consultas PostgreSQL com IA projetado para iniciantes. Traduza linguagem natural em SQL complexo, visualize esquemas de banco de dados e visualize resultados instantaneamente.",
   "requestFramePermissions": []
 }
