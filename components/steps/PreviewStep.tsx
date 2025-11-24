@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { QueryResult } from '../../types';
-import { Terminal, Play, ArrowLeft, CheckCircle2, ShieldAlert, Info, Copy, Check, Loader2 } from 'lucide-react';
+import { Terminal, Play, ArrowLeft, CheckCircle2, ShieldAlert, Info, Copy, Check, Loader2, Lightbulb } from 'lucide-react';
 
 interface PreviewStepProps {
   queryResult: QueryResult;
@@ -17,6 +17,7 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ queryResult, onExecute, onBac
   // If validation is undefined yet, assume valid until proven otherwise, but show loader
   const isValid = queryResult.validation?.isValid ?? true;
   const validationError = queryResult.validation?.error;
+  const detailedError = queryResult.validation?.detailedError;
   const correctedSql = queryResult.validation?.correctedSql;
 
   const handleCopy = () => {
@@ -31,9 +32,9 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ queryResult, onExecute, onBac
         <div>
           <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
             <Terminal className="w-6 h-6 text-indigo-600" />
-            Visualização da Query
+            Query Preview
           </h2>
-          <p className="text-slate-500 mt-1">Revisão da query SQL antes da execução</p>
+          <p className="text-slate-500 mt-1">Review generated SQL before execution</p>
         </div>
       </div>
 
@@ -42,13 +43,13 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ queryResult, onExecute, onBac
         {/* 1. SQL Code Block (Shown First) */}
         <div className="rounded-xl overflow-hidden border border-slate-200 shadow-sm bg-slate-900">
            <div className="px-4 py-2 bg-slate-800 border-b border-slate-700 flex justify-between items-center">
-             <span className="text-xs font-mono text-slate-400 uppercase tracking-wider">SQL Gerado:</span>
+             <span className="text-xs font-mono text-slate-400 uppercase tracking-wider">Generated SQL</span>
              <button 
                onClick={handleCopy}
                className="text-slate-400 hover:text-white transition-colors flex items-center gap-1 text-xs"
              >
                {copied ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
-               {copied ? 'Copiado!' : 'Copiar'}
+               {copied ? 'Copied!' : 'Copy'}
              </button>
            </div>
            <div className="p-6 overflow-x-auto">
@@ -80,13 +81,31 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ queryResult, onExecute, onBac
             </h4>
             
             {/* 3. Error Justification (Shown immediately if invalid) */}
-            {!isValidating && !isValid && validationError && (
-              <div className="mt-2 pt-2 border-t border-red-100/50">
-                <p className="text-xs text-red-700 font-medium">{validationError}</p>
+            {!isValidating && !isValid && (validationError || detailedError) && (
+              <div className="mt-3 pt-3 border-t border-red-100/50 space-y-3">
+                {/* Short Technical Error */}
+                {validationError && (
+                  <p className="text-xs font-mono bg-red-100/50 text-red-900 p-2 rounded border border-red-100">
+                    {validationError}
+                  </p>
+                )}
+
+                {/* Detailed Education */}
+                {detailedError && (
+                  <div className="text-xs text-slate-700 flex gap-2">
+                    <Info className="w-4 h-4 text-indigo-500 shrink-0" />
+                    <span className="leading-relaxed">{detailedError}</span>
+                  </div>
+                )}
+
+                {/* Suggested Fix */}
                 {correctedSql && (
-                   <div className="mt-2 p-2 bg-white/60 rounded border border-red-100 text-xs">
-                     <span className="font-bold text-red-800 block mb-1">Suggested Correction:</span>
-                     <code className="font-mono text-red-600 break-all">{correctedSql}</code>
+                   <div className="p-3 bg-white/60 rounded border border-indigo-100 text-xs shadow-sm">
+                     <div className="flex items-center gap-1.5 mb-1.5 text-indigo-600">
+                        <Lightbulb className="w-3.5 h-3.5" />
+                        <span className="font-bold uppercase tracking-wide">Suggested Fix</span>
+                     </div>
+                     <code className="block font-mono text-slate-700 break-all bg-indigo-50 p-2 rounded">{correctedSql}</code>
                    </div>
                 )}
               </div>

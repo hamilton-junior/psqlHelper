@@ -1,7 +1,7 @@
 
-import React, { useState, useMemo } from 'react';
-import { DatabaseSchema, BuilderState, ExplicitJoin, JoinType, Filter, Operator, OrderBy } from '../../types';
-import { Layers, ChevronRight, Settings2, RefreshCw, Search, X, CheckSquare, Square, Plus, Trash2, ArrowRightLeft, Filter as FilterIcon, ArrowDownAZ, List, Link2, Check, ChevronDown } from 'lucide-react';
+import React, { useState, useMemo, useEffect } from 'react';
+import { DatabaseSchema, BuilderState, ExplicitJoin, JoinType, Filter, Operator, OrderBy, AppSettings } from '../../types';
+import { Layers, ChevronRight, Settings2, RefreshCw, Search, X, CheckSquare, Square, Plus, Trash2, ArrowRightLeft, Filter as FilterIcon, ArrowDownAZ, List, Link2, Check, ChevronDown, Pin, XCircle } from 'lucide-react';
 
 interface BuilderStepProps {
   schema: DatabaseSchema;
@@ -9,11 +9,12 @@ interface BuilderStepProps {
   onStateChange: (state: BuilderState) => void;
   onGenerate: () => void;
   isGenerating: boolean;
+  settings: AppSettings;
 }
 
 type TabType = 'columns' | 'joins' | 'filters' | 'sortgroup';
 
-const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange, onGenerate, isGenerating }) => {
+const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange, onGenerate, isGenerating, settings }) => {
   const [activeTab, setActiveTab] = useState<TabType>('columns');
   const [searchTerm, setSearchTerm] = useState('');
   
@@ -22,6 +23,13 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
   
   // State for collapsible tables
   const [collapsedTables, setCollapsedTables] = useState<Set<string>>(new Set());
+
+  // Initialize defaults from settings if state is fresh
+  useEffect(() => {
+    if (state.limit === 100 && state.limit !== settings.defaultLimit) {
+      onStateChange({ ...state, limit: settings.defaultLimit });
+    }
+  }, [settings.defaultLimit]);
 
   // --- Helpers ---
   const getColumnsForTable = (tableName: string) => {
@@ -50,6 +58,37 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
     setCollapsedTables(newSet);
   };
 
+  // --- Advanced Search Logic ---
+  const matchColumnName = (colName: string, searchInput: string): boolean => {
+    if (!searchInput.trim()) return true;
+
+    // 1. Split by " OR " (case insensitive)
+    const orGroups = searchInput.split(/\s+OR\s+/i);
+
+    return orGroups.some(group => {
+      // 2. Split by Space (Implicit AND)
+      const andTerms = group.trim().split(/\s+/);
+
+      return andTerms.every(term => {
+        // 3. Convert Wildcards (*, ?) to Regex
+        // Escape special regex chars except * and ?
+        const escaped = term.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+        
+        // * matches anything (.*)
+        // ? matches single char (.)
+        const regexPattern = escaped.replace(/\*/g, '.*').replace(/\?/g, '.');
+        
+        try {
+          const regex = new RegExp(regexPattern, 'i');
+          return regex.test(colName);
+        } catch (e) {
+          // Fallback to simple includes if regex fails
+          return colName.toLowerCase().includes(term.toLowerCase());
+        }
+      });
+    });
+  };
+
   // --- Table Selection Logic ---
   const toggleTable = (tableName: string) => {
     const isSelected = state.selectedTables.includes(tableName);
@@ -71,6 +110,10 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
       newTables = [...state.selectedTables, tableName];
       onStateChange({ ...state, selectedTables: newTables });
     }
+  };
+
+  const clearAllTables = () => {
+     onStateChange({ ...state, selectedTables: [], selectedColumns: [], joins: [], filters: [] });
   };
 
   // --- Column Selection Logic ---
@@ -174,43 +217,64 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
   // --- Render Helpers ---
   
   // Advanced Search Sorting
-  const sortedTables = useMemo(() => {
+  const { pinnedTables, unpinnedTables } = useMemo(() => {
     const term = searchTerm.toLowerCase().trim();
-    if (!term) return schema.tables;
+    
+    let allMatches = schema.tables;
 
-    // Filter first
-    const matches = schema.tables.filter(table => 
-      table.name.toLowerCase().includes(term) || 
-      (table.description && table.description.toLowerCase().includes(term))
-    );
+    // Filter logic
+    if (term) {
+       allMatches = schema.tables.filter(table => 
+        table.name.toLowerCase().includes(term) || 
+        (table.description && table.description.toLowerCase().includes(term))
+      );
+    }
 
-    // Sort based on relevance
-    return matches.sort((a, b) => {
+    // Split into pinned and unpinned
+    const pinned: typeof schema.tables = [];
+    const unpinned: typeof schema.tables = [];
+
+    allMatches.forEach(table => {
+      if (state.selectedTables.includes(table.name)) {
+        pinned.push(table);
+      } else {
+        unpinned.push(table);
+      }
+    });
+
+    // Sort function
+    const sorter = (a: typeof schema.tables[0], b: typeof schema.tables[0]) => {
       const nameA = a.name.toLowerCase();
       const nameB = b.name.toLowerCase();
 
-      // 1. Exact match gets top priority
-      if (nameA === term && nameB !== term) return -1;
-      if (nameB === term && nameA !== term) return 1;
-
-      // 2. Starts with gets second priority
-      const startsA = nameA.startsWith(term);
-      const startsB = nameB.startsWith(term);
-      if (startsA && !startsB) return -1;
-      if (!startsA && startsB) return 1;
-
-      // 3. Fallback to alphabetical
+      if (term) {
+        // 1. Exact match
+        if (nameA === term && nameB !== term) return -1;
+        if (nameB === term && nameA !== term) return 1;
+        // 2. Starts with
+        const startsA = nameA.startsWith(term);
+        const startsB = nameB.startsWith(term);
+        if (startsA && !startsB) return -1;
+        if (!startsA && startsB) return 1;
+      }
+      // 3. Alphabetical
       return nameA.localeCompare(nameB);
-    });
-  }, [schema.tables, searchTerm]);
+    };
+
+    return {
+      pinnedTables: pinned.sort(sorter),
+      unpinnedTables: unpinned.sort(sorter)
+    };
+
+  }, [schema.tables, searchTerm, state.selectedTables]);
 
   const renderTabButton = (id: TabType, label: string, icon: React.ReactNode) => (
     <button
       onClick={() => setActiveTab(id)}
       className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
         activeTab === id 
-          ? 'border-indigo-600 text-indigo-600 bg-indigo-50/50' 
-          : 'border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-50'
+          ? 'border-indigo-600 text-indigo-600 bg-indigo-50/50 dark:bg-indigo-900/20' 
+          : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800'
       }`}
     >
       {icon}
@@ -218,16 +282,53 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
     </button>
   );
 
+  const renderTableListItem = (table: typeof schema.tables[0], isPinned: boolean) => (
+    <div 
+      key={table.name}
+      onClick={() => toggleTable(table.name)}
+      className={`p-2.5 rounded-lg cursor-pointer transition-all border relative group flex items-start justify-between gap-2 ${
+        isPinned
+          ? 'bg-indigo-50 dark:bg-indigo-900/20 border-indigo-400 shadow-sm' 
+          : 'hover:bg-slate-50 dark:hover:bg-slate-800 border-transparent hover:border-slate-200 dark:hover:border-slate-700'
+      }`}
+    >
+      <div className="min-w-0">
+        <span className={`font-bold text-sm block truncate ${isPinned ? 'text-indigo-700 dark:text-indigo-300' : 'text-slate-700 dark:text-slate-300'}`}>
+            {table.name}
+        </span>
+        {table.description && (
+          <p className="text-[10px] text-slate-400 line-clamp-1 mt-0.5">
+            {table.description}
+          </p>
+        )}
+      </div>
+      
+      {isPinned ? (
+        <button 
+          onClick={(e) => { e.stopPropagation(); toggleTable(table.name); }}
+          className="mt-0.5 text-indigo-600 dark:text-indigo-400 bg-white dark:bg-slate-700 rounded-full p-0.5 shadow-sm hover:text-red-500 hover:bg-red-50"
+          title="Unselect Table"
+        >
+          <X className="w-3 h-3" strokeWidth={3} />
+        </button>
+      ) : (
+        <div className="mt-0.5 opacity-0 group-hover:opacity-50 text-slate-400">
+           <Plus className="w-3 h-3" />
+        </div>
+      )}
+    </div>
+  );
+
   return (
     <div className="max-w-6xl mx-auto h-full flex flex-col">
       <div className="flex justify-between items-end mb-6 shrink-0">
         <div>
-          <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
+          <h2 className="text-2xl font-bold text-slate-800 dark:text-white flex items-center gap-2">
             <Layers className="w-6 h-6 text-indigo-600" />
             Query Builder
           </h2>
-          <p className="text-slate-500 mt-1">
-            Connected to: <span className="font-mono text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded text-xs">{schema.name}</span>
+          <p className="text-slate-500 dark:text-slate-400 mt-1">
+            Connected to: <span className="font-mono text-indigo-600 bg-indigo-50 dark:bg-indigo-900/20 px-2 py-0.5 rounded text-xs">{schema.name}</span>
           </p>
         </div>
       </div>
@@ -236,12 +337,17 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
       <div className="flex-1 flex gap-6 min-h-0">
         
         {/* Left: Table Selection Sidebar */}
-        <div className="w-1/4 bg-white rounded-xl border border-slate-200 flex flex-col overflow-hidden shadow-sm">
-          <div className="p-3 bg-slate-50 border-b border-slate-100 font-semibold text-slate-700 text-sm">
-            Tables ({schema.tables.length})
+        <div className="w-1/4 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 flex flex-col overflow-hidden shadow-sm">
+          <div className="p-3 bg-slate-50 dark:bg-slate-900 border-b border-slate-100 dark:border-slate-700 font-semibold text-slate-700 dark:text-slate-300 text-sm flex justify-between items-center">
+            <span>Tables ({schema.tables.length})</span>
+            {state.selectedTables.length > 0 && (
+              <span className="text-xs bg-indigo-100 text-indigo-700 dark:bg-indigo-900 dark:text-indigo-300 px-2 py-0.5 rounded-full">
+                {state.selectedTables.length} Selected
+              </span>
+            )}
           </div>
           
-          <div className="p-2 border-b border-slate-100">
+          <div className="p-2 border-b border-slate-100 dark:border-slate-700">
             <div className="relative">
               <Search className="absolute left-2.5 top-2 w-3.5 h-3.5 text-slate-400" />
               <input
@@ -249,7 +355,7 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
                 placeholder="Filter tables..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-8 pr-2 py-1.5 bg-slate-50 border border-slate-200 rounded text-xs focus:ring-1 focus:ring-indigo-500 outline-none"
+                className="w-full pl-8 pr-2 py-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded text-xs focus:ring-1 focus:ring-indigo-500 outline-none text-slate-700 dark:text-slate-300"
               />
               {searchTerm && (
                 <button 
@@ -263,49 +369,40 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
           </div>
 
           <div className="flex-1 overflow-y-auto p-2 space-y-1">
-             {sortedTables.length === 0 ? (
+             {pinnedTables.length === 0 && unpinnedTables.length === 0 && (
                 <div className="text-center py-4 text-xs text-slate-400 italic">No tables found</div>
-             ) : (
-                sortedTables.map(table => {
-                  const isSelected = state.selectedTables.includes(table.name);
-                  return (
-                    <div 
-                      key={table.name}
-                      onClick={() => toggleTable(table.name)}
-                      className={`p-2.5 rounded-lg cursor-pointer transition-all border relative group flex items-start justify-between gap-2 ${
-                        isSelected 
-                          ? 'bg-indigo-50 border-indigo-400 shadow-sm' 
-                          : 'hover:bg-slate-50 border-transparent hover:border-slate-200'
-                      }`}
-                    >
-                      <div className="min-w-0">
-                        <span className={`font-bold text-sm block truncate ${isSelected ? 'text-indigo-700' : 'text-slate-700'}`}>
-                            {table.name}
-                        </span>
-                        {table.description && (
-                          <p className="text-[10px] text-slate-400 line-clamp-1 mt-0.5">
-                            {table.description}
-                          </p>
-                        )}
-                      </div>
-                      
-                      {isSelected && (
-                        <div className="mt-0.5 text-indigo-600 bg-white rounded-full p-0.5 shadow-sm">
-                          <Check className="w-3 h-3" strokeWidth={3} />
-                        </div>
-                      )}
-                    </div>
-                  )
-                })
+             )}
+
+             {/* Pinned / Selected Section */}
+             {pinnedTables.length > 0 && (
+               <>
+                 <div className="px-2 py-1 text-[10px] font-bold text-indigo-500 uppercase flex items-center gap-1">
+                    <Pin className="w-3 h-3" /> Selected
+                 </div>
+                 {pinnedTables.map(t => renderTableListItem(t, true))}
+                 <div className="my-2 border-b border-slate-100 dark:border-slate-700"></div>
+               </>
+             )}
+
+             {/* Unpinned Section */}
+             {unpinnedTables.length > 0 && (
+               <>
+                 {pinnedTables.length > 0 && (
+                   <div className="px-2 py-1 text-[10px] font-bold text-slate-400 uppercase">
+                      Available
+                   </div>
+                 )}
+                 {unpinnedTables.map(t => renderTableListItem(t, false))}
+               </>
              )}
           </div>
         </div>
 
         {/* Right: Tabbed Builder Area */}
-        <div className="flex-1 bg-white rounded-xl border border-slate-200 flex flex-col overflow-hidden shadow-sm">
+        <div className="flex-1 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 flex flex-col overflow-hidden shadow-sm">
            
            {/* Tabs Header */}
-           <div className="flex border-b border-slate-100">
+           <div className="flex border-b border-slate-100 dark:border-slate-700">
              {renderTabButton('columns', 'Columns', <List className="w-4 h-4" />)}
              {renderTabButton('joins', `Joins (${state.joins.length})`, <Link2 className="w-4 h-4" />)}
              {renderTabButton('filters', `Filters (${state.filters.length})`, <FilterIcon className="w-4 h-4" />)}
@@ -313,7 +410,7 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
            </div>
 
            {/* Tabs Content */}
-           <div className="flex-1 overflow-y-auto p-4 bg-slate-50/50">
+           <div className="flex-1 overflow-y-auto p-4 bg-slate-50/50 dark:bg-slate-900/50">
              
              {/* --- COLUMNS TAB --- */}
              {activeTab === 'columns' && (
@@ -329,45 +426,47 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
                      if (!table) return null;
                      
                      const colSearch = columnSearchTerms[tableName] || '';
+                     
+                     // Use robust matching logic
                      const filteredColumns = table.columns.filter(col => 
-                        col.name.toLowerCase().includes(colSearch.toLowerCase())
+                        matchColumnName(col.name, colSearch)
                      );
                      
                      const visibleColNames = filteredColumns.map(c => c.name);
                      const isCollapsed = collapsedTables.has(tableName);
                      
                      return (
-                       <div key={tableName} className="bg-white rounded-lg border border-slate-200 overflow-hidden shadow-sm">
+                       <div key={tableName} className="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden shadow-sm">
                          {/* Card Header (Clickable to Collapse) */}
                          <div 
-                           className="px-4 py-3 bg-slate-50 border-b border-slate-100 flex justify-between items-center cursor-pointer hover:bg-slate-100 transition-colors"
+                           className="px-4 py-3 bg-slate-50 dark:bg-slate-900 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
                            onClick={() => toggleTableCollapse(tableName)}
                          >
                            <div className="flex items-center gap-2">
                               {isCollapsed ? <ChevronRight className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
-                              <h4 className="font-bold text-slate-700">{tableName}</h4>
-                              <span className="text-xs text-slate-400 px-2 py-0.5 bg-white border border-slate-100 rounded-full">
+                              <h4 className="font-bold text-slate-700 dark:text-slate-300">{tableName}</h4>
+                              <span className="text-xs text-slate-400 px-2 py-0.5 bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-full">
                                 {state.selectedColumns.filter(c => c.startsWith(tableName)).length} selected
                               </span>
                            </div>
                            <div className="flex gap-2" onClick={e => e.stopPropagation()}>
-                              <button onClick={() => selectAllColumns(tableName, visibleColNames)} className="text-xs font-bold text-indigo-600 hover:bg-indigo-50 px-2 py-1 rounded transition-colors">All</button>
-                              <button onClick={() => selectNoneColumns(tableName, visibleColNames)} className="text-xs font-bold text-slate-400 hover:bg-slate-100 px-2 py-1 rounded transition-colors">None</button>
+                              <button onClick={() => selectAllColumns(tableName, visibleColNames)} className="text-xs font-bold text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 px-2 py-1 rounded transition-colors">All</button>
+                              <button onClick={() => selectNoneColumns(tableName, visibleColNames)} className="text-xs font-bold text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 px-2 py-1 rounded transition-colors">None</button>
                            </div>
                          </div>
 
                          {!isCollapsed && (
                            <>
                              {/* Column Search Bar */}
-                             <div className="px-3 py-2 border-b border-slate-50 bg-white">
+                             <div className="px-3 py-2 border-b border-slate-50 dark:border-slate-700 bg-white dark:bg-slate-800">
                                 <div className="relative">
                                    <Search className="absolute left-2.5 top-1.5 w-3.5 h-3.5 text-slate-300" />
                                    <input 
                                       type="text" 
                                       value={colSearch}
                                       onChange={(e) => setColumnSearchTerms(prev => ({...prev, [tableName]: e.target.value}))}
-                                      placeholder={`Filter columns in ${tableName}...`}
-                                      className="w-full pl-8 pr-2 py-1 bg-slate-50 border border-slate-100 rounded text-xs focus:ring-1 focus:ring-indigo-500 outline-none transition-all placeholder-slate-400"
+                                      placeholder={`Filter columns in ${tableName}... (supports *, ?, OR)`}
+                                      className="w-full pl-8 pr-2 py-1 bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-700 rounded text-xs focus:ring-1 focus:ring-indigo-500 outline-none transition-all placeholder-slate-400 text-slate-700 dark:text-slate-300"
                                    />
                                    {colSearch && (
                                       <button 
@@ -395,17 +494,17 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
                                         onClick={() => toggleColumn(tableName, col.name)}
                                         className={`flex items-center p-2 rounded border cursor-pointer transition-all duration-200 ease-in-out ${
                                           isChecked 
-                                            ? 'bg-indigo-50 border-indigo-500 ring-1 ring-indigo-500 shadow-sm scale-[1.01]' 
-                                            : 'bg-white border-slate-100 hover:border-indigo-200 hover:bg-slate-50 hover:scale-[1.01]'
+                                            ? 'bg-indigo-50 dark:bg-indigo-900/20 border-indigo-500 ring-1 ring-indigo-500 shadow-sm scale-[1.01]' 
+                                            : 'bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 hover:border-indigo-200 dark:hover:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-700 hover:scale-[1.01]'
                                         }`}
                                       >
                                         <div className={`w-4 h-4 rounded border flex items-center justify-center mr-2 transition-all ${
-                                            isChecked ? 'bg-indigo-600 border-indigo-600 shadow-sm' : 'border-slate-300 bg-white'
+                                            isChecked ? 'bg-indigo-600 border-indigo-600 shadow-sm' : 'border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700'
                                           }`}>
                                            {isChecked && <div className="w-1.5 h-1.5 bg-white rounded-[1px]"></div>}
                                         </div>
                                         <div className="flex-1 min-w-0">
-                                           <div className={`text-sm font-medium truncate transition-colors ${isChecked ? 'text-indigo-900' : 'text-slate-700'}`}>{col.name}</div>
+                                           <div className={`text-sm font-medium truncate transition-colors ${isChecked ? 'text-indigo-900 dark:text-indigo-300' : 'text-slate-700 dark:text-slate-300'}`}>{col.name}</div>
                                            <div className="text-[10px] text-slate-400">{col.type}</div>
                                         </div>
                                       </div>
@@ -426,26 +525,26 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
              {activeTab === 'joins' && (
                <div className="max-w-3xl mx-auto">
                  <div className="mb-4 flex justify-between items-center">
-                    <p className="text-sm text-slate-500">Define how your tables relate to each other.</p>
+                    <p className="text-sm text-slate-500 dark:text-slate-400">Define how your tables relate to each other.</p>
                     <button onClick={addJoin} className="flex items-center gap-1 px-3 py-1.5 bg-indigo-600 text-white text-xs font-bold rounded hover:bg-indigo-700 transition-colors shadow-sm">
                        <Plus className="w-3.5 h-3.5" /> Add Join
                     </button>
                  </div>
                  
                  {state.joins.length === 0 ? (
-                   <div className="bg-white p-8 rounded-lg border border-dashed border-slate-300 text-center">
+                   <div className="bg-white dark:bg-slate-800 p-8 rounded-lg border border-dashed border-slate-300 dark:border-slate-600 text-center">
                       <p className="text-slate-400 text-sm mb-2">No explicit joins defined.</p>
                       <p className="text-xs text-slate-400">If you leave this empty, we will attempt to auto-detect joins based on foreign keys.</p>
                    </div>
                  ) : (
                    <div className="space-y-3">
                      {state.joins.map((join) => (
-                       <div key={join.id} className="bg-white p-3 rounded-lg border border-slate-200 shadow-sm flex flex-wrap items-center gap-3">
+                       <div key={join.id} className="bg-white dark:bg-slate-800 p-3 rounded-lg border border-slate-200 dark:border-slate-700 shadow-sm flex flex-wrap items-center gap-3">
                           {/* From Table */}
                           <select 
                              value={join.fromTable}
                              onChange={(e) => updateJoin(join.id, 'fromTable', e.target.value)}
-                             className="text-sm border border-slate-200 rounded px-2 py-1 bg-slate-50 focus:ring-1 focus:ring-indigo-500 outline-none"
+                             className="text-sm border border-slate-200 dark:border-slate-700 rounded px-2 py-1 bg-slate-50 dark:bg-slate-900 text-slate-700 dark:text-slate-300 focus:ring-1 focus:ring-indigo-500 outline-none"
                           >
                              <option value="" disabled>Table A</option>
                              {state.selectedTables.map(t => <option key={t} value={t}>{t}</option>)}
@@ -455,7 +554,7 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
                           <select 
                              value={join.fromColumn}
                              onChange={(e) => updateJoin(join.id, 'fromColumn', e.target.value)}
-                             className="text-sm border border-slate-200 rounded px-2 py-1 bg-slate-50 focus:ring-1 focus:ring-indigo-500 outline-none min-w-[100px]"
+                             className="text-sm border border-slate-200 dark:border-slate-700 rounded px-2 py-1 bg-slate-50 dark:bg-slate-900 text-slate-700 dark:text-slate-300 focus:ring-1 focus:ring-indigo-500 outline-none min-w-[100px]"
                           >
                              <option value="" disabled>Column A</option>
                              {getColumnsForTable(join.fromTable).map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
@@ -467,7 +566,7 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
                              <select 
                                 value={join.type}
                                 onChange={(e) => updateJoin(join.id, 'type', e.target.value as any)}
-                                className="text-xs font-bold uppercase text-indigo-600 border-none bg-transparent outline-none cursor-pointer hover:bg-slate-50 rounded px-1"
+                                className="text-xs font-bold uppercase text-indigo-600 dark:text-indigo-400 border-none bg-transparent outline-none cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-700 rounded px-1"
                              >
                                 <option value="INNER">INNER JOIN</option>
                                 <option value="LEFT">LEFT JOIN</option>
@@ -481,7 +580,7 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
                           <select 
                              value={join.toTable}
                              onChange={(e) => updateJoin(join.id, 'toTable', e.target.value)}
-                             className="text-sm border border-slate-200 rounded px-2 py-1 bg-slate-50 focus:ring-1 focus:ring-indigo-500 outline-none"
+                             className="text-sm border border-slate-200 dark:border-slate-700 rounded px-2 py-1 bg-slate-50 dark:bg-slate-900 text-slate-700 dark:text-slate-300 focus:ring-1 focus:ring-indigo-500 outline-none"
                           >
                              <option value="" disabled>Table B</option>
                              {state.selectedTables.map(t => <option key={t} value={t}>{t}</option>)}
@@ -491,7 +590,7 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
                           <select 
                              value={join.toColumn}
                              onChange={(e) => updateJoin(join.id, 'toColumn', e.target.value)}
-                             className="text-sm border border-slate-200 rounded px-2 py-1 bg-slate-50 focus:ring-1 focus:ring-indigo-500 outline-none min-w-[100px]"
+                             className="text-sm border border-slate-200 dark:border-slate-700 rounded px-2 py-1 bg-slate-50 dark:bg-slate-900 text-slate-700 dark:text-slate-300 focus:ring-1 focus:ring-indigo-500 outline-none min-w-[100px]"
                           >
                              <option value="" disabled>Column B</option>
                              {getColumnsForTable(join.toTable).map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
@@ -511,26 +610,26 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
              {activeTab === 'filters' && (
                <div className="max-w-3xl mx-auto">
                  <div className="mb-4 flex justify-between items-center">
-                    <p className="text-sm text-slate-500">Add conditions to filter your results (WHERE clause).</p>
+                    <p className="text-sm text-slate-500 dark:text-slate-400">Add conditions to filter your results (WHERE clause).</p>
                     <button onClick={addFilter} className="flex items-center gap-1 px-3 py-1.5 bg-indigo-600 text-white text-xs font-bold rounded hover:bg-indigo-700 transition-colors shadow-sm">
                        <Plus className="w-3.5 h-3.5" /> Add Filter
                     </button>
                  </div>
 
                  {state.filters.length === 0 ? (
-                    <div className="bg-white p-8 rounded-lg border border-dashed border-slate-300 text-center">
+                    <div className="bg-white dark:bg-slate-800 p-8 rounded-lg border border-dashed border-slate-300 dark:border-slate-600 text-center">
                        <p className="text-slate-400 text-sm">No filters applied.</p>
                     </div>
                  ) : (
                     <div className="space-y-3">
                        {state.filters.map(filter => (
-                          <div key={filter.id} className="bg-white p-3 rounded-lg border border-slate-200 shadow-sm flex flex-wrap items-center gap-3">
+                          <div key={filter.id} className="bg-white dark:bg-slate-800 p-3 rounded-lg border border-slate-200 dark:border-slate-700 shadow-sm flex flex-wrap items-center gap-3">
                              {/* Column */}
                              <div className="text-xs font-bold text-slate-400 uppercase">WHERE</div>
                              <select
                                 value={filter.column}
                                 onChange={(e) => updateFilter(filter.id, 'column', e.target.value)}
-                                className="text-sm border border-slate-200 rounded px-2 py-1 bg-slate-50 focus:ring-1 focus:ring-indigo-500 outline-none max-w-[200px]"
+                                className="text-sm border border-slate-200 dark:border-slate-700 rounded px-2 py-1 bg-slate-50 dark:bg-slate-900 text-slate-700 dark:text-slate-300 focus:ring-1 focus:ring-indigo-500 outline-none max-w-[200px]"
                              >
                                 <option value="" disabled>Select Column</option>
                                 {getAllSelectedTableColumns().map(c => (
@@ -544,7 +643,7 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
                              <select
                                 value={filter.operator}
                                 onChange={(e) => updateFilter(filter.id, 'operator', e.target.value)}
-                                className="text-sm font-mono font-bold text-indigo-600 border border-slate-200 rounded px-2 py-1 bg-slate-50 focus:ring-1 focus:ring-indigo-500 outline-none"
+                                className="text-sm font-mono font-bold text-indigo-600 dark:text-indigo-400 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 bg-slate-50 dark:bg-slate-900 focus:ring-1 focus:ring-indigo-500 outline-none"
                              >
                                 <option value="=">=</option>
                                 <option value="!=">!=</option>
@@ -566,7 +665,7 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
                                    value={filter.value}
                                    onChange={(e) => updateFilter(filter.id, 'value', e.target.value)}
                                    placeholder="Value..."
-                                   className="flex-1 min-w-[120px] text-sm border border-slate-200 rounded px-2 py-1 bg-slate-50 focus:ring-1 focus:ring-indigo-500 outline-none"
+                                   className="flex-1 min-w-[120px] text-sm border border-slate-200 dark:border-slate-700 rounded px-2 py-1 bg-slate-50 dark:bg-slate-900 text-slate-700 dark:text-slate-300 focus:ring-1 focus:ring-indigo-500 outline-none"
                                 />
                              )}
 
@@ -586,11 +685,11 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
                  
                  {/* Group By Section */}
                  <div>
-                    <h3 className="font-bold text-slate-700 mb-2 flex items-center gap-2">
+                    <h3 className="font-bold text-slate-700 dark:text-slate-300 mb-2 flex items-center gap-2">
                        <List className="w-4 h-4 text-indigo-600" /> Group By
                     </h3>
-                    <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm">
-                       <p className="text-xs text-slate-500 mb-3">Select columns to group results by (useful for aggregations).</p>
+                    <div className="bg-white dark:bg-slate-800 p-4 rounded-lg border border-slate-200 dark:border-slate-700 shadow-sm">
+                       <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">Select columns to group results by (useful for aggregations).</p>
                        <div className="flex flex-wrap gap-2">
                           {getAllSelectedTableColumns().map(col => {
                              const fullId = `${col.table}.${col.column}`;
@@ -601,8 +700,8 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
                                    onClick={() => toggleGroupBy(fullId)}
                                    className={`px-3 py-1 rounded-full text-xs font-medium border transition-all ${
                                       isGrouped 
-                                       ? 'bg-indigo-100 text-indigo-700 border-indigo-200' 
-                                       : 'bg-slate-50 text-slate-600 border-slate-200 hover:border-indigo-300'
+                                       ? 'bg-indigo-100 text-indigo-700 border-indigo-200 dark:bg-indigo-900/40 dark:text-indigo-300 dark:border-indigo-800' 
+                                       : 'bg-slate-50 text-slate-600 border-slate-200 dark:bg-slate-700 dark:text-slate-300 dark:border-slate-600 hover:border-indigo-300'
                                    }`}
                                 >
                                    {fullId}
@@ -616,26 +715,26 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
                  {/* Order By Section */}
                  <div>
                     <div className="mb-2 flex justify-between items-center">
-                       <h3 className="font-bold text-slate-700 flex items-center gap-2">
+                       <h3 className="font-bold text-slate-700 dark:text-slate-300 flex items-center gap-2">
                           <ArrowDownAZ className="w-4 h-4 text-indigo-600" /> Order By
                        </h3>
-                       <button onClick={addSort} className="text-xs text-indigo-600 font-bold hover:underline flex items-center gap-1">
+                       <button onClick={addSort} className="text-xs text-indigo-600 dark:text-indigo-400 font-bold hover:underline flex items-center gap-1">
                           <Plus className="w-3 h-3" /> Add Sort Rule
                        </button>
                     </div>
                     
                     {state.orderBy.length === 0 ? (
-                       <div className="bg-white p-4 rounded-lg border border-dashed border-slate-300 text-center">
+                       <div className="bg-white dark:bg-slate-800 p-4 rounded-lg border border-dashed border-slate-300 dark:border-slate-600 text-center">
                           <p className="text-xs text-slate-400">No sorting rules applied.</p>
                        </div>
                     ) : (
                        <div className="space-y-2">
                           {state.orderBy.map(sort => (
-                             <div key={sort.id} className="bg-white p-2 rounded-lg border border-slate-200 shadow-sm flex items-center gap-3">
+                             <div key={sort.id} className="bg-white dark:bg-slate-800 p-2 rounded-lg border border-slate-200 dark:border-slate-700 shadow-sm flex items-center gap-3">
                                 <select
                                    value={sort.column}
                                    onChange={(e) => updateSort(sort.id, 'column', e.target.value)}
-                                   className="flex-1 text-sm border border-slate-200 rounded px-2 py-1 bg-slate-50 focus:ring-1 focus:ring-indigo-500 outline-none"
+                                   className="flex-1 text-sm border border-slate-200 dark:border-slate-700 rounded px-2 py-1 bg-slate-50 dark:bg-slate-900 text-slate-700 dark:text-slate-300 focus:ring-1 focus:ring-indigo-500 outline-none"
                                 >
                                    <option value="" disabled>Select Column</option>
                                    {getAllSelectedTableColumns().map(c => (
@@ -645,14 +744,14 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
                                    ))}
                                 </select>
                                 
-                                <div className="flex bg-slate-100 rounded p-1">
+                                <div className="flex bg-slate-100 dark:bg-slate-700 rounded p-1">
                                    <button 
                                       onClick={() => updateSort(sort.id, 'direction', 'ASC')}
-                                      className={`px-2 py-0.5 text-xs rounded ${sort.direction === 'ASC' ? 'bg-white shadow-sm text-indigo-600 font-bold' : 'text-slate-500'}`}
+                                      className={`px-2 py-0.5 text-xs rounded ${sort.direction === 'ASC' ? 'bg-white dark:bg-slate-600 shadow-sm text-indigo-600 dark:text-indigo-400 font-bold' : 'text-slate-500 dark:text-slate-400'}`}
                                    >ASC</button>
                                    <button 
                                       onClick={() => updateSort(sort.id, 'direction', 'DESC')}
-                                      className={`px-2 py-0.5 text-xs rounded ${sort.direction === 'DESC' ? 'bg-white shadow-sm text-indigo-600 font-bold' : 'text-slate-500'}`}
+                                      className={`px-2 py-0.5 text-xs rounded ${sort.direction === 'DESC' ? 'bg-white dark:bg-slate-600 shadow-sm text-indigo-600 dark:text-indigo-400 font-bold' : 'text-slate-500 dark:text-slate-400'}`}
                                    >DESC</button>
                                 </div>
 
@@ -675,7 +774,14 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
       <div className="mt-6 bg-slate-800 text-white p-4 rounded-xl flex items-center justify-between shadow-lg">
          <div className="flex items-center gap-6">
             <div className="flex flex-col">
-              <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Selected Tables</span>
+              <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider flex items-center gap-2">
+                 Selected Tables 
+                 {state.selectedTables.length > 0 && (
+                   <button onClick={clearAllTables} className="text-slate-500 hover:text-red-400 transition-colors" title="Clear all selections">
+                      <Trash2 className="w-3 h-3" />
+                   </button>
+                 )}
+              </span>
               <span className="font-mono text-xl font-bold">{state.selectedTables.length}</span>
             </div>
             <div className="w-px h-8 bg-slate-700"></div>
@@ -693,7 +799,7 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
                  type="number" 
                  value={state.limit}
                  onChange={(e) => onStateChange({...state, limit: parseInt(e.target.value) || 10})}
-                 className="w-16 bg-transparent text-right font-mono text-sm outline-none focus:text-indigo-400"
+                 className="w-16 bg-transparent text-right font-mono text-sm outline-none focus:text-indigo-400 text-white"
                />
             </div>
 
