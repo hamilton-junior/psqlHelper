@@ -1,7 +1,7 @@
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { DatabaseSchema, BuilderState, ExplicitJoin, JoinType, Filter, Operator, OrderBy } from '../../types';
-import { Layers, ChevronRight, Settings2, RefreshCw, Search, X, CheckSquare, Square, Plus, Trash2, ArrowRightLeft, Filter as FilterIcon, ArrowDownAZ, List, Link2 } from 'lucide-react';
+import { Layers, ChevronRight, Settings2, RefreshCw, Search, X, CheckSquare, Square, Plus, Trash2, ArrowRightLeft, Filter as FilterIcon, ArrowDownAZ, List, Link2, Check } from 'lucide-react';
 
 interface BuilderStepProps {
   schema: DatabaseSchema;
@@ -16,6 +16,9 @@ type TabType = 'columns' | 'joins' | 'filters' | 'sortgroup';
 const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange, onGenerate, isGenerating }) => {
   const [activeTab, setActiveTab] = useState<TabType>('columns');
   const [searchTerm, setSearchTerm] = useState('');
+  
+  // State for column search within specific tables
+  const [columnSearchTerms, setColumnSearchTerms] = useState<Record<string, string>>({});
 
   // --- Helpers ---
   const getColumnsForTable = (tableName: string) => {
@@ -46,6 +49,11 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
       const newFilters = state.filters.filter(f => !f.column.startsWith(`${tableName}.`));
       
       onStateChange({ ...state, selectedTables: newTables, selectedColumns: newColumns, joins: newJoins, filters: newFilters });
+      
+      // Clear search term
+      const newSearchTerms = { ...columnSearchTerms };
+      delete newSearchTerms[tableName];
+      setColumnSearchTerms(newSearchTerms);
     } else {
       newTables = [...state.selectedTables, tableName];
       onStateChange({ ...state, selectedTables: newTables });
@@ -66,18 +74,19 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
     onStateChange({ ...state, selectedTables: newTables, selectedColumns: newColumns });
   };
 
-  const selectAllColumns = (tableName: string) => {
-    const table = schema.tables.find(t => t.name === tableName);
-    if (!table) return;
-    const allCols = table.columns.map(c => `${tableName}.${c.name}`);
-    const newCols = Array.from(new Set([...state.selectedColumns, ...allCols]));
+  const selectAllColumns = (tableName: string, visibleColumns: string[]) => {
+    const newColsSet = new Set(state.selectedColumns);
+    visibleColumns.forEach(colName => newColsSet.add(`${tableName}.${colName}`));
+    
+    const newCols = Array.from(newColsSet);
     let newTables = state.selectedTables;
     if (!state.selectedTables.includes(tableName)) newTables = [...state.selectedTables, tableName];
     onStateChange({ ...state, selectedTables: newTables, selectedColumns: newCols });
   };
 
-  const selectNoneColumns = (tableName: string) => {
-    const newCols = state.selectedColumns.filter(c => !c.startsWith(`${tableName}.`));
+  const selectNoneColumns = (tableName: string, visibleColumns: string[]) => {
+    const visibleSet = new Set(visibleColumns.map(c => `${tableName}.${c}`));
+    const newCols = state.selectedColumns.filter(c => !visibleSet.has(c));
     onStateChange({ ...state, selectedColumns: newCols });
   };
 
@@ -150,10 +159,37 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
 
 
   // --- Render Helpers ---
-  const filteredTables = schema.tables.filter(table => 
-    table.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-    (table.description && table.description.toLowerCase().includes(searchTerm.toLowerCase()))
-  );
+  
+  // Advanced Search Sorting
+  const sortedTables = useMemo(() => {
+    const term = searchTerm.toLowerCase().trim();
+    if (!term) return schema.tables;
+
+    // Filter first
+    const matches = schema.tables.filter(table => 
+      table.name.toLowerCase().includes(term) || 
+      (table.description && table.description.toLowerCase().includes(term))
+    );
+
+    // Sort based on relevance
+    return matches.sort((a, b) => {
+      const nameA = a.name.toLowerCase();
+      const nameB = b.name.toLowerCase();
+
+      // 1. Exact match gets top priority
+      if (nameA === term && nameB !== term) return -1;
+      if (nameB === term && nameA !== term) return 1;
+
+      // 2. Starts with gets second priority
+      const startsA = nameA.startsWith(term);
+      const startsB = nameB.startsWith(term);
+      if (startsA && !startsB) return -1;
+      if (!startsA && startsB) return 1;
+
+      // 3. Fallback to alphabetical
+      return nameA.localeCompare(nameB);
+    });
+  }, [schema.tables, searchTerm]);
 
   const renderTabButton = (id: TabType, label: string, icon: React.ReactNode) => (
     <button
@@ -197,36 +233,58 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
               <Search className="absolute left-2.5 top-2 w-3.5 h-3.5 text-slate-400" />
               <input
                 type="text"
-                placeholder="Filter..."
+                placeholder="Filter tables..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="w-full pl-8 pr-2 py-1.5 bg-slate-50 border border-slate-200 rounded text-xs focus:ring-1 focus:ring-indigo-500 outline-none"
               />
+              {searchTerm && (
+                <button 
+                  onClick={() => setSearchTerm('')}
+                  className="absolute right-2 top-2 text-slate-400 hover:text-slate-600"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
             </div>
           </div>
 
           <div className="flex-1 overflow-y-auto p-2 space-y-1">
-             {filteredTables.map(table => {
-               const isSelected = state.selectedTables.includes(table.name);
-               return (
-                 <div 
-                   key={table.name}
-                   onClick={() => toggleTable(table.name)}
-                   className={`p-2.5 rounded-lg cursor-pointer transition-all border relative group ${
-                     isSelected 
-                      ? 'bg-indigo-50 border-indigo-500 shadow-sm' 
-                      : 'hover:bg-slate-50 border-transparent hover:border-slate-200'
-                   }`}
-                 >
-                   <div className="flex items-center justify-between">
-                     <span className={`font-bold text-sm ${isSelected ? 'text-indigo-700' : 'text-slate-700'}`}>
-                        {table.name}
-                     </span>
-                   </div>
-                   {table.description && <p className="text-[10px] text-slate-400 line-clamp-1 mt-0.5">{table.description}</p>}
-                 </div>
-               )
-             })}
+             {sortedTables.length === 0 ? (
+                <div className="text-center py-4 text-xs text-slate-400 italic">No tables found</div>
+             ) : (
+                sortedTables.map(table => {
+                  const isSelected = state.selectedTables.includes(table.name);
+                  return (
+                    <div 
+                      key={table.name}
+                      onClick={() => toggleTable(table.name)}
+                      className={`p-2.5 rounded-lg cursor-pointer transition-all border relative group flex items-start justify-between gap-2 ${
+                        isSelected 
+                          ? 'bg-indigo-50 border-indigo-400 shadow-sm' 
+                          : 'hover:bg-slate-50 border-transparent hover:border-slate-200'
+                      }`}
+                    >
+                      <div className="min-w-0">
+                        <span className={`font-bold text-sm block truncate ${isSelected ? 'text-indigo-700' : 'text-slate-700'}`}>
+                            {table.name}
+                        </span>
+                        {table.description && (
+                          <p className="text-[10px] text-slate-400 line-clamp-1 mt-0.5">
+                            {table.description}
+                          </p>
+                        )}
+                      </div>
+                      
+                      {isSelected && (
+                        <div className="mt-0.5 text-indigo-600 bg-white rounded-full p-0.5 shadow-sm">
+                          <Check className="w-3 h-3" strokeWidth={3} />
+                        </div>
+                      )}
+                    </div>
+                  )
+                })
+             )}
           </div>
         </div>
 
@@ -256,10 +314,20 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
                    state.selectedTables.map(tableName => {
                      const table = schema.tables.find(t => t.name === tableName);
                      if (!table) return null;
-                     const isTableFullySelected = table.columns.every(c => state.selectedColumns.includes(`${tableName}.${c.name}`));
+                     
+                     const colSearch = columnSearchTerms[tableName] || '';
+                     const filteredColumns = table.columns.filter(col => 
+                        col.name.toLowerCase().includes(colSearch.toLowerCase())
+                     );
+                     
+                     // Calculate if fully selected based on FILTERED columns or ALL columns?
+                     // UX choice: All/None usually applies to filtered set in many tools, or the whole table.
+                     // Let's apply All/None to visible (filtered) columns for flexibility.
+                     const visibleColNames = filteredColumns.map(c => c.name);
                      
                      return (
                        <div key={tableName} className="bg-white rounded-lg border border-slate-200 overflow-hidden shadow-sm">
+                         {/* Card Header */}
                          <div className="px-4 py-3 bg-slate-50 border-b border-slate-100 flex justify-between items-center">
                            <div className="flex items-center gap-2">
                               <h4 className="font-bold text-slate-700">{tableName}</h4>
@@ -268,31 +336,61 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
                               </span>
                            </div>
                            <div className="flex gap-2">
-                              <button onClick={() => selectAllColumns(tableName)} className="text-xs font-bold text-indigo-600 hover:bg-indigo-50 px-2 py-1 rounded">All</button>
-                              <button onClick={() => selectNoneColumns(tableName)} className="text-xs font-bold text-slate-400 hover:bg-slate-100 px-2 py-1 rounded">None</button>
+                              <button onClick={() => selectAllColumns(tableName, visibleColNames)} className="text-xs font-bold text-indigo-600 hover:bg-indigo-50 px-2 py-1 rounded">All</button>
+                              <button onClick={() => selectNoneColumns(tableName, visibleColNames)} className="text-xs font-bold text-slate-400 hover:bg-slate-100 px-2 py-1 rounded">None</button>
                            </div>
                          </div>
+
+                         {/* Column Search Bar */}
+                         <div className="px-3 py-2 border-b border-slate-50 bg-white">
+                            <div className="relative">
+                               <Search className="absolute left-2.5 top-1.5 w-3.5 h-3.5 text-slate-300" />
+                               <input 
+                                  type="text" 
+                                  value={colSearch}
+                                  onChange={(e) => setColumnSearchTerms(prev => ({...prev, [tableName]: e.target.value}))}
+                                  placeholder={`Filter columns in ${tableName}...`}
+                                  className="w-full pl-8 pr-2 py-1 bg-slate-50 border border-slate-100 rounded text-xs focus:ring-1 focus:ring-indigo-500 outline-none transition-all placeholder-slate-400"
+                               />
+                               {colSearch && (
+                                  <button 
+                                    onClick={() => setColumnSearchTerms(prev => ({...prev, [tableName]: ''}))}
+                                    className="absolute right-2 top-1.5 text-slate-300 hover:text-slate-500"
+                                  >
+                                    <X className="w-3.5 h-3.5" />
+                                  </button>
+                               )}
+                            </div>
+                         </div>
+
+                         {/* Columns Grid */}
                          <div className="p-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-                           {table.columns.map(col => {
-                             const isChecked = state.selectedColumns.includes(`${tableName}.${col.name}`);
-                             return (
-                               <div 
-                                 key={col.name}
-                                 onClick={() => toggleColumn(tableName, col.name)}
-                                 className={`flex items-center p-2 rounded border cursor-pointer transition-all hover:shadow-sm ${
-                                   isChecked ? 'bg-indigo-50 border-indigo-400' : 'bg-white border-slate-100 hover:border-indigo-200'
-                                 }`}
-                               >
-                                 <div className={`w-4 h-4 rounded border flex items-center justify-center mr-2 transition-colors ${isChecked ? 'bg-indigo-600 border-indigo-600' : 'border-slate-300 bg-white'}`}>
-                                    {isChecked && <div className="w-2 h-2 bg-white rounded-sm"></div>}
-                                 </div>
-                                 <div className="flex-1 min-w-0">
-                                    <div className="text-sm font-medium text-slate-700 truncate">{col.name}</div>
-                                    <div className="text-[10px] text-slate-400">{col.type}</div>
-                                 </div>
-                               </div>
-                             );
-                           })}
+                           {filteredColumns.length === 0 ? (
+                              <div className="col-span-full text-center py-4 text-xs text-slate-400 italic">
+                                 No columns match "{colSearch}"
+                              </div>
+                           ) : (
+                              filteredColumns.map(col => {
+                                const isChecked = state.selectedColumns.includes(`${tableName}.${col.name}`);
+                                return (
+                                  <div 
+                                    key={col.name}
+                                    onClick={() => toggleColumn(tableName, col.name)}
+                                    className={`flex items-center p-2 rounded border cursor-pointer transition-all hover:shadow-sm ${
+                                      isChecked ? 'bg-indigo-50 border-indigo-400' : 'bg-white border-slate-100 hover:border-indigo-200'
+                                    }`}
+                                  >
+                                    <div className={`w-4 h-4 rounded border flex items-center justify-center mr-2 transition-colors ${isChecked ? 'bg-indigo-600 border-indigo-600' : 'border-slate-300 bg-white'}`}>
+                                       {isChecked && <div className="w-2 h-2 bg-white rounded-sm"></div>}
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                       <div className="text-sm font-medium text-slate-700 truncate">{col.name}</div>
+                                       <div className="text-[10px] text-slate-400">{col.type}</div>
+                                    </div>
+                                  </div>
+                                );
+                              })
+                           )}
                          </div>
                        </div>
                      );

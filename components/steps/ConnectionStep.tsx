@@ -48,9 +48,9 @@ const ConnectionStep: React.FC<ConnectionStepProps> = ({ onSchemaLoaded }) => {
       <div className="mb-8">
         <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
           <Server className="w-6 h-6 text-indigo-600" />
-          Database Connection
+          Conexão ao Banco de Dados
         </h2>
-        <p className="text-slate-500 mt-2">Connect to your local PostgreSQL database instance.</p>
+        <p className="text-slate-500 mt-2">Conecte-se a instância de seu Banco de DadosPostgreSQL local.</p>
       </div>
 
       <form onSubmit={handleConnect} className="bg-white p-8 rounded-2xl shadow-sm border border-slate-200 space-y-6">
@@ -66,7 +66,7 @@ const ConnectionStep: React.FC<ConnectionStepProps> = ({ onSchemaLoaded }) => {
             />
           </div>
           <div className="col-span-2 sm:col-span-1">
-            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Username</label>
+            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Usuário</label>
             <input 
               type="text" 
               value={user} 
@@ -76,7 +76,7 @@ const ConnectionStep: React.FC<ConnectionStepProps> = ({ onSchemaLoaded }) => {
             />
           </div>
           <div className="col-span-2">
-            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Database Name</label>
+            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Nome do Banco de Dados</label>
             <div className="relative">
                <Database className="absolute left-4 top-3.5 w-5 h-5 text-slate-400" />
                <input 
@@ -90,7 +90,7 @@ const ConnectionStep: React.FC<ConnectionStepProps> = ({ onSchemaLoaded }) => {
             </div>
           </div>
           <div className="col-span-2 sm:col-span-1">
-            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Password</label>
+            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Senha</label>
             <input 
               type="password" 
               value={password} 
@@ -100,7 +100,7 @@ const ConnectionStep: React.FC<ConnectionStepProps> = ({ onSchemaLoaded }) => {
             />
           </div>
           <div className="col-span-2 sm:col-span-1">
-            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Port</label>
+            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Porta</label>
             <input 
               type="number" 
               value={port} 
@@ -121,7 +121,7 @@ const ConnectionStep: React.FC<ConnectionStepProps> = ({ onSchemaLoaded }) => {
         <div className="pt-6 border-t border-slate-100 flex items-center justify-between">
            <div className="flex items-center gap-2 text-slate-400 text-xs">
               <Shield className="w-4 h-4" />
-              <span>Credentials stored locally only</span>
+              <span>Credenciais salvas apenas localmente.</span>
            </div>
            <div className="flex gap-3">
              <button 
@@ -129,7 +129,7 @@ const ConnectionStep: React.FC<ConnectionStepProps> = ({ onSchemaLoaded }) => {
                disabled={loading}
                className="px-8 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg shadow-lg shadow-indigo-200 transition-all flex items-center gap-2"
              >
-               {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Connect to Local DB'}
+               {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Conectar ao BD Local'}
              </button>
            </div>
         </div>
@@ -138,8 +138,8 @@ const ConnectionStep: React.FC<ConnectionStepProps> = ({ onSchemaLoaded }) => {
       <div className="mt-6 bg-blue-50 border border-blue-100 rounded-xl p-4 flex gap-3">
         <Info className="w-5 h-5 text-blue-600 shrink-0 mt-0.5" />
         <div className="text-sm text-blue-800">
-          <p className="font-bold mb-1">Local Backend Required</p>
-          <p>Ensure you are running the backend server in a separate terminal using <code>npm run server</code>.</p>
+          <p className="font-bold mb-1">Backend Local Necessário!</p>
+          <p>Certifique-se que você está rodando o servidor backend em um terminal diferente utilizando <code>npm run server</code>.</p>
         </div>
       </div>
     </div>

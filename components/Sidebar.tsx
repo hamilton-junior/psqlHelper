@@ -47,10 +47,10 @@ const Sidebar: React.FC<SidebarProps> = ({ currentStep, onNavigate, hasSchema })
 
       <div className="space-y-2">
         <div className="px-4 mb-2 text-xs font-semibold text-slate-500 uppercase tracking-wider">Navigation</div>
-        {navItem('connection', 'Database Connection', <Server className="w-4 h-4" />)}
-        {navItem('builder', 'Query Builder', <Layers className="w-4 h-4" />, !hasSchema)}
-        {navItem('preview', 'Query Preview', <Terminal className="w-4 h-4" />, currentStep === 'connection' || currentStep === 'builder')}
-        {navItem('results', 'Query History', <Table className="w-4 h-4" />, currentStep !== 'results')}
+        {navItem('connection', 'Conexão ao Banco de Dados', <Server className="w-4 h-4" />)}
+        {navItem('builder', 'Construtor de Query', <Layers className="w-4 h-4" />, !hasSchema)}
+        {navItem('preview', 'Visualização da Query', <Terminal className="w-4 h-4" />, currentStep === 'connection' || currentStep === 'builder')}
+        {navItem('results', 'Resultados da Query', <Table className="w-4 h-4" />, currentStep !== 'results')}
       </div>
 
       <div className="mt-auto pt-6 border-t border-slate-800">

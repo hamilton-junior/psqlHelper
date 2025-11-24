@@ -7,14 +7,57 @@ const apiKey = process.env.API_KEY;
 
 const ai = new GoogleGenAI({ apiKey: apiKey });
 
-export const validateSqlQuery = async (sql: string): Promise<ValidationResult> => {
-  const prompt = `
-    Act as a strict PostgreSQL Syntax Validator. 
-    Analyze the following SQL query for syntax errors, deprecated keywords, or logical inconsistencies.
-    
-    SQL Query: "${sql}"
+// Helper to clean Markdown code blocks from JSON response
+const cleanJsonString = (str: string): string => {
+  if (!str) return "{}";
+  // Remove ```json ... ``` or just ``` ... ```
+  return str.replace(/^```json\s*/, "").replace(/^```\s*/, "").replace(/\s*```$/, "").trim();
+};
 
-    Return a JSON object indicating validity. If invalid, provide a short error message and a corrected version of the SQL if possible.
+const formatSchemaForPrompt = (schema: DatabaseSchema): string => {
+  // Use a more structured JSON-like format for the prompt to reduce ambiguity
+  const simplifiedStructure = schema.tables.map(t => ({
+    tableName: t.name,
+    columns: t.columns.map(c => c.name) // Only names needed for validation existence check
+  }));
+  return JSON.stringify(simplifiedStructure, null, 2);
+};
+
+export const validateSqlQuery = async (sql: string, schema?: DatabaseSchema): Promise<ValidationResult> => {
+  
+  let schemaContext = "";
+  if (schema) {
+    schemaContext = `
+    REFERENCE SCHEMA (JSON Format):
+    ${formatSchemaForPrompt(schema)}
+
+    VALIDATION RULES:
+    1. **STRICT COLUMN CHECK**: You must verify that EVERY column name used in the SQL (SELECT list, WHERE clause, JOIN ON clause, ORDER BY) exists EXACTLY in the Reference Schema above for the corresponding table.
+    2. **NO GUESSING**: Do NOT assume a column exists just because it makes sense. If table 'lancto' only has ['id', 'date'], and the query uses 'lancto.movto', it is INVALID.
+    3. **JOIN VALIDATION**: Check the ON clause carefully. Does the column on the right side of the equals sign actually belong to that table?
+    `;
+  }
+
+  const prompt = `
+    Act as a PostgreSQL Compiler and Syntax Validator.
+    
+    ${schemaContext}
+
+    SQL Query to Validate: 
+    "${sql}"
+
+    Task:
+    1. Parse the SQL to identify all tables and columns referenced.
+    2. Compare them against the REFERENCE SCHEMA.
+    3. Identify if any column used does not exist in the schema.
+    4. Check for syntax errors.
+
+    Return JSON:
+    {
+      "isValid": boolean,
+      "error": string (Description of the missing column or syntax error in pt-BR),
+      "correctedSql": string (Optional fixed SQL if easy to fix, else null)
+    }
   `;
 
   try {
@@ -36,11 +79,17 @@ export const validateSqlQuery = async (sql: string): Promise<ValidationResult> =
     });
 
     if (response.text) {
-      return JSON.parse(response.text) as ValidationResult;
+      try {
+        const cleanText = cleanJsonString(response.text);
+        return JSON.parse(cleanText) as ValidationResult;
+      } catch (parseError) {
+        console.error("Validation JSON Parse Error:", parseError, response.text);
+        return { isValid: true };
+      }
     }
-    return { isValid: true }; // Default to valid if parsing fails to prevent blocking
+    return { isValid: true }; 
   } catch (error) {
-    console.error("Validation Error:", error);
+    console.error("Validation API Error:", error);
     return { isValid: true };
   }
 };
@@ -49,40 +98,45 @@ export const generateSqlFromBuilderState = async (
   schema: DatabaseSchema,
   state: BuilderState
 ): Promise<QueryResult> => {
+  
+  // Richer schema description for generation including types and keys
   const schemaDescription = schema.tables.map(t => 
-    `Table ${t.name} (${t.description || ''}):\n  Columns: ${t.columns.map(c => `${c.name} (${c.type})`).join(', ')}`
+    `TABLE: ${t.name}\nCOLUMNS: ${t.columns.map(c => `${c.name} (${c.type})`).join(', ')}`
   ).join('\n\n');
 
   const systemInstruction = `
-    You are an expert PostgreSQL Query Builder.
-    Construct a valid SQL query based on the user's visual selection of tables, columns, and explicit logic.
-    
-    Rules:
-    1. Select ONLY the columns specified in "Target Columns". If "Target Columns" is empty but tables are selected, select all columns from those tables.
-    2. JOINS: Use the "Explicit Joins" if provided. If no explicit joins are provided but multiple tables are selected, automatically determine the correct JOIN syntax (INNER/LEFT) based on foreign keys.
-    3. FILTERS: Apply all provided "Filters" in the WHERE clause.
-    4. GROUP BY: Apply the GROUP BY clause if "Group By Columns" are provided.
-    5. ORDER BY: Apply the ORDER BY clause if "Order By Rules" are provided.
-    6. LIMIT: Apply the LIMIT clause.
-    7. CRITICAL: Ensure strict whitespace rules. ALWAYS put a space after keywords (SELECT, FROM, WHERE, LIMIT, JOIN, ON, GROUP BY, ORDER BY).
-    8. NEVER concatenate keywords with identifiers (e.g. "SELECTid" is forbidden, must be "SELECT id").
-    9. Format the SQL nicely (newlines and indentation) within the JSON string to be readable.
+    You are a PostgreSQL Expert. Generate a query based on the User Selection.
+
+    CRITICAL INSTRUCTIONS FOR JOINING TABLES:
+    1. **NO HALLUCINATION**: You are STRICTLY FORBIDDEN from inventing column names.
+    2. **VERIFY COLUMNS**: Before writing a JOIN condition like 'ON T1.col = T2.col', check: Does Table T2 *actually* contain a column named 'col'?
+    3. **COMMON ERROR TRAP**: Do NOT assume that a table named 'lancto' has a column named 'movto'. Only use columns listed in the schema below.
+    4. **FALLBACK**: If you cannot find a common column to JOIN tables, explain that no relationship was found in the 'explanation' field, and do NOT generate a fake JOIN condition.
+
+    Formatting:
+    - Use strict spacing (e.g., 'SELECT * FROM' not 'SELECT*FROM').
+    - Alias tables as t1, t2, etc., for brevity, but map them correctly.
   `;
 
   const prompt = `
-    Database Schema:
+    DATABASE SCHEMA (Use ONLY these columns):
     ${schemaDescription}
 
-    Visual Builder State:
-    - Selected Tables: ${state.selectedTables.join(', ')}
-    - Target Columns: ${state.selectedColumns.join(', ')}
+    USER REQUEST:
+    - Tables: ${state.selectedTables.join(', ')}
+    - Columns: ${state.selectedColumns.join(', ')}
     - Explicit Joins: ${JSON.stringify(state.joins)}
-    - Filters (WHERE): ${JSON.stringify(state.filters)}
-    - Group By Columns: ${state.groupBy.join(', ')}
-    - Order By Rules: ${JSON.stringify(state.orderBy)}
+    - Filters: ${JSON.stringify(state.filters)}
+    - GroupBy: ${state.groupBy.join(', ')}
+    - OrderBy: ${JSON.stringify(state.orderBy)}
     - Limit: ${state.limit}
 
-    Generate the SQL query and an explanation of the logic.
+    Generate valid JSON:
+    {
+      "sql": "string",
+      "explanation": "string (pt-BR)",
+      "tips": ["string"]
+    }
   `;
 
   try {
@@ -95,12 +149,11 @@ export const generateSqlFromBuilderState = async (
         responseSchema: {
           type: Type.OBJECT,
           properties: {
-            sql: { type: Type.STRING, description: "The valid PostgreSQL query" },
-            explanation: { type: Type.STRING, description: "Explanation of the query logic" },
+            sql: { type: Type.STRING },
+            explanation: { type: Type.STRING },
             tips: { 
               type: Type.ARRAY, 
-              items: { type: Type.STRING },
-              description: "Tips for optimization" 
+              items: { type: Type.STRING } 
             }
           },
           required: ["sql", "explanation"]
@@ -109,9 +162,16 @@ export const generateSqlFromBuilderState = async (
     });
 
     if (response.text) {
-      const result = JSON.parse(response.text) as QueryResult;
+      let result: QueryResult;
+      try {
+        const cleanText = cleanJsonString(response.text);
+        result = JSON.parse(cleanText) as QueryResult;
+      } catch (parseError) {
+        console.error("Builder JSON Parse Error:", parseError, response.text);
+        throw new Error("Invalid AI response.");
+      }
       
-      // Safety net: regex post-processing to ensure whitespace around key keywords
+      // Safety net: regex post-processing
       let fixedSql = result.sql;
       fixedSql = fixedSql.replace(/^SELECT(?=[^\s])/i, 'SELECT ');
       fixedSql = fixedSql.replace(/([^\s])FROM/gi, '$1 FROM');
@@ -122,27 +182,28 @@ export const generateSqlFromBuilderState = async (
       fixedSql = fixedSql.replace(/WHERE(?=[^\s])/gi, 'WHERE ');
       fixedSql = fixedSql.replace(/([^\s])ORDER/gi, '$1 ORDER');
       fixedSql = fixedSql.replace(/([^\s])GROUP/gi, '$1 GROUP');
+      fixedSql = fixedSql.replace(/([^\s])JOIN/gi, '$1 JOIN');
+      fixedSql = fixedSql.replace(/JOIN(?=[^\s])/gi, 'JOIN ');
+      fixedSql = fixedSql.replace(/([^\s])ON/gi, '$1 ON');
+      fixedSql = fixedSql.replace(/ON(?=[^\s])/gi, 'ON ');
 
       result.sql = fixedSql;
 
       return result;
     }
     throw new Error("No response from AI");
-  } catch (error) {
+  } catch (error: any) {
     console.error("Builder Gen Error:", error);
-    throw new Error("Failed to build SQL.");
+    throw new Error(error.message || "Failed to build SQL.");
   }
 };
 
 export const generateSchemaFromTopic = async (topic: string, context: string): Promise<DatabaseSchema> => {
-  const prompt = `
-    Generate a comprehensive PostgreSQL database schema for a "${topic}".
-    Context/Description: ${context}
-    
-    Include 3-5 relevant tables with realistic columns, primary keys, and foreign key relationships.
-    Ensure data types are valid PostgreSQL types (e.g., SERIAL, VARCHAR, INTEGER, TIMESTAMP, BOOLEAN).
-  `;
+  throw new Error("Simulation mode deprecated. Please connect to a real DB.");
+};
 
+export const parseSchemaFromDDL = async (ddl: string): Promise<DatabaseSchema> => {
+  const prompt = `Parse SQL DDL to JSON: ${ddl}`;
   const schemaStructure: Schema = {
     type: Type.OBJECT,
     properties: {
@@ -163,7 +224,7 @@ export const generateSchemaFromTopic = async (topic: string, context: string): P
                   type: { type: Type.STRING },
                   isPrimaryKey: { type: Type.BOOLEAN },
                   isForeignKey: { type: Type.BOOLEAN },
-                  references: { type: Type.STRING, description: "Format: table.column" }
+                  references: { type: Type.STRING }
                 },
                 required: ["name", "type"]
               }
@@ -180,83 +241,16 @@ export const generateSchemaFromTopic = async (topic: string, context: string): P
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash',
       contents: prompt,
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: schemaStructure
-      }
+      config: { responseMimeType: "application/json", responseSchema: schemaStructure }
     });
 
     if (response.text) {
-      const result = JSON.parse(response.text) as DatabaseSchema;
-      result.connectionSource = 'simulated';
-      return result;
-    }
-    throw new Error("Empty response from AI");
-  } catch (error) {
-    console.error("Schema Generation Error:", error);
-    throw new Error("Failed to generate schema.");
-  }
-};
-
-export const parseSchemaFromDDL = async (ddl: string): Promise<DatabaseSchema> => {
-  const prompt = `
-    Parse the following SQL DDL (CREATE TABLE statements) into a structured JSON schema.
-    
-    DDL:
-    ${ddl}
-  `;
-
-  const schemaStructure: Schema = {
-    type: Type.OBJECT,
-    properties: {
-      name: { type: Type.STRING, description: "Inferred database name or 'Imported Schema'" },
-      tables: {
-        type: Type.ARRAY,
-        items: {
-          type: Type.OBJECT,
-          properties: {
-            name: { type: Type.STRING },
-            description: { type: Type.STRING },
-            columns: {
-              type: Type.ARRAY,
-              items: {
-                type: Type.OBJECT,
-                properties: {
-                  name: { type: Type.STRING },
-                  type: { type: Type.STRING },
-                  isPrimaryKey: { type: Type.BOOLEAN },
-                  isForeignKey: { type: Type.BOOLEAN },
-                  references: { type: Type.STRING, description: "Format: table.column" }
-                },
-                required: ["name", "type"]
-              }
-            }
-          },
-          required: ["name", "columns"]
-        }
-      }
-    },
-    required: ["name", "tables"]
-  };
-
-  try {
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: prompt,
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: schemaStructure
-      }
-    });
-
-    if (response.text) {
-      const parsed = JSON.parse(response.text) as DatabaseSchema;
+      const parsed = JSON.parse(cleanJsonString(response.text)) as DatabaseSchema;
       parsed.connectionSource = 'ddl';
       return parsed;
     }
-    throw new Error("Empty response from AI");
+    throw new Error("Empty AI response");
   } catch (error) {
-    console.error("DDL Parsing Error:", error);
     throw new Error("Failed to parse DDL.");
   }
 };
