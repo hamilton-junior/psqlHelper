@@ -1,6 +1,8 @@
+
 import React, { useState, useMemo, useEffect, useCallback, useDeferredValue, memo, useRef } from 'react';
 import { DatabaseSchema, BuilderState, ExplicitJoin, JoinType, Filter, Operator, OrderBy, AppSettings, SavedQuery, AggregateFunction, Column } from '../../types';
-import { Layers, ChevronRight, Settings2, RefreshCw, Search, X, CheckSquare, Square, Plus, Trash2, ArrowRightLeft, Filter as FilterIcon, ArrowDownAZ, List, Link2, Check, ChevronDown, Pin, XCircle, Undo2, Redo2, Save, FolderOpen, Calendar, Clock, Sigma, Key, Combine, ArrowRight, ArrowLeft, FastForward } from 'lucide-react';
+import { Layers, ChevronRight, Settings2, RefreshCw, Search, X, CheckSquare, Square, Plus, Trash2, ArrowRightLeft, Filter as FilterIcon, ArrowDownAZ, List, Link2, Check, ChevronDown, Pin, XCircle, Undo2, Redo2, Save, FolderOpen, Calendar, Clock, Sigma, Key, Combine, ArrowRight, ArrowLeft, FastForward, Target, CornerDownRight } from 'lucide-react';
+import SchemaViewer from '../SchemaViewer';
 
 interface BuilderStepProps {
   schema: DatabaseSchema;
@@ -22,20 +24,47 @@ interface ColumnItemProps {
   tableName: string;
   isSelected: boolean;
   aggregation: AggregateFunction;
+  // Relationship Highlight Props
+  isHovered: boolean;
+  isRelTarget: boolean; // Is this the PK being pointed to?
+  isRelSource: boolean; // Is this an FK pointing to the hovered PK?
   onToggle: (tableName: string, colName: string) => void;
   onAggregationChange: (tableName: string, colName: string, func: AggregateFunction) => void;
+  onHover: (tableName: string, colName: string, references?: string) => void;
+  onHoverOut: () => void;
 }
 
 // Memoized Column Item
-const ColumnItem = memo(({ col, tableName, isSelected, aggregation, onToggle, onAggregationChange }: ColumnItemProps) => {
+const ColumnItem = memo(({ col, tableName, isSelected, aggregation, isHovered, isRelTarget, isRelSource, onToggle, onAggregationChange, onHover, onHoverOut }: ColumnItemProps) => {
+  
+  // Determine visual style based on relationship state
+  let containerClasses = "bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 hover:border-indigo-200 dark:hover:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-700 hover:scale-[1.01]";
+  let textClasses = "text-slate-700 dark:text-slate-300";
+  
+  if (isSelected) {
+     containerClasses = "bg-indigo-50 dark:bg-indigo-900/20 border-indigo-500 ring-1 ring-indigo-500 shadow-sm z-10";
+     textClasses = "text-indigo-900 dark:text-indigo-300";
+  }
+
+  // Override / Add styles for Relationship Highlights (takes precedence over simple hover)
+  if (isHovered) {
+     containerClasses = "bg-slate-100 dark:bg-slate-700 border-slate-300 dark:border-slate-500 ring-1 ring-slate-300 dark:ring-slate-500 z-20";
+  } else if (isRelTarget) {
+     // This is the PK being referenced -> GOLD/AMBER
+     containerClasses = "bg-amber-50 dark:bg-amber-900/30 border-amber-400 ring-1 ring-amber-400 shadow-md z-20";
+     textClasses = "text-amber-900 dark:text-amber-100 font-medium";
+  } else if (isRelSource) {
+     // This is an FK referencing the hovered PK -> EMERALD
+     containerClasses = "bg-emerald-50 dark:bg-emerald-900/30 border-emerald-400 ring-1 ring-emerald-400 shadow-md z-20";
+     textClasses = "text-emerald-900 dark:text-emerald-100 font-medium";
+  }
+
   return (
     <div 
       onClick={() => onToggle(tableName, col.name)}
-      className={`flex items-center p-2 rounded border cursor-pointer transition-all duration-200 ease-in-out relative group ${
-        isSelected 
-          ? 'bg-indigo-50 dark:bg-indigo-900/20 border-indigo-500 ring-1 ring-indigo-500 shadow-sm z-10' 
-          : 'bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 hover:border-indigo-200 dark:hover:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-700 hover:scale-[1.01]'
-      }`}
+      onMouseEnter={() => onHover(tableName, col.name, col.references)}
+      onMouseLeave={onHoverOut}
+      className={`flex items-center p-2 rounded border cursor-pointer transition-all duration-200 ease-in-out relative group ${containerClasses}`}
       title={`Clique para selecionar ${col.name}`}
     >
       <div className={`w-4 h-4 rounded border flex items-center justify-center mr-2 transition-all shrink-0 ${
@@ -43,9 +72,30 @@ const ColumnItem = memo(({ col, tableName, isSelected, aggregation, onToggle, on
         }`}>
          {isSelected && <div className="w-1.5 h-1.5 bg-white rounded-[1px]"></div>}
       </div>
+      
       <div className="flex-1 min-w-0 pr-8">
-         <div className={`text-sm font-medium truncate transition-colors ${isSelected ? 'text-indigo-900 dark:text-indigo-300' : 'text-slate-700 dark:text-slate-300'}`}>{col.name}</div>
-         <div className="text-[10px] text-slate-400">{col.type}</div>
+         <div className={`text-sm font-medium truncate transition-colors flex items-center gap-1.5 ${textClasses}`}>
+            {col.name}
+            {/* Icons for Keys */}
+            {col.isPrimaryKey && <Key className="w-3 h-3 text-amber-500 shrink-0 transform rotate-45" />}
+            {col.isForeignKey && <Link2 className="w-3 h-3 text-blue-500 shrink-0" />}
+         </div>
+         
+         <div className="flex items-center gap-2 mt-0.5">
+            <span className="text-[10px] text-slate-400 font-mono">{col.type}</span>
+            
+            {/* Relationship Badges */}
+            {isRelTarget && (
+               <span className="text-[9px] font-extrabold uppercase bg-amber-200 dark:bg-amber-800 text-amber-800 dark:text-amber-200 px-1.5 py-0 rounded-full flex items-center gap-0.5 shadow-sm">
+                 <Target className="w-2.5 h-2.5" /> Alvo
+               </span>
+            )}
+            {isRelSource && (
+               <span className="text-[9px] font-extrabold uppercase bg-emerald-200 dark:bg-emerald-800 text-emerald-800 dark:text-emerald-200 px-1.5 py-0 rounded-full flex items-center gap-0.5 shadow-sm">
+                 <CornerDownRight className="w-2.5 h-2.5" /> Ref
+               </span>
+            )}
+         </div>
       </div>
 
       {/* Aggregation Selector (Visible when checked) */}
@@ -78,6 +128,9 @@ const ColumnItem = memo(({ col, tableName, isSelected, aggregation, onToggle, on
 }, (prev, next) => {
   return prev.isSelected === next.isSelected && 
          prev.aggregation === next.aggregation && 
+         prev.isHovered === next.isHovered &&
+         prev.isRelTarget === next.isRelTarget &&
+         prev.isRelSource === next.isRelSource &&
          prev.col.name === next.col.name &&
          prev.tableName === next.tableName;
 });
@@ -88,6 +141,9 @@ interface TableCardProps {
   aggregations: Record<string, AggregateFunction>;
   isCollapsed: boolean;
   colSearchTerm: string;
+  // Highlight State
+  hoveredColumn: { table: string; col: string; references?: string } | null;
+  
   onToggleCollapse: (tableName: string) => void;
   onToggleColumn: (tableName: string, colName: string) => void;
   onAggregationChange: (tableName: string, colName: string, func: AggregateFunction) => void;
@@ -95,11 +151,13 @@ interface TableCardProps {
   onSelectNone: (tableName: string, visibleColumns: string[]) => void;
   onSearchChange: (tableName: string, term: string) => void;
   onClearSearch: (tableName: string) => void;
+  onHoverColumn: (tableName: string, colName: string, references?: string) => void;
+  onHoverOutColumn: () => void;
 }
 
 const TableCard = memo(({ 
-  table, selectedColumns, aggregations, isCollapsed, colSearchTerm,
-  onToggleCollapse, onToggleColumn, onAggregationChange, onSelectAll, onSelectNone, onSearchChange, onClearSearch
+  table, selectedColumns, aggregations, isCollapsed, colSearchTerm, hoveredColumn,
+  onToggleCollapse, onToggleColumn, onAggregationChange, onSelectAll, onSelectNone, onSearchChange, onClearSearch, onHoverColumn, onHoverOutColumn
 }: TableCardProps) => {
 
   // Advanced Search Logic moved inside TableCard and memoized
@@ -127,7 +185,9 @@ const TableCard = memo(({
   const selectedCount = selectedColumns.filter(c => c.startsWith(`${table.name}.`)).length;
 
   return (
-    <div className="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden shadow-sm">
+    <div className={`bg-white dark:bg-slate-800 rounded-lg border overflow-hidden shadow-sm transition-all duration-300
+      ${isCollapsed ? 'border-slate-200 dark:border-slate-700' : 'border-indigo-100 dark:border-slate-600 ring-1 ring-indigo-50 dark:ring-transparent'}
+    `}>
        {/* Card Header */}
        <div 
          className="px-4 py-3 bg-slate-50 dark:bg-slate-900 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
@@ -185,6 +245,18 @@ const TableCard = memo(({
                   const isChecked = selectedColumns.includes(colFullId);
                   const agg = aggregations[colFullId] || 'NONE';
                   
+                  // Highlight Logic
+                  const isHovered = hoveredColumn?.table === table.name && hoveredColumn?.col === col.name;
+                  
+                  // Is this the "Target" (PK) of the hovered FK?
+                  const isRelTarget = hoveredColumn?.references === `${table.name}.${col.name}`;
+                  
+                  // Is this an FK that points to the hovered PK?
+                  // Source logic: Check if current col references "HoveredTable.HoveredCol"
+                  const isRelSource = !col.references 
+                     ? false 
+                     : col.references === `${hoveredColumn?.table}.${hoveredColumn?.col}`;
+
                   return (
                     <ColumnItem 
                       key={col.name}
@@ -192,8 +264,13 @@ const TableCard = memo(({
                       tableName={table.name}
                       isSelected={isChecked}
                       aggregation={agg}
+                      isHovered={isHovered}
+                      isRelTarget={isRelTarget}
+                      isRelSource={isRelSource}
                       onToggle={onToggleColumn}
                       onAggregationChange={onAggregationChange}
+                      onHover={onHoverColumn}
+                      onHoverOut={onHoverOutColumn}
                     />
                   );
                 })
@@ -204,11 +281,21 @@ const TableCard = memo(({
     </div>
   );
 }, (prev, next) => {
+   // Optimization: Only re-render if visual state relevant to this table changes
+   const isHoverRelevant = 
+      (prev.hoveredColumn?.table === prev.table.name) || 
+      (next.hoveredColumn?.table === next.table.name) ||
+      (prev.hoveredColumn?.references?.startsWith(prev.table.name)) ||
+      (next.hoveredColumn?.references?.startsWith(next.table.name));
+      // Ideally we would also check incoming references (sources), but checking all is expensive.
+      // Standard memoization plus always re-render on hover change is safer for small table counts.
+   
    return prev.isCollapsed === next.isCollapsed &&
           prev.colSearchTerm === next.colSearchTerm &&
           prev.table.name === next.table.name &&
           prev.selectedColumns === next.selectedColumns &&
-          prev.aggregations === next.aggregations;
+          prev.aggregations === next.aggregations &&
+          prev.hoveredColumn === next.hoveredColumn; // Pass through hover state
 });
 
 
@@ -217,15 +304,14 @@ const TableCard = memo(({
 const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange, onGenerate, onSkipAi, isGenerating, progressMessage, settings }) => {
   const [activeTab, setActiveTab] = useState<TabType>('columns');
   
-  // Search state for tables
-  const [searchTerm, setSearchTerm] = useState('');
-  const deferredSearchTerm = useDeferredValue(searchTerm);
-  
   // State for column search within specific tables
   const [columnSearchTerms, setColumnSearchTerms] = useState<Record<string, string>>({});
   
   // State for collapsible tables
   const [collapsedTables, setCollapsedTables] = useState<Set<string>>(new Set());
+
+  // State for Hover Highlights (Table, Column, References)
+  const [hoveredColumn, setHoveredColumn] = useState<{ table: string; col: string; references?: string } | null>(null);
 
   // Show skip button if generating for too long
   const [showSkipButton, setShowSkipButton] = useState(false);
@@ -371,6 +457,14 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
       }
       return newSet;
     });
+  }, []);
+
+  const handleHoverColumn = useCallback((tableName: string, colName: string, references?: string) => {
+     setHoveredColumn({ table: tableName, col: colName, references });
+  }, []);
+
+  const handleHoverOutColumn = useCallback(() => {
+     setHoveredColumn(null);
   }, []);
 
   // --- Logic for selection ---
@@ -553,40 +647,6 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
   }, [updateStateWithHistory]);
 
 
-  const { pinnedTables, unpinnedTables } = useMemo(() => {
-    const term = deferredSearchTerm.toLowerCase().trim();
-    let allMatches = schema.tables;
-    if (term) {
-       allMatches = schema.tables.filter(table => 
-        table.name.toLowerCase().includes(term) || 
-        (table.description && table.description.toLowerCase().includes(term))
-      );
-    }
-    const pinned: typeof schema.tables = [];
-    const unpinned: typeof schema.tables = [];
-    allMatches.forEach(table => {
-      if (state.selectedTables.includes(table.name)) pinned.push(table);
-      else unpinned.push(table);
-    });
-    const sorter = (a: typeof schema.tables[0], b: typeof schema.tables[0]) => {
-      const nameA = a.name.toLowerCase();
-      const nameB = b.name.toLowerCase();
-      if (term) {
-        if (nameA === term && nameB !== term) return -1;
-        if (nameB === term && nameA !== term) return 1;
-        const startsA = nameA.startsWith(term);
-        const startsB = nameB.startsWith(term);
-        if (startsA && !startsB) return -1;
-        if (!startsA && startsB) return 1;
-      }
-      return nameA.localeCompare(nameB);
-    };
-    return {
-      pinnedTables: pinned.sort(sorter),
-      unpinnedTables: unpinned.sort(sorter)
-    };
-  }, [schema.tables, deferredSearchTerm, state.selectedTables]);
-
   const renderTabButton = (id: TabType, label: string, icon: React.ReactNode, tooltip: string) => (
     <button
       onClick={() => setActiveTab(id)}
@@ -600,44 +660,6 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
       {icon}
       {label}
     </button>
-  );
-
-  const renderTableListItem = (table: typeof schema.tables[0], isPinned: boolean) => (
-    <div 
-      key={table.name}
-      onClick={() => toggleTable(table.name)}
-      className={`p-2.5 rounded-lg cursor-pointer transition-all border relative group flex items-start justify-between gap-2 ${
-        isPinned
-          ? 'bg-indigo-50 dark:bg-indigo-900/20 border-indigo-400 shadow-sm' 
-          : 'hover:bg-slate-50 dark:hover:bg-slate-800 border-transparent hover:border-slate-200 dark:hover:border-slate-700'
-      }`}
-      title={isPinned ? "Clique para remover tabela" : "Clique para adicionar tabela à consulta"}
-    >
-      <div className="min-w-0">
-        <span className={`font-bold text-sm block truncate ${isPinned ? 'text-indigo-700 dark:text-indigo-300' : 'text-slate-700 dark:text-slate-300'}`}>
-            {table.name}
-        </span>
-        {table.description && (
-          <p className="text-[10px] text-slate-400 line-clamp-1 mt-0.5">
-            {table.description}
-          </p>
-        )}
-      </div>
-      
-      {isPinned ? (
-        <button 
-          onClick={(e) => { e.stopPropagation(); toggleTable(table.name); }}
-          className="mt-0.5 text-indigo-600 dark:text-indigo-400 bg-white dark:bg-slate-700 rounded-full p-0.5 shadow-sm hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20"
-          title="Remover tabela da seleção"
-        >
-          <X className="w-3 h-3" strokeWidth={3} />
-        </button>
-      ) : (
-        <div className="mt-0.5 opacity-0 group-hover:opacity-50 text-slate-400">
-           <Plus className="w-3 h-3" />
-        </div>
-      )}
-    </div>
   );
 
   const renderColumnSelect = (tableName: string, value: string, onChange: (val: string) => void, placeholder: string) => {
@@ -701,6 +723,11 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
           ))}
        </div>
     );
+  };
+
+  // Helper to update description of a table from SchemaViewer
+  const handleDescriptionChange = (tableName: string, newDesc: string) => {
+     console.log("Description update requested from Builder:", tableName, newDesc);
   };
 
   return (
@@ -807,68 +834,16 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
       {/* Main Layout: Sidebar + Content */}
       <div className="flex-1 flex gap-6 min-h-0">
         
-        {/* Left: Table Selection Sidebar */}
+        {/* Left: Unified Schema Viewer & Selection */}
         <div className="w-1/4 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 flex flex-col overflow-hidden shadow-sm">
-          <div className="p-3 bg-slate-50 dark:bg-slate-900 border-b border-slate-100 dark:border-slate-700 font-semibold text-slate-700 dark:text-slate-300 text-sm flex justify-between items-center">
-            <span>Tabelas ({schema.tables.length})</span>
-            {state.selectedTables.length > 0 && (
-              <span className="text-xs bg-indigo-100 text-indigo-700 dark:bg-indigo-900 dark:text-indigo-300 px-2 py-0.5 rounded-full">
-                {state.selectedTables.length} Selecionadas
-              </span>
-            )}
-          </div>
-          
-          <div className="p-2 border-b border-slate-100 dark:border-slate-700">
-            <div className="relative">
-              <Search className="absolute left-2.5 top-2 w-3.5 h-3.5 text-slate-400" />
-              <input
-                type="text"
-                placeholder="Filtrar tabelas..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-8 pr-2 py-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded text-xs focus:ring-1 focus:ring-indigo-500 outline-none text-slate-700 dark:text-slate-300"
-                title="Buscar tabelas por nome ou descrição"
-              />
-              {searchTerm && (
-                <button 
-                  onClick={() => setSearchTerm('')}
-                  className="absolute right-2 top-2 text-slate-400 hover:text-slate-600"
-                  title="Limpar busca"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              )}
-            </div>
-          </div>
-
-          <div className="flex-1 overflow-y-auto p-2 space-y-1">
-             {pinnedTables.length === 0 && unpinnedTables.length === 0 && (
-                <div className="text-center py-4 text-xs text-slate-400 italic">Nenhuma tabela encontrada</div>
-             )}
-
-             {/* Pinned / Selected Section */}
-             {pinnedTables.length > 0 && (
-               <>
-                 <div className="px-2 py-1 text-[10px] font-bold text-indigo-500 dark:text-indigo-400 uppercase flex items-center gap-1">
-                    <Pin className="w-3 h-3" /> Selecionadas
-                 </div>
-                 {pinnedTables.map(t => renderTableListItem(t, true))}
-                 <div className="my-2 border-b border-slate-100 dark:border-slate-700"></div>
-               </>
-             )}
-
-             {/* Unpinned Section */}
-             {unpinnedTables.length > 0 && (
-               <>
-                 {pinnedTables.length > 0 && (
-                   <div className="px-2 py-1 text-[10px] font-bold text-slate-400 uppercase">
-                      Disponíveis
-                   </div>
-                 )}
-                 {unpinnedTables.map(t => renderTableListItem(t, false))}
-               </>
-             )}
-          </div>
+          {/* We replace the old manual list with SchemaViewer in Selection Mode */}
+          <SchemaViewer 
+            schema={schema}
+            selectionMode={true}
+            selectedTableIds={state.selectedTables}
+            onToggleTable={toggleTable}
+            onDescriptionChange={handleDescriptionChange}
+          />
         </div>
 
         {/* Right: Tabbed Builder Area */}
@@ -907,6 +882,7 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
                            aggregations={state.aggregations}
                            isCollapsed={collapsedTables.has(tableName)}
                            colSearchTerm={columnSearchTerms[tableName] || ''}
+                           hoveredColumn={hoveredColumn}
                            onToggleCollapse={toggleTableCollapse}
                            onToggleColumn={toggleColumn}
                            onAggregationChange={updateAggregation}
@@ -914,6 +890,8 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
                            onSelectNone={selectNoneColumns}
                            onSearchChange={handleColumnSearchChange}
                            onClearSearch={handleClearColumnSearch}
+                           onHoverColumn={handleHoverColumn}
+                           onHoverOutColumn={handleHoverOutColumn}
                         />
                      );
                    })

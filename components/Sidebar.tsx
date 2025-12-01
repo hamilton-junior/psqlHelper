@@ -1,9 +1,7 @@
 
-
 import React from 'react';
 import { AppStep, DatabaseSchema } from '../types';
 import { Database, Layers, Terminal, Table, Server, ArrowRight, Settings } from 'lucide-react';
-import SchemaViewer from './SchemaViewer';
 
 interface SidebarProps {
   currentStep: AppStep;
@@ -61,6 +59,8 @@ const Sidebar: React.FC<SidebarProps> = ({ currentStep, onNavigate, schema, onOp
         </div>
       </div>
 
+      <div className="flex-1"></div>
+
       {/* Settings Button */}
       <div className="px-6 pb-4 shrink-0">
         <button 
@@ -72,24 +72,6 @@ const Sidebar: React.FC<SidebarProps> = ({ currentStep, onNavigate, schema, onOp
            <span>Configurações</span>
          </button>
       </div>
-
-      {/* Schema Viewer Section */}
-      {schema && (
-        <div className="flex-1 border-t border-slate-800 flex flex-col min-h-0 bg-white">
-          <SchemaViewer 
-            schema={schema}
-            onRegenerateClick={onRegenerateClick || (() => {})}
-            onDescriptionChange={onDescriptionChange}
-          />
-        </div>
-      )}
-      
-      {!schema && (
-         <div className="flex-1 p-6 border-t border-slate-800 bg-slate-800/30 flex flex-col items-center justify-center text-center">
-            <Database className="w-12 h-12 text-slate-700 mb-2 opacity-50" />
-            <p className="text-slate-500 text-xs">Conecte a um banco de dados para visualizar o esquema.</p>
-         </div>
-      )}
     </div>
   );
 };

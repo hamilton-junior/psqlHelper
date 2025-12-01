@@ -1,5 +1,3 @@
-
-
 import React, { useState, useEffect, useRef } from 'react';
 import { DatabaseSchema, AppStep, BuilderState, QueryResult, DbCredentials, AppSettings, DEFAULT_SETTINGS } from './types';
 import Sidebar from './components/Sidebar';
@@ -40,11 +38,22 @@ function App() {
 
   // Apply Theme - STRICT MODE for Tailwind
   useEffect(() => {
-    const root = window.document.documentElement;
-    root.classList.remove('dark'); // Clean slate first
+    // Apply class to HTML element for full page theming
+    const root = document.documentElement;
+    const body = document.body;
+    
+    root.classList.remove('dark');
+    body.classList.remove('dark');
+    
     if (settings.theme === 'dark') {
       root.classList.add('dark');
+      body.classList.add('dark');
+      // Ensure body background is consistent with theme to prevent white flashes
+      body.style.backgroundColor = '#0f172a'; // slate-900
+    } else {
+      body.style.backgroundColor = '#f8fafc'; // slate-50
     }
+    
     localStorage.setItem('psql-buddy-settings', JSON.stringify(settings));
   }, [settings, settings.theme]); 
 
@@ -218,23 +227,12 @@ function App() {
            if (aiError.message === "QUOTA_ERROR") {
               setQuotaExhausted(true);
               
-              // If we were trying to use extras, offer a retry without them
-              if (settings.enableAiValidation || settings.enableAiTips) {
-                 setError({
-                    message: "Cota de IA excedida ao tentar usar recursos avançados.",
-                    action: {
-                       label: "Desativar Extras e Tentar Novamente",
-                       handler: retryWithoutExtras
-                    }
-                 });
-                 setIsProcessing(false);
-                 setProgressMessage("");
-                 return;
-              } else {
-                 // Even basic failed, show error but maybe fallback local
-                 // We will try local fallback below, but notify user
-                 console.warn("Quota exhausted even for basic generation.");
+              // NON-BLOCKING Quota Logic: Warn and Fallback
+              if (!hasShownQuotaWarning) {
+                 setWarningToast("Cota da API IA excedida. Alternando para modo offline (sem validação/dicas).");
+                 setHasShownQuotaWarning(true);
               }
+              // Proceed to local fallback...
            } else if (aiError.message === "NO_RELATIONSHIP") {
               throw new Error("A IA não encontrou relacionamento entre estas tabelas. Defina Joins manualmente.");
            } else if (aiError.message === "TIMEOUT") {
@@ -283,6 +281,7 @@ function App() {
              console.error("Validação em segundo plano falhou:", err);
              if (err.message === "QUOTA_ERROR") {
                 setQuotaExhausted(true);
+                // Fail silently/gracefully on validation error
              }
           })
           .finally(() => {
@@ -311,19 +310,28 @@ function App() {
       if (credentials.host === 'simulated') {
          if (simulationData) {
             data = executeOfflineQuery(schema, simulationData, builderState);
-         } else if (settings.enableAiGeneration) {
+         } else if (settings.enableAiGeneration && !quotaExhausted) {
              // Try to use AI to gen data, but handle quota
             try {
                data = await generateMockData(schema, queryResult.sql);
             } catch (mockErr: any) {
                if (mockErr.message === "QUOTA_ERROR") {
                   setQuotaExhausted(true);
-                  throw new Error("Cota excedida durante geração de dados. Tente usar o modo offline completo.");
+                  // Soft fail to offline data or empty
+                  setWarningToast("Cota excedida. Usando dados offline.");
+                  // If simulation data exists we used it, but here we likely dont have it initialized?
+                  // App flow initializes simulationData on Connect if 'simulated'.
+                  // So we should have landed in 'executeOfflineQuery' above unless simData is null.
+                  // If simData is null (e.g. maybe pure AI mode without init), we just return empty with warning
+                  data = [];
+               } else {
+                  throw mockErr;
                }
-               throw mockErr;
             }
          } else {
-            data = [{ info: "Erro: Dados de simulação não inicializados e IA desativada." }];
+            // Fallback if no simulation data and no AI
+            data = [];
+            setWarningToast("Sem dados de simulação disponíveis.");
          }
       } else {
          data = await executeQueryReal(credentials, queryResult.sql);
@@ -335,6 +343,7 @@ function App() {
       console.error(e);
       if (e.message === "QUOTA_ERROR") {
          setQuotaExhausted(true);
+         // Don't block, just show error
          setError({ message: "Cota excedida durante execução." });
       } else {
          setError({ message: "Falha na execução: " + e.message });

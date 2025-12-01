@@ -27,6 +27,7 @@ const ConnectionStep: React.FC<ConnectionStepProps> = ({ onSchemaLoaded, setting
   // Simulation State
   const [simName, setSimName] = useState('');
   const [simDescription, setSimDescription] = useState('');
+  const [useOfflineSample, setUseOfflineSample] = useState(false);
   
   // Update fields if settings change externally (e.g. reset)
   useEffect(() => {
@@ -59,7 +60,8 @@ const ConnectionStep: React.FC<ConnectionStepProps> = ({ onSchemaLoaded, setting
         // Simulation Mode Logic
         
         // 1. Offline Mode: Load Sample Schema directly
-        if (!settings.enableAiGeneration) {
+        // Either because global AI is off OR user toggled the offline switch
+        if (!settings.enableAiGeneration || useOfflineSample) {
            // Deep copy sample schema to avoid mutation issues
            const schema: DatabaseSchema = JSON.parse(JSON.stringify(SAMPLE_SCHEMA));
            
@@ -202,14 +204,52 @@ const ConnectionStep: React.FC<ConnectionStepProps> = ({ onSchemaLoaded, setting
           ) : (
             <div className="space-y-6 animate-in fade-in slide-in-from-left-4 duration-300">
               
-              {settings.enableAiGeneration ? (
+              {settings.enableAiGeneration && (
+                  <div className="flex items-center justify-between bg-indigo-50/50 dark:bg-indigo-900/10 p-3 rounded-xl border border-indigo-100 dark:border-indigo-900/30">
+                     <div className="flex items-center gap-3 text-sm text-slate-700 dark:text-slate-300">
+                        <HardDrive className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
+                        <div>
+                           <span className="font-bold block">Modo Offline (Exemplo)</span>
+                           <span className="text-xs text-slate-500">Usar base pronta sem IA</span>
+                        </div>
+                     </div>
+                     <label className="relative inline-flex items-center cursor-pointer">
+                       <input 
+                         type="checkbox" 
+                         checked={useOfflineSample} 
+                         onChange={(e) => setUseOfflineSample(e.target.checked)} 
+                         className="sr-only peer" 
+                       />
+                       <div className="w-11 h-6 bg-slate-300 dark:bg-slate-700 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-indigo-300 dark:peer-focus:ring-indigo-800 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+                     </label>
+                  </div>
+              )}
+
+              {useOfflineSample || !settings.enableAiGeneration ? (
+                 // OFFLINE MODE UI
+                <div className="animate-in fade-in duration-300">
+                   <div className="p-6 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl flex flex-col items-center text-center gap-4">
+                      <div className="w-16 h-16 bg-white dark:bg-slate-800 rounded-full flex items-center justify-center shadow-sm text-slate-400">
+                         <HardDrive className="w-8 h-8" />
+                      </div>
+                      <div>
+                        <h4 className="font-bold text-slate-700 dark:text-white text-lg">Modo Simulação Offline</h4>
+                        <p className="text-slate-500 dark:text-slate-400 text-sm mt-1 max-w-sm mx-auto">
+                           Carregaremos um banco de dados de exemplo padrão (E-Commerce) instantaneamente para você testar.
+                        </p>
+                      </div>
+                      <div className="flex gap-2 text-xs text-slate-400 font-mono bg-slate-100 dark:bg-slate-800 px-3 py-2 rounded">
+                         <span>Tables: users, orders, products...</span>
+                      </div>
+                   </div>
+                </div>
+              ) : (
                 // AI MODE UI
-                <>
+                <div className="space-y-6 animate-in fade-in duration-300">
                   <div className="p-4 bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-100 dark:border-indigo-800 rounded-xl flex gap-3 text-indigo-900 dark:text-indigo-200 text-sm">
                     <Bot className="w-5 h-5 shrink-0 mt-0.5" />
                     <p>
                       A IA pode criar uma <strong>estrutura simulada</strong> baseada na sua ideia.
-                      Você poderá construir queries SQL reais contra essa estrutura virtual.
                     </p>
                   </div>
 
@@ -240,25 +280,7 @@ const ConnectionStep: React.FC<ConnectionStepProps> = ({ onSchemaLoaded, setting
                       required
                     />
                   </div>
-                </>
-              ) : (
-                // OFFLINE MODE UI
-                <>
-                   <div className="p-6 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl flex flex-col items-center text-center gap-4">
-                      <div className="w-16 h-16 bg-white dark:bg-slate-800 rounded-full flex items-center justify-center shadow-sm text-slate-400">
-                         <HardDrive className="w-8 h-8" />
-                      </div>
-                      <div>
-                        <h4 className="font-bold text-slate-700 dark:text-white text-lg">Modo Simulação Offline</h4>
-                        <p className="text-slate-500 dark:text-slate-400 text-sm mt-1 max-w-sm mx-auto">
-                           Como a IA está desativada, utilizaremos um banco de dados de exemplo padrão (E-Commerce) para que você possa explorar a ferramenta.
-                        </p>
-                      </div>
-                      <div className="flex gap-2 text-xs text-slate-400 font-mono bg-slate-100 dark:bg-slate-800 px-3 py-2 rounded">
-                         <span>Tables: users, orders, products...</span>
-                      </div>
-                   </div>
-                </>
+                </div>
               )}
 
             </div>
@@ -299,8 +321,8 @@ const ConnectionStep: React.FC<ConnectionStepProps> = ({ onSchemaLoaded, setting
                 ) : (
                   mode === 'real' ? 'Conectar ao BD Local' : (
                     <>
-                       {settings.enableAiGeneration ? <Wand2 className="w-4 h-4" /> : <Database className="w-4 h-4" />}
-                       {settings.enableAiGeneration ? 'Criar Simulação' : 'Carregar Exemplo'}
+                       {(!settings.enableAiGeneration || useOfflineSample) ? <HardDrive className="w-4 h-4" /> : <Wand2 className="w-4 h-4" />}
+                       {(!settings.enableAiGeneration || useOfflineSample) ? 'Carregar Exemplo' : 'Criar Simulação'}
                     </>
                   )
                 )}
