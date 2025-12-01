@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { DatabaseSchema, AppStep, BuilderState, QueryResult, DbCredentials, AppSettings, DEFAULT_SETTINGS } from './types';
 import Sidebar from './components/Sidebar';
@@ -458,6 +459,7 @@ function App() {
               isGenerating={isProcessing}
               progressMessage={progressMessage}
               settings={settings}
+              onDescriptionChange={handleUpdateSchemaDescription}
             />
           )}
 

@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { DatabaseSchema, Table, Column } from '../types';
 import { Database, Table as TableIcon, Key, ArrowRight, Search, ChevronDown, ChevronRight, Link, ArrowUpRight, ArrowDownLeft, X, ArrowUpDown, ArrowUp, ArrowDown, Pencil, Check, Filter, PlusCircle, Target, CornerDownRight } from 'lucide-react';
 
@@ -26,7 +26,19 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
   selectedTableIds = [],
   onToggleTable
 }) => {
-  const [searchTerm, setSearchTerm] = useState('');
+  // Search State
+  const [inputValue, setInputValue] = useState(''); // Immediate input value
+  const [debouncedTerm, setDebouncedTerm] = useState(''); // Delayed value for filtering
+
+  // Debounce Logic
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedTerm(inputValue);
+    }, 300); // 300ms delay to prevent freezing
+
+    return () => clearTimeout(timer);
+  }, [inputValue]);
+
   // Store expanded table names. Initialize with empty or all based on preference.
   const [expandedTables, setExpandedTables] = useState<Set<string>>(new Set());
   
@@ -58,17 +70,17 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
   }, [schema]);
 
   const filteredTables = useMemo(() => {
-    const term = searchTerm.toLowerCase();
+    // Use debouncedTerm for heavy filtering logic
+    const term = debouncedTerm.toLowerCase().trim();
 
-    // In selection mode, we might want to sort selected tables to the top, but basic filtering first
+    // 1. Filter Logic
     let tables = schema.tables.filter(table => {
-      // 1. Text Search
       const nameMatch = table.name.toLowerCase().includes(term);
       const descMatch = table.description && table.description.toLowerCase().includes(term);
       const colMatch = table.columns.some(col => col.name.toLowerCase().includes(term));
+      
       const matchesSearch = !term || nameMatch || descMatch || colMatch;
 
-      // 2. Type Filter
       let matchesType = true;
       if (selectedTypeFilter) {
         matchesType = table.columns.some(col => col.type.toUpperCase().includes(selectedTypeFilter));
@@ -77,10 +89,41 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
       return matchesSearch && matchesType;
     });
 
-    // Optional: If in selection mode, maybe sort pinned tables first? 
-    // For now, keep alphabetical to avoid jumping UI
+    // 2. Sort Logic (Closest Match > Starts With > Others)
+    if (term) {
+      tables.sort((a, b) => {
+        const nameA = a.name.toLowerCase();
+        const nameB = b.name.toLowerCase();
+
+        // Calculate Score A
+        let scoreA = 0;
+        if (nameA === term) scoreA = 100; // Exact match
+        else if (nameA.startsWith(term)) scoreA = 50; // Starts with
+        else if (nameA.includes(term)) scoreA = 10; // Contains
+        else scoreA = 1; // Found in cols/desc
+
+        // Calculate Score B
+        let scoreB = 0;
+        if (nameB === term) scoreB = 100;
+        else if (nameB.startsWith(term)) scoreB = 50;
+        else if (nameB.includes(term)) scoreB = 10;
+        else scoreB = 1;
+
+        // Descending sort by score
+        if (scoreA !== scoreB) {
+           return scoreB - scoreA;
+        }
+        
+        // Alphabetical fallback
+        return nameA.localeCompare(nameB);
+      });
+    } else {
+       // Default alphabetical if no search
+       tables.sort((a, b) => a.name.localeCompare(b.name));
+    }
+
     return tables;
-  }, [schema.tables, searchTerm, selectedTypeFilter]);
+  }, [schema.tables, debouncedTerm, selectedTypeFilter]);
 
   // Expand/Collapse logic
   const toggleTableExpand = (e: React.MouseEvent, tableName: string) => {
@@ -315,19 +358,19 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
       <div className={`p-2 border-b border-slate-100 dark:border-slate-800 shrink-0 space-y-2 ${selectionMode ? 'bg-slate-50 dark:bg-slate-900' : ''}`}>
         <div className="flex gap-2">
            <div className="relative flex-1">
-             <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
+             <Search className={`absolute left-3 top-2.5 w-4 h-4 ${inputValue !== debouncedTerm ? 'text-indigo-400 animate-pulse' : 'text-slate-400'}`} />
              <input
                type="text"
                placeholder="Buscar tabelas..."
-               value={searchTerm}
-               onChange={(e) => setSearchTerm(e.target.value)}
+               value={inputValue}
+               onChange={(e) => setInputValue(e.target.value)}
                disabled={loading}
                title="Buscar tabelas e colunas"
                className="w-full pl-9 pr-8 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded text-xs focus:ring-2 focus:ring-indigo-500 outline-none transition-all text-slate-700 dark:text-slate-200 placeholder-slate-400"
              />
-             {searchTerm && (
+             {inputValue && (
                <button 
-                 onClick={() => setSearchTerm('')}
+                 onClick={() => setInputValue('')}
                  title="Limpar busca"
                  className="absolute right-2 top-2.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
                >
@@ -499,7 +542,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
                     <div className="space-y-0.5">
                       {getSortedAndFilteredColumns(table.columns).map((col) => {
                          const targetTable = col.references ? col.references.split('.')[0] : null;
-                         const isMatch = searchTerm && col.name.toLowerCase().includes(searchTerm.toLowerCase());
+                         const isMatch = debouncedTerm && col.name.toLowerCase().includes(debouncedTerm.toLowerCase());
                          const tooltipText = col.isForeignKey && col.references 
                             ? `${col.name} references ${col.references}` 
                             : col.name;

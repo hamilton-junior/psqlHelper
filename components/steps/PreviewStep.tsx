@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { QueryResult } from '../../types';
 import { Terminal, Play, ArrowLeft, CheckCircle2, ShieldAlert, Info, Copy, Check, Loader2, Lightbulb, ShieldOff } from 'lucide-react';
@@ -27,7 +28,7 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ queryResult, onExecute, onBac
   };
 
   return (
-    <div className="max-w-4xl mx-auto">
+    <div className="w-full h-full">
       <div className="mb-6 flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-bold text-slate-800 dark:text-white flex items-center gap-2">
@@ -144,7 +145,7 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ queryResult, onExecute, onBac
         </div>
 
         {/* Actions */}
-        <div className="flex items-center justify-between pt-4">
+        <div className="flex items-center justify-between pt-4 pb-10">
            <button 
              onClick={onBack}
              className="px-6 py-3 text-slate-600 dark:text-slate-400 font-semibold hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors flex items-center gap-2"

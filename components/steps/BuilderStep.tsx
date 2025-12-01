@@ -13,6 +13,7 @@ interface BuilderStepProps {
   isGenerating: boolean;
   progressMessage?: string;
   settings: AppSettings;
+  onDescriptionChange?: (tableName: string, newDesc: string) => void;
 }
 
 type TabType = 'columns' | 'joins' | 'filters' | 'sortgroup';
@@ -184,19 +185,40 @@ const TableCard = memo(({
   const visibleColNames = useMemo(() => filteredColumns.map(c => c.name), [filteredColumns]);
   const selectedCount = selectedColumns.filter(c => c.startsWith(`${table.name}.`)).length;
 
+  // 1. Target Logic: Am I the table being referenced by the hovered column?
+  const isTarget = hoveredColumn?.references?.startsWith(table.name + '.') || false;
+
+  // 2. Child Logic: Do I have a column that references the hovered PK (or column)?
+  // We check if any of MY columns reference the `hoveredColumn`
+  const isChild = useMemo(() => {
+    if (!hoveredColumn) return false;
+    const targetRef = `${hoveredColumn.table}.${hoveredColumn.col}`;
+    return table.columns.some(c => c.references === targetRef);
+  }, [table.columns, hoveredColumn]);
+
   return (
     <div className={`bg-white dark:bg-slate-800 rounded-lg border overflow-hidden shadow-sm transition-all duration-300
       ${isCollapsed ? 'border-slate-200 dark:border-slate-700' : 'border-indigo-100 dark:border-slate-600 ring-1 ring-indigo-50 dark:ring-transparent'}
+      ${isTarget ? 'ring-2 ring-amber-400 border-amber-300 dark:border-amber-600 shadow-md scale-[1.01] z-10' : ''}
+      ${isChild ? 'ring-2 ring-emerald-400 border-emerald-300 dark:border-emerald-600 shadow-md scale-[1.01] z-10' : ''}
     `}>
        {/* Card Header */}
        <div 
-         className="px-4 py-3 bg-slate-50 dark:bg-slate-900 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+         className={`px-4 py-3 border-b flex justify-between items-center cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors
+           ${isTarget ? 'bg-amber-50 dark:bg-amber-900/30 border-amber-200 dark:border-amber-700' : 
+             isChild ? 'bg-emerald-50 dark:bg-emerald-900/30 border-emerald-200 dark:border-emerald-700' : 
+             'bg-slate-50 dark:bg-slate-900 border-slate-100 dark:border-slate-700'}
+         `}
          onClick={() => onToggleCollapse(table.name)}
          title={isCollapsed ? "Expandir colunas" : "Recolher colunas"}
        >
          <div className="flex items-center gap-2">
             {isCollapsed ? <ChevronRight className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
-            <h4 className="font-bold text-slate-700 dark:text-slate-300">{table.name}</h4>
+            <h4 className={`font-bold ${isTarget ? 'text-amber-800 dark:text-amber-200' : isChild ? 'text-emerald-800 dark:text-emerald-200' : 'text-slate-700 dark:text-slate-300'}`}>
+               {table.name}
+               {isTarget && <span className="ml-2 text-[10px] bg-amber-200 dark:bg-amber-700 text-amber-900 dark:text-amber-100 px-1.5 py-0.5 rounded font-extrabold uppercase tracking-wide">Alvo</span>}
+               {isChild && <span className="ml-2 text-[10px] bg-emerald-200 dark:bg-emerald-700 text-emerald-900 dark:text-emerald-100 px-1.5 py-0.5 rounded font-extrabold uppercase tracking-wide">Filho</span>}
+            </h4>
             <span className="text-xs text-slate-400 px-2 py-0.5 bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-full">
               {selectedCount} selecionadas
             </span>
@@ -286,22 +308,23 @@ const TableCard = memo(({
       (prev.hoveredColumn?.table === prev.table.name) || 
       (next.hoveredColumn?.table === next.table.name) ||
       (prev.hoveredColumn?.references?.startsWith(prev.table.name)) ||
-      (next.hoveredColumn?.references?.startsWith(next.table.name));
-      // Ideally we would also check incoming references (sources), but checking all is expensive.
-      // Standard memoization plus always re-render on hover change is safer for small table counts.
-   
+      (next.hoveredColumn?.references?.startsWith(next.table.name)) ||
+      // Re-render children tables when hover changes
+      (prev.table.columns.some(c => c.references === `${prev.hoveredColumn?.table}.${prev.hoveredColumn?.col}`)) ||
+      (next.table.columns.some(c => c.references === `${next.hoveredColumn?.table}.${next.hoveredColumn?.col}`));
+      
    return prev.isCollapsed === next.isCollapsed &&
           prev.colSearchTerm === next.colSearchTerm &&
           prev.table.name === next.table.name &&
           prev.selectedColumns === next.selectedColumns &&
           prev.aggregations === next.aggregations &&
-          prev.hoveredColumn === next.hoveredColumn; // Pass through hover state
+          !isHoverRelevant; // Only skip render if hover is NOT relevant
 });
 
 
 // --- Main Component ---
 
-const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange, onGenerate, onSkipAi, isGenerating, progressMessage, settings }) => {
+const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange, onGenerate, onSkipAi, isGenerating, progressMessage, settings, onDescriptionChange }) => {
   const [activeTab, setActiveTab] = useState<TabType>('columns');
   
   // State for column search within specific tables
@@ -725,13 +748,8 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
     );
   };
 
-  // Helper to update description of a table from SchemaViewer
-  const handleDescriptionChange = (tableName: string, newDesc: string) => {
-     console.log("Description update requested from Builder:", tableName, newDesc);
-  };
-
   return (
-    <div className="max-w-6xl mx-auto h-full flex flex-col relative">
+    <div className="w-full h-full flex flex-col relative">
       <div className="flex justify-between items-end mb-6 shrink-0">
         <div>
           <h2 className="text-2xl font-bold text-slate-800 dark:text-white flex items-center gap-2">
@@ -842,12 +860,12 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
             selectionMode={true}
             selectedTableIds={state.selectedTables}
             onToggleTable={toggleTable}
-            onDescriptionChange={handleDescriptionChange}
+            onDescriptionChange={onDescriptionChange}
           />
         </div>
 
         {/* Right: Tabbed Builder Area */}
-        <div className="flex-1 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 flex flex-col overflow-hidden shadow-sm">
+        <div className="flex-1 w-full bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 flex flex-col overflow-hidden shadow-sm">
            
            {/* Tabs Header */}
            <div className="flex border-b border-slate-100 dark:border-slate-700">
