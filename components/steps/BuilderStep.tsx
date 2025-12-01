@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo, useEffect, useCallback, useDeferredValue, memo } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, useDeferredValue, memo, useRef } from 'react';
 import { DatabaseSchema, BuilderState, ExplicitJoin, JoinType, Filter, Operator, OrderBy, AppSettings, SavedQuery, AggregateFunction, Column } from '../../types';
 import { Layers, ChevronRight, Settings2, RefreshCw, Search, X, CheckSquare, Square, Plus, Trash2, ArrowRightLeft, Filter as FilterIcon, ArrowDownAZ, List, Link2, Check, ChevronDown, Pin, XCircle, Undo2, Redo2, Save, FolderOpen, Calendar, Clock, Sigma, Key, Combine, ArrowRight, ArrowLeft } from 'lucide-react';
 
@@ -25,6 +25,8 @@ interface ColumnItemProps {
   onAggregationChange: (tableName: string, colName: string, func: AggregateFunction) => void;
 }
 
+// Memoized Column Item
+// Using strict equality for function props is now safe because we will ensure handlers are stable via refs
 const ColumnItem = memo(({ col, tableName, isSelected, aggregation, onToggle, onAggregationChange }: ColumnItemProps) => {
   return (
     <div 
@@ -231,6 +233,14 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
   const [showSavedQueries, setShowSavedQueries] = useState(false);
   const [savedQueries, setSavedQueries] = useState<SavedQuery[]>([]);
 
+  // --- STABLE STATE REF PATTERN ---
+  // To avoid re-rendering all memoized components when state changes, we use a ref to access the latest state
+  // inside event handlers without changing the handler reference itself.
+  const stateRef = useRef(state);
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
+
   // Load saved queries on mount
   useEffect(() => {
     const saved = localStorage.getItem('psql-buddy-saved-queries');
@@ -251,34 +261,40 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
     }
   }, [settings.defaultLimit]);
 
-  // --- History Management Wrappers ---
+  // --- History Management Wrappers (Stable) ---
   
   const updateStateWithHistory = useCallback((newState: BuilderState) => {
-    // Avoid expensive clone if not necessary, but kept for safety. 
-    // Ideally use structuredClone if environment supports it, or keep JSON.
-    const currentStateCopy = JSON.parse(JSON.stringify(state));
+    const currentState = stateRef.current;
+    // Deep copy for history safety
+    const currentStateCopy = JSON.parse(JSON.stringify(currentState));
     setHistory(prev => [...prev, currentStateCopy]);
     setFuture([]);
     onStateChange(newState);
-  }, [state, onStateChange]);
+  }, [onStateChange]);
 
   const handleUndo = useCallback(() => {
+    // Undo depends on history, which is local, so this recreates when history changes.
+    // That's fine as it's not passed to heavy table components.
     if (history.length === 0) return;
     const previousState = history[history.length - 1];
     const newHistory = history.slice(0, -1);
-    setFuture(prev => [state, ...prev]);
+    const currentState = stateRef.current;
+    
+    setFuture(prev => [currentState, ...prev]);
     setHistory(newHistory);
     onStateChange(previousState);
-  }, [history, state, onStateChange]);
+  }, [history, onStateChange]);
 
   const handleRedo = useCallback(() => {
     if (future.length === 0) return;
     const nextState = future[0];
     const newFuture = future.slice(1);
-    setHistory(prev => [...prev, state]);
+    const currentState = stateRef.current;
+
+    setHistory(prev => [...prev, currentState]);
     setFuture(newFuture);
     onStateChange(nextState);
-  }, [future, state, onStateChange]);
+  }, [future, onStateChange]);
 
   // --- Saved Queries Logic ---
   
@@ -291,7 +307,7 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
       name,
       createdAt: Date.now(),
       schemaName: schema.name,
-      state: JSON.parse(JSON.stringify(state)) // Deep copy
+      state: JSON.parse(JSON.stringify(stateRef.current)) // Deep copy
     };
 
     const newSavedList = [newQuery, ...savedQueries];
@@ -326,7 +342,10 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
     return t ? t.columns : [];
   }, [schema.tables]);
 
-  const getAllSelectedTableColumns = useCallback(() => {
+  // This one reads from stateRef to be safe if called asynchronously, though usually called in render cycle.
+  // Actually used in render, so we should rely on props or make sure ref is current.
+  // We'll use stateRef.current to be safe in event handlers, but props in render.
+  const getAllSelectedTableColumns = () => {
     let cols: {table: string, column: string}[] = [];
     state.selectedTables.forEach(tName => {
       const t = schema.tables.find(table => table.name === tName);
@@ -335,7 +354,7 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
       }
     });
     return cols;
-  }, [state.selectedTables, schema.tables]);
+  };
 
   const toggleTableCollapse = useCallback((tableName: string) => {
     setCollapsedTables(prev => {
@@ -349,23 +368,25 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
     });
   }, []);
 
-  // --- Table Selection Logic ---
+  // --- Table Selection Logic (STABLE) ---
   const toggleTable = useCallback((tableName: string) => {
-    const isSelected = state.selectedTables.includes(tableName);
+    const currentState = stateRef.current;
+    const isSelected = currentState.selectedTables.includes(tableName);
     let newTables = [];
+    
     if (isSelected) {
-      newTables = state.selectedTables.filter(t => t !== tableName);
-      const newColumns = state.selectedColumns.filter(c => !c.startsWith(`${tableName}.`));
-      const newJoins = state.joins.filter(j => j.fromTable !== tableName && j.toTable !== tableName);
-      const newFilters = state.filters.filter(f => !f.column.startsWith(`${tableName}.`));
+      newTables = currentState.selectedTables.filter(t => t !== tableName);
+      const newColumns = currentState.selectedColumns.filter(c => !c.startsWith(`${tableName}.`));
+      const newJoins = currentState.joins.filter(j => j.fromTable !== tableName && j.toTable !== tableName);
+      const newFilters = currentState.filters.filter(f => !f.column.startsWith(`${tableName}.`));
       // Remove aggregations for columns of this table
-      const newAggs = { ...state.aggregations };
+      const newAggs = { ...currentState.aggregations };
       Object.keys(newAggs).forEach(key => {
         if (key.startsWith(`${tableName}.`)) delete newAggs[key];
       });
 
       updateStateWithHistory({ 
-        ...state, 
+        ...currentState, 
         selectedTables: newTables, 
         selectedColumns: newColumns, 
         aggregations: newAggs,
@@ -379,38 +400,40 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
          return next;
       });
     } else {
-      newTables = [...state.selectedTables, tableName];
-      updateStateWithHistory({ ...state, selectedTables: newTables });
+      newTables = [...currentState.selectedTables, tableName];
+      updateStateWithHistory({ ...currentState, selectedTables: newTables });
     }
-  }, [state, updateStateWithHistory]);
+  }, [updateStateWithHistory]);
 
   const clearAllTables = useCallback(() => {
-     updateStateWithHistory({ ...state, selectedTables: [], selectedColumns: [], aggregations: {}, joins: [], filters: [] });
-  }, [state, updateStateWithHistory]);
+     updateStateWithHistory({ ...stateRef.current, selectedTables: [], selectedColumns: [], aggregations: {}, joins: [], filters: [] });
+  }, [updateStateWithHistory]);
 
-  // --- Column Selection Logic ---
+  // --- Column Selection Logic (STABLE) ---
   const toggleColumn = useCallback((tableName: string, colName: string) => {
+    const currentState = stateRef.current;
     const fullId = `${tableName}.${colName}`;
-    const isSelected = state.selectedColumns.includes(fullId);
+    const isSelected = currentState.selectedColumns.includes(fullId);
     let newColumns = [];
-    const newAggs = { ...state.aggregations };
+    const newAggs = { ...currentState.aggregations };
 
     if (isSelected) {
-       newColumns = state.selectedColumns.filter(c => c !== fullId);
+       newColumns = currentState.selectedColumns.filter(c => c !== fullId);
        delete newAggs[fullId];
     } else {
-       newColumns = [...state.selectedColumns, fullId];
+       newColumns = [...currentState.selectedColumns, fullId];
     }
     
-    let newTables = state.selectedTables;
-    if (!state.selectedTables.includes(tableName)) newTables = [...state.selectedTables, tableName];
+    let newTables = currentState.selectedTables;
+    if (!currentState.selectedTables.includes(tableName)) newTables = [...currentState.selectedTables, tableName];
 
-    updateStateWithHistory({ ...state, selectedTables: newTables, selectedColumns: newColumns, aggregations: newAggs });
-  }, [state, updateStateWithHistory]);
+    updateStateWithHistory({ ...currentState, selectedTables: newTables, selectedColumns: newColumns, aggregations: newAggs });
+  }, [updateStateWithHistory]);
   
   const updateAggregation = useCallback((tableName: string, colName: string, func: AggregateFunction) => {
+    const currentState = stateRef.current;
     const fullId = `${tableName}.${colName}`;
-    const newAggs = { ...state.aggregations };
+    const newAggs = { ...currentState.aggregations };
     if (func === 'NONE') {
       delete newAggs[fullId];
     } else {
@@ -418,34 +441,36 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
     }
     
     // Ensure column is selected if an aggregation is applied
-    let newColumns = state.selectedColumns;
-    if (!state.selectedColumns.includes(fullId)) {
-      newColumns = [...state.selectedColumns, fullId];
+    let newColumns = currentState.selectedColumns;
+    if (!currentState.selectedColumns.includes(fullId)) {
+      newColumns = [...currentState.selectedColumns, fullId];
     }
     
-    updateStateWithHistory({ ...state, selectedColumns: newColumns, aggregations: newAggs });
-  }, [state, updateStateWithHistory]);
+    updateStateWithHistory({ ...currentState, selectedColumns: newColumns, aggregations: newAggs });
+  }, [updateStateWithHistory]);
 
   const selectAllColumns = useCallback((tableName: string, visibleColumns: string[]) => {
-    const newColsSet = new Set(state.selectedColumns);
+    const currentState = stateRef.current;
+    const newColsSet = new Set(currentState.selectedColumns);
     visibleColumns.forEach(colName => newColsSet.add(`${tableName}.${colName}`));
     const newCols = Array.from(newColsSet);
-    let newTables = state.selectedTables;
-    if (!state.selectedTables.includes(tableName)) newTables = [...state.selectedTables, tableName];
-    updateStateWithHistory({ ...state, selectedTables: newTables, selectedColumns: newCols });
-  }, [state, updateStateWithHistory]);
+    let newTables = currentState.selectedTables;
+    if (!currentState.selectedTables.includes(tableName)) newTables = [...currentState.selectedTables, tableName];
+    updateStateWithHistory({ ...currentState, selectedTables: newTables, selectedColumns: newCols });
+  }, [updateStateWithHistory]);
 
   const selectNoneColumns = useCallback((tableName: string, visibleColumns: string[]) => {
+    const currentState = stateRef.current;
     const visibleSet = new Set(visibleColumns.map(c => `${tableName}.${c}`));
-    const newCols = state.selectedColumns.filter(c => !visibleSet.has(c));
+    const newCols = currentState.selectedColumns.filter(c => !visibleSet.has(c));
     // Clear aggs for these columns
-    const newAggs = { ...state.aggregations };
+    const newAggs = { ...currentState.aggregations };
     visibleSet.forEach(key => delete newAggs[key]);
 
-    updateStateWithHistory({ ...state, selectedColumns: newCols, aggregations: newAggs });
-  }, [state, updateStateWithHistory]);
+    updateStateWithHistory({ ...currentState, selectedColumns: newCols, aggregations: newAggs });
+  }, [updateStateWithHistory]);
 
-  // --- Search Handlers ---
+  // --- Search Handlers (Stable) ---
   const handleColumnSearchChange = useCallback((tableName: string, term: string) => {
     setColumnSearchTerms(prev => ({...prev, [tableName]: term}));
   }, []);
@@ -454,70 +479,80 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
     setColumnSearchTerms(prev => ({...prev, [tableName]: ''}));
   }, []);
 
-  // --- Joins/Filters/Sort Wrappers ---
+  // --- Joins/Filters/Sort Wrappers (STABLE) ---
   const addJoin = useCallback(() => {
+    const currentState = stateRef.current;
     const newJoin: ExplicitJoin = {
       id: crypto.randomUUID(),
-      fromTable: state.selectedTables[0] || '',
+      fromTable: currentState.selectedTables[0] || '',
       fromColumn: '',
       type: 'INNER',
-      toTable: state.selectedTables[1] || '',
+      toTable: currentState.selectedTables[1] || '',
       toColumn: ''
     };
-    updateStateWithHistory({ ...state, joins: [...state.joins, newJoin] });
-  }, [state, updateStateWithHistory]);
+    updateStateWithHistory({ ...currentState, joins: [...currentState.joins, newJoin] });
+  }, [updateStateWithHistory]);
 
   const updateJoin = useCallback((id: string, field: keyof ExplicitJoin, value: string) => {
-    const newJoins = state.joins.map(j => j.id === id ? { ...j, [field]: value } : j);
-    updateStateWithHistory({ ...state, joins: newJoins });
-  }, [state, updateStateWithHistory]);
+    const currentState = stateRef.current;
+    const newJoins = currentState.joins.map(j => j.id === id ? { ...j, [field]: value } : j);
+    updateStateWithHistory({ ...currentState, joins: newJoins });
+  }, [updateStateWithHistory]);
 
   const removeJoin = useCallback((id: string) => {
-    updateStateWithHistory({ ...state, joins: state.joins.filter(j => j.id !== id) });
-  }, [state, updateStateWithHistory]);
+    const currentState = stateRef.current;
+    updateStateWithHistory({ ...currentState, joins: currentState.joins.filter(j => j.id !== id) });
+  }, [updateStateWithHistory]);
 
   const addFilter = useCallback(() => {
+    const currentState = stateRef.current;
     const newFilter: Filter = {
       id: crypto.randomUUID(),
-      column: state.selectedColumns[0] || (state.selectedTables[0] ? `${state.selectedTables[0]}.id` : ''),
+      column: currentState.selectedColumns[0] || (currentState.selectedTables[0] ? `${currentState.selectedTables[0]}.id` : ''),
       operator: '=',
       value: ''
     };
-    updateStateWithHistory({ ...state, filters: [...state.filters, newFilter] });
-  }, [state, updateStateWithHistory]);
+    updateStateWithHistory({ ...currentState, filters: [...currentState.filters, newFilter] });
+  }, [updateStateWithHistory]);
 
   const updateFilter = useCallback((id: string, field: keyof Filter, value: string) => {
-    const newFilters = state.filters.map(f => f.id === id ? { ...f, [field]: value } : f);
-    updateStateWithHistory({ ...state, filters: newFilters });
-  }, [state, updateStateWithHistory]);
+    const currentState = stateRef.current;
+    const newFilters = currentState.filters.map(f => f.id === id ? { ...f, [field]: value } : f);
+    updateStateWithHistory({ ...currentState, filters: newFilters });
+  }, [updateStateWithHistory]);
 
   const removeFilter = useCallback((id: string) => {
-    updateStateWithHistory({ ...state, filters: state.filters.filter(f => f.id !== id) });
-  }, [state, updateStateWithHistory]);
+    const currentState = stateRef.current;
+    updateStateWithHistory({ ...currentState, filters: currentState.filters.filter(f => f.id !== id) });
+  }, [updateStateWithHistory]);
 
   const toggleGroupBy = useCallback((col: string) => {
-    const exists = state.groupBy.includes(col);
-    const newGroup = exists ? state.groupBy.filter(g => g !== col) : [...state.groupBy, col];
-    updateStateWithHistory({ ...state, groupBy: newGroup });
-  }, [state, updateStateWithHistory]);
+    const currentState = stateRef.current;
+    const exists = currentState.groupBy.includes(col);
+    const newGroup = exists ? currentState.groupBy.filter(g => g !== col) : [...currentState.groupBy, col];
+    updateStateWithHistory({ ...currentState, groupBy: newGroup });
+  }, [updateStateWithHistory]);
 
   const addSort = useCallback(() => {
+    const currentState = stateRef.current;
     const newSort: OrderBy = {
       id: crypto.randomUUID(),
-      column: state.selectedColumns[0] || '',
+      column: currentState.selectedColumns[0] || '',
       direction: 'ASC'
     };
-    updateStateWithHistory({ ...state, orderBy: [...state.orderBy, newSort] });
-  }, [state, updateStateWithHistory]);
+    updateStateWithHistory({ ...currentState, orderBy: [...currentState.orderBy, newSort] });
+  }, [updateStateWithHistory]);
 
   const updateSort = useCallback((id: string, field: keyof OrderBy, value: string) => {
-    const newSorts = state.orderBy.map(s => s.id === id ? { ...s, [field]: value } : s);
-    updateStateWithHistory({ ...state, orderBy: newSorts });
-  }, [state, updateStateWithHistory]);
+    const currentState = stateRef.current;
+    const newSorts = currentState.orderBy.map(s => s.id === id ? { ...s, [field]: value } : s);
+    updateStateWithHistory({ ...currentState, orderBy: newSorts });
+  }, [updateStateWithHistory]);
 
   const removeSort = useCallback((id: string) => {
-    updateStateWithHistory({ ...state, orderBy: state.orderBy.filter(s => s.id !== id) });
-  }, [state, updateStateWithHistory]);
+    const currentState = stateRef.current;
+    updateStateWithHistory({ ...currentState, orderBy: currentState.orderBy.filter(s => s.id !== id) });
+  }, [updateStateWithHistory]);
 
 
   // --- Render Helpers ---
@@ -1175,7 +1210,7 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
                <input 
                  type="number" 
                  value={state.limit}
-                 onChange={(e) => updateStateWithHistory({...state, limit: parseInt(e.target.value) || 10})}
+                 onChange={(e) => updateStateWithHistory({...stateRef.current, limit: parseInt(e.target.value) || 10})}
                  className="w-16 bg-transparent text-right font-mono text-sm outline-none focus:text-indigo-400 text-white"
                />
             </div>
