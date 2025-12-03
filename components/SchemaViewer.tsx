@@ -1,5 +1,3 @@
-
-
 import React, { useState, useMemo, useEffect, useCallback, memo, useDeferredValue, useRef } from 'react';
 import { DatabaseSchema, Table, Column } from '../types';
 import { Database, Table as TableIcon, Key, Search, ChevronDown, ChevronRight, Link, ArrowUpRight, ArrowDownLeft, X, ArrowUpDown, ArrowUp, ArrowDown, Pencil, Check, Filter, PlusCircle, Target, CornerDownRight, Loader2, ArrowRight, Folder, FolderOpen } from 'lucide-react';
@@ -342,9 +340,34 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
   const [sortField, setSortField] = useState<SortField>('key');
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
 
-  // UI State
-  const [expandedTables, setExpandedTables] = useState<Set<string>>(new Set());
-  const [expandedSchemas, setExpandedSchemas] = useState<Set<string>>(new Set(['public'])); // Default public expanded
+  // UI State - PERSISTED
+  const [expandedTables, setExpandedTables] = useState<Set<string>>(() => {
+    try {
+      const stored = localStorage.getItem(`psql-buddy-viewer-tables-${schema.name}`);
+      return stored ? new Set(JSON.parse(stored)) : new Set();
+    } catch {
+      return new Set();
+    }
+  });
+
+  const [expandedSchemas, setExpandedSchemas] = useState<Set<string>>(() => {
+    try {
+      const stored = localStorage.getItem(`psql-buddy-viewer-schemas-${schema.name}`);
+      return stored ? new Set(JSON.parse(stored)) : new Set(['public']);
+    } catch {
+      return new Set(['public']);
+    }
+  });
+
+  // Persistence Effects
+  useEffect(() => {
+    localStorage.setItem(`psql-buddy-viewer-tables-${schema.name}`, JSON.stringify(Array.from(expandedTables)));
+  }, [expandedTables, schema.name]);
+
+  useEffect(() => {
+    localStorage.setItem(`psql-buddy-viewer-schemas-${schema.name}`, JSON.stringify(Array.from(expandedSchemas)));
+  }, [expandedSchemas, schema.name]);
+
   const [editingTable, setEditingTable] = useState<string | null>(null);
   const [tempDesc, setTempDesc] = useState('');
 

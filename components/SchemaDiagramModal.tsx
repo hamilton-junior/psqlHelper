@@ -1,6 +1,6 @@
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { DatabaseSchema } from '../types';
-import { X, ZoomIn, ZoomOut, Move, Maximize, MousePointer2 } from 'lucide-react';
+import { X, ZoomIn, ZoomOut, Move, Maximize, MousePointer2, Loader2 } from 'lucide-react';
 
 interface SchemaDiagramModalProps {
   schema: DatabaseSchema;
@@ -12,8 +12,8 @@ interface NodePosition {
   y: number;
 }
 
-const TABLE_WIDTH = 180;
-const HEADER_HEIGHT = 36;
+const TABLE_WIDTH = 200;
+const HEADER_HEIGHT = 40;
 const ROW_HEIGHT = 24;
 
 const SchemaDiagramModal: React.FC<SchemaDiagramModalProps> = ({ schema, onClose }) => {
@@ -22,30 +22,116 @@ const SchemaDiagramModal: React.FC<SchemaDiagramModalProps> = ({ schema, onClose
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [isDraggingCanvas, setIsDraggingCanvas] = useState(false);
   const [draggedNode, setDraggedNode] = useState<string | null>(null);
+  const [containerSize, setContainerSize] = useState({ w: 0, h: 0 });
+  const [initializing, setInitializing] = useState(true);
   
   const containerRef = useRef<HTMLDivElement>(null);
   const lastMousePos = useRef({ x: 0, y: 0 });
 
-  // Initial Auto-Layout
+  // Initial Auto-Layout (Async to prevent blocking UI on large schemas)
   useEffect(() => {
-    const newPositions: Record<string, NodePosition> = {};
-    const cols = Math.ceil(Math.sqrt(schema.tables.length));
-    const spacingX = 250;
-    const spacingY = 300; // More vertical space for columns
+    // Small timeout to allow UI to render 'Loading' state first
+    const timer = setTimeout(() => {
+      const newPositions: Record<string, NodePosition> = {};
+      const count = schema.tables.length;
+      
+      // Calculate optimized grid
+      const cols = Math.ceil(Math.sqrt(count));
+      const spacingX = 300; // Wider spacing
+      const spacingY = 400; // Taller spacing for columns
 
-    schema.tables.forEach((table, index) => {
-      const col = index % cols;
-      const row = Math.floor(index / cols);
-      newPositions[table.name] = {
-        x: col * spacingX + 50,
-        y: row * spacingY + 50
-      };
-    });
-    setPositions(newPositions);
+      schema.tables.forEach((table, index) => {
+        const col = index % cols;
+        const row = Math.floor(index / cols);
+        newPositions[table.name] = {
+          x: col * spacingX + 50,
+          y: row * spacingY + 50
+        };
+      });
+      setPositions(newPositions);
+      setInitializing(false);
+    }, 100);
+    return () => clearTimeout(timer);
   }, [schema]);
+
+  // Update container size on resize
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const updateSize = () => {
+      if (containerRef.current) {
+        setContainerSize({
+          w: containerRef.current.clientWidth,
+          h: containerRef.current.clientHeight
+        });
+      }
+    };
+    updateSize();
+    window.addEventListener('resize', updateSize);
+    return () => window.removeEventListener('resize', updateSize);
+  }, []);
+
+  // --- VIRTUALIZATION LOGIC ---
+  
+  // Calculate visible area in "world space"
+  const visibleBounds = useMemo(() => {
+    if (containerSize.w === 0) return null;
+    
+    // Invert the transform to find the world coordinates of the viewport
+    const xMin = -pan.x / scale;
+    const yMin = -pan.y / scale;
+    const xMax = (-pan.x + containerSize.w) / scale;
+    const yMax = (-pan.y + containerSize.h) / scale;
+    
+    // Add buffer to render slightly outside screen (smoother panning)
+    const buffer = 500 / scale; // Scale buffer so it covers more area when zoomed out
+    
+    return {
+       xMin: xMin - buffer,
+       yMin: yMin - buffer,
+       xMax: xMax + buffer,
+       yMax: yMax + buffer
+    };
+  }, [pan, scale, containerSize]);
+
+  // Level Of Detail (LOD)
+  const lodLevel = useMemo(() => {
+    if (scale < 0.3) return 'low';    // Just boxes
+    if (scale < 0.6) return 'medium'; // Header only
+    return 'high';                    // Full detail
+  }, [scale]);
+
+  // Filter visible tables
+  const visibleTables = useMemo(() => {
+     if (!visibleBounds || initializing) return [];
+
+     return schema.tables.filter(t => {
+        const pos = positions[t.name];
+        if (!pos) return false;
+        
+        // Approx height based on LOD to optimize cull check
+        // Low/Med = fixed height, High = variable based on columns
+        const height = lodLevel === 'high' 
+           ? HEADER_HEIGHT + (t.columns.length * ROW_HEIGHT) 
+           : HEADER_HEIGHT;
+
+        // AABB Intersection Test
+        return (
+           pos.x + TABLE_WIDTH > visibleBounds.xMin &&
+           pos.x < visibleBounds.xMax &&
+           pos.y + height > visibleBounds.yMin &&
+           pos.y < visibleBounds.yMax
+        );
+     });
+  }, [positions, visibleBounds, initializing, lodLevel, schema.tables]);
+
+
+  // --- INTERACTION HANDLERS ---
 
   const handleMouseDown = (e: React.MouseEvent, tableName?: string) => {
     e.stopPropagation();
+    // Only left click drags
+    if (e.button !== 0) return;
+
     lastMousePos.current = { x: e.clientX, y: e.clientY };
     if (tableName) {
       setDraggedNode(tableName);
@@ -55,6 +141,7 @@ const SchemaDiagramModal: React.FC<SchemaDiagramModalProps> = ({ schema, onClose
   };
 
   const handleMouseMove = (e: React.MouseEvent) => {
+    // Calculate delta
     const dx = e.clientX - lastMousePos.current.x;
     const dy = e.clientY - lastMousePos.current.y;
     lastMousePos.current = { x: e.clientX, y: e.clientY };
@@ -80,14 +167,17 @@ const SchemaDiagramModal: React.FC<SchemaDiagramModalProps> = ({ schema, onClose
   const handleWheel = (e: React.WheelEvent) => {
     e.stopPropagation();
     const zoomSensitivity = 0.001;
-    const newScale = Math.min(Math.max(0.1, scale - e.deltaY * zoomSensitivity), 3);
+    // Limit zoom between 0.05x (view all) and 2x (detail)
+    const newScale = Math.min(Math.max(0.05, scale - e.deltaY * zoomSensitivity), 2);
     setScale(newScale);
   };
 
-  // Generate Connections (SVG Paths)
+  // Generate Connections (Only for visible tables to save performance)
   const connections = useMemo(() => {
     const lines: React.ReactElement[] = [];
-    schema.tables.forEach(table => {
+    
+    // We iterate over visible tables to draw their outgoing connections
+    visibleTables.forEach(table => {
       const startPos = positions[table.name];
       if (!startPos) return;
 
@@ -95,56 +185,93 @@ const SchemaDiagramModal: React.FC<SchemaDiagramModalProps> = ({ schema, onClose
         if (col.isForeignKey && col.references) {
           const [targetTable, targetCol] = col.references.split('.');
           const endPos = positions[targetTable];
+          
+          // Optimization: If target is not loaded/exists, skip
           if (!endPos) return;
 
-          // Simple anchor points
+          // Don't render lines if BOTH nodes are far off screen (should be covered by visibleTables check partially)
+          // But visibleTables only guarantees source is visible. 
+          // If target is very far, we draw a long line. That's fine.
+
+          // Start Point
           const startX = startPos.x + TABLE_WIDTH;
-          const startY = startPos.y + HEADER_HEIGHT + (colIndex * ROW_HEIGHT) + (ROW_HEIGHT / 2);
+          // In Low/Med LOD, all lines originate/terminate at center/header to look cleaner
+          const startY = lodLevel === 'high' 
+             ? startPos.y + HEADER_HEIGHT + (colIndex * ROW_HEIGHT) + (ROW_HEIGHT / 2)
+             : startPos.y + (HEADER_HEIGHT / 2);
           
-          // Find target column index for better Y precision
+          // End Point
           const targetTableDef = schema.tables.find(t => t.name === targetTable);
           const targetColIndex = targetTableDef?.columns.findIndex(c => c.name === targetCol) ?? 0;
           
           const endX = endPos.x;
-          const endY = endPos.y + HEADER_HEIGHT + (targetColIndex * ROW_HEIGHT) + (ROW_HEIGHT / 2);
+          const endY = lodLevel === 'high'
+             ? endPos.y + HEADER_HEIGHT + (targetColIndex * ROW_HEIGHT) + (ROW_HEIGHT / 2)
+             : endPos.y + (HEADER_HEIGHT / 2);
 
-          // Bezier Curve
-          const pathD = `M ${startX} ${startY} C ${startX + 50} ${startY}, ${endX - 50} ${endY}, ${endX} ${endY}`;
+          // Bezier Curve Logic
+          const dist = Math.abs(endX - startX);
+          const controlOffset = Math.max(dist * 0.5, 50);
+          const pathD = `M ${startX} ${startY} C ${startX + controlOffset} ${startY}, ${endX - controlOffset} ${endY}, ${endX} ${endY}`;
           
+          // Optimization: Simple lines for Low LOD
+          const simplifiedPath = `M ${startX} ${startY} L ${endX} ${endY}`;
+
           lines.push(
-            <g key={`${table.name}-${col.name}`}>
+            <g key={`${table.name}-${col.name}`} className="pointer-events-none">
                <path 
-                  d={pathD} 
+                  d={lodLevel === 'low' ? simplifiedPath : pathD} 
                   stroke="#6366f1" 
-                  strokeWidth="2" 
+                  strokeWidth={lodLevel === 'low' ? 4 : 2} 
                   fill="none" 
-                  opacity="0.6" 
-                  markerEnd="url(#arrowhead)"
+                  opacity={lodLevel === 'low' ? 0.3 : 0.6} 
+                  markerEnd={lodLevel === 'high' ? "url(#arrowhead)" : undefined}
                />
-               <circle cx={startX} cy={startY} r="3" fill="#6366f1" />
-               <circle cx={endX} cy={endY} r="3" fill="#6366f1" />
+               {lodLevel === 'high' && (
+                 <>
+                   <circle cx={startX} cy={startY} r="3" fill="#6366f1" />
+                   <circle cx={endX} cy={endY} r="3" fill="#6366f1" />
+                 </>
+               )}
             </g>
           );
         }
       });
     });
     return lines;
-  }, [schema, positions]);
+  }, [visibleTables, positions, lodLevel, schema.tables]);
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/90 backdrop-blur-sm flex items-center justify-center p-4">
       <div className="bg-slate-100 dark:bg-slate-900 w-full h-full rounded-xl shadow-2xl overflow-hidden relative border border-slate-700 flex flex-col">
         
+        {/* Loading Overlay */}
+        {initializing && (
+           <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-slate-900/50 text-white">
+              <Loader2 className="w-10 h-10 animate-spin mb-2 text-indigo-500" />
+              <p className="text-sm font-bold">Organizando {schema.tables.length} tabelas...</p>
+           </div>
+        )}
+
         {/* Toolbar */}
-        <div className="absolute top-4 left-4 z-10 flex gap-2">
+        <div className="absolute top-4 left-4 z-10 flex flex-col gap-2">
            <div className="bg-white dark:bg-slate-800 p-1.5 rounded-lg shadow-md border border-slate-200 dark:border-slate-700 flex gap-1">
-              <button onClick={() => setScale(s => Math.min(s + 0.1, 3))} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded text-slate-600 dark:text-slate-300"><ZoomIn className="w-5 h-5" /></button>
-              <button onClick={() => setScale(s => Math.max(s - 0.1, 0.1))} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded text-slate-600 dark:text-slate-300"><ZoomOut className="w-5 h-5" /></button>
+              <button onClick={() => setScale(s => Math.min(s + 0.1, 2))} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded text-slate-600 dark:text-slate-300"><ZoomIn className="w-5 h-5" /></button>
+              <button onClick={() => setScale(s => Math.max(s - 0.1, 0.05))} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded text-slate-600 dark:text-slate-300"><ZoomOut className="w-5 h-5" /></button>
               <button onClick={() => { setScale(1); setPan({x:0, y:0}); }} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded text-slate-600 dark:text-slate-300"><Maximize className="w-5 h-5" /></button>
            </div>
-           <div className="bg-white/90 dark:bg-slate-800/90 px-3 py-2 rounded-lg shadow-md border border-slate-200 dark:border-slate-700 flex items-center gap-2 text-xs font-medium text-slate-500">
-              <MousePointer2 className="w-4 h-4" />
-              <span>Arraste tabelas para organizar</span>
+           
+           <div className="bg-white/90 dark:bg-slate-800/90 px-3 py-2 rounded-lg shadow-md border border-slate-200 dark:border-slate-700">
+              <div className="flex items-center gap-2 text-xs font-medium text-slate-500 mb-1">
+                 <MousePointer2 className="w-3 h-3" />
+                 <span>Controles</span>
+              </div>
+              <div className="text-[10px] text-slate-400 space-y-1">
+                 <p>• Arraste o fundo para mover</p>
+                 <p>• Scroll para zoom</p>
+                 <p>• Tabelas visíveis: {visibleTables.length}</p>
+                 <p className="capitalize">• Detalhe: {lodLevel}</p>
+              </div>
            </div>
         </div>
 
@@ -167,7 +294,9 @@ const SchemaDiagramModal: React.FC<SchemaDiagramModalProps> = ({ schema, onClose
                transform: `translate(${pan.x}px, ${pan.y}px) scale(${scale})`,
                transformOrigin: '0 0',
                width: '100%',
-               height: '100%'
+               height: '100%',
+               // Hardware acceleration hint
+               willChange: 'transform'
              }}
              className="relative w-full h-full"
           >
@@ -180,8 +309,8 @@ const SchemaDiagramModal: React.FC<SchemaDiagramModalProps> = ({ schema, onClose
                {connections}
              </svg>
 
-             {/* Nodes */}
-             {schema.tables.map(table => {
+             {/* Virtualized Nodes */}
+             {visibleTables.map(table => {
                 const pos = positions[table.name] || {x: 0, y: 0};
                 return (
                    <div
@@ -190,32 +319,54 @@ const SchemaDiagramModal: React.FC<SchemaDiagramModalProps> = ({ schema, onClose
                       style={{
                          transform: `translate(${pos.x}px, ${pos.y}px)`,
                          width: TABLE_WIDTH,
+                         // Only apply shadow/borders if scale is reasonable to save paint performance on low LOD
+                         boxShadow: lodLevel === 'low' ? 'none' : undefined,
                       }}
-                      className="absolute bg-white dark:bg-slate-800 rounded-lg shadow-xl border-2 border-slate-200 dark:border-slate-700 cursor-grab active:cursor-grabbing hover:border-indigo-400 dark:hover:border-indigo-500 transition-colors z-10"
+                      className={`absolute bg-white dark:bg-slate-800 rounded-lg cursor-grab active:cursor-grabbing hover:border-indigo-400 dark:hover:border-indigo-500 transition-colors z-10 
+                         ${lodLevel === 'low' ? 'border border-slate-400 dark:border-slate-600' : 'shadow-xl border-2 border-slate-200 dark:border-slate-700'}
+                      `}
                    >
-                      {/* Node Header */}
-                      <div className="h-9 bg-slate-100 dark:bg-slate-900/50 border-b border-slate-200 dark:border-slate-700 px-3 flex items-center justify-between rounded-t-md">
-                         <span className="text-xs font-bold text-slate-700 dark:text-slate-200 truncate" title={table.name}>
+                      {/* Node Header - Adapts to LOD */}
+                      <div className={`
+                         flex items-center justify-between rounded-t-md overflow-hidden
+                         ${lodLevel === 'low' ? 'h-full justify-center text-center p-2 bg-indigo-100 dark:bg-indigo-900/50' : 'h-10 bg-slate-100 dark:bg-slate-900/50 border-b border-slate-200 dark:border-slate-700 px-3'}
+                      `}>
+                         <span 
+                           className={`font-bold text-slate-700 dark:text-slate-200 truncate ${lodLevel === 'low' ? 'text-[10px] whitespace-normal' : 'text-xs'}`} 
+                           title={table.name}
+                         >
                             {table.name}
                          </span>
-                         <span className="text-[9px] text-slate-400 uppercase">{table.schema}</span>
+                         {lodLevel !== 'low' && (
+                            <span className="text-[9px] text-slate-400 uppercase">{table.schema}</span>
+                         )}
                       </div>
                       
-                      {/* Columns */}
-                      <div className="py-1">
-                         {table.columns.map(col => (
-                            <div key={col.name} className="px-3 py-1 flex items-center justify-between text-[10px] hover:bg-slate-50 dark:hover:bg-slate-700/50">
-                               <div className="flex items-center gap-1.5 overflow-hidden">
-                                  {col.isPrimaryKey && <span className="text-amber-500 font-bold text-[8px]">PK</span>}
-                                  {col.isForeignKey && <span className="text-blue-500 font-bold text-[8px]">FK</span>}
-                                  <span className={`truncate ${col.isPrimaryKey ? 'font-bold text-slate-800 dark:text-slate-100' : 'text-slate-600 dark:text-slate-400'}`}>
-                                     {col.name}
-                                  </span>
+                      {/* Columns - Only visible in High LOD */}
+                      {lodLevel === 'high' && (
+                         <div className="py-1">
+                            {table.columns.map(col => (
+                               <div key={col.name} className="px-3 py-1 flex items-center justify-between text-[10px] hover:bg-slate-50 dark:hover:bg-slate-700/50">
+                                  <div className="flex items-center gap-1.5 overflow-hidden">
+                                     {col.isPrimaryKey && <span className="text-amber-500 font-bold text-[8px]">PK</span>}
+                                     {col.isForeignKey && <span className="text-blue-500 font-bold text-[8px]">FK</span>}
+                                     <span className={`truncate ${col.isPrimaryKey ? 'font-bold text-slate-800 dark:text-slate-100' : 'text-slate-600 dark:text-slate-400'}`}>
+                                        {col.name}
+                                     </span>
+                                  </div>
+                                  <span className="text-slate-400 font-mono text-[9px]">{col.type.split('(')[0]}</span>
                                </div>
-                               <span className="text-slate-400 font-mono text-[9px]">{col.type.split('(')[0]}</span>
-                            </div>
-                         ))}
-                      </div>
+                            ))}
+                         </div>
+                      )}
+
+                      {/* Medium LOD Summary */}
+                      {lodLevel === 'medium' && (
+                         <div className="px-3 py-2 text-[10px] text-slate-500 dark:text-slate-400 flex justify-between">
+                            <span>{table.columns.length} columns</span>
+                            {table.columns.some(c => c.isPrimaryKey) && <span className="text-amber-500 font-bold">PK</span>}
+                         </div>
+                      )}
                    </div>
                 );
              })}

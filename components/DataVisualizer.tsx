@@ -33,27 +33,29 @@ const DataVisualizer: React.FC<DataVisualizerProps> = ({ data }) => {
        return newRow;
     });
 
-    const firstRow = cleanData[0];
-    const keys = Object.keys(firstRow);
-    
+    // Extract ALL keys from ALL rows (handling sparse data)
+    const allUniqueKeys = Array.from(new Set(cleanData.flatMap(Object.keys)));
+
     // Find keys that are actually numbers in at least ONE row
-    let numKeys = keys.filter(k => {
+    let numKeys = allUniqueKeys.filter(k => {
+       // Check if ANY row has a valid number for this key
        const hasNumber = cleanData.some(row => {
           const val = row[k];
           return typeof val === 'number';
        });
-       return hasNumber && k !== 'id' && !k.endsWith('_id');
+       // Exclude obvious IDs unless they are the only numbers
+       return hasNumber && k !== 'id' && !k.endsWith('_id') && !k.endsWith('Id');
     });
 
     // Fallback: If no strict metrics found, allow IDs to be charted (e.g. counting)
     if (numKeys.length === 0) {
-       numKeys = keys.filter(k => {
+       numKeys = allUniqueKeys.filter(k => {
           const hasNumber = cleanData.some(row => typeof row[k] === 'number');
           return hasNumber;
        });
     }
 
-    return { processedData: cleanData, allKeys: keys, potentialNumberKeys: numKeys };
+    return { processedData: cleanData, allKeys: allUniqueKeys, potentialNumberKeys: numKeys };
   }, [data]);
 
   // 2. Initialize Defaults (Heuristics) - Only when data changes significantly
@@ -63,8 +65,11 @@ const DataVisualizer: React.FC<DataVisualizerProps> = ({ data }) => {
     // Default X: Name, Date, or first string
     const defaultX = allKeys.find(k => {
        const kLower = k.toLowerCase();
-       return kLower.includes('name') || kLower.includes('date') || kLower.includes('time') || kLower.includes('country');
-    }) || allKeys.find(k => typeof processedData[0][k] === 'string') || allKeys[0];
+       return kLower.includes('name') || kLower.includes('date') || kLower.includes('time') || kLower.includes('country') || kLower.includes('category');
+    }) || allKeys.find(k => {
+        // Find a column that is primarily strings
+        return processedData.some(row => typeof row[k] === 'string');
+    }) || allKeys[0];
 
     setSelectedXAxis(defaultX);
 
