@@ -324,10 +324,26 @@ const TableCard = memo(({
 // --- Main Component ---
 
 const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange, onGenerate, onSkipAi, isGenerating, progressMessage, settings, onDescriptionChange }) => {
-  const [activeTab, setActiveTab] = useState<TabType>('columns');
+  // Persistence for Active Tab
+  const [activeTab, setActiveTab] = useState<TabType>(() => {
+    return (localStorage.getItem(`psql-buddy-tab-${schema.name}`) as TabType) || 'columns';
+  });
+
+  useEffect(() => {
+    localStorage.setItem(`psql-buddy-tab-${schema.name}`, activeTab);
+  }, [activeTab, schema.name]);
   
-  // State for column search within specific tables
-  const [columnSearchTerms, setColumnSearchTerms] = useState<Record<string, string>>({});
+  // Persistence for Column Search Terms
+  const [columnSearchTerms, setColumnSearchTerms] = useState<Record<string, string>>(() => {
+    try {
+        const stored = localStorage.getItem(`psql-buddy-search-${schema.name}`);
+        return stored ? JSON.parse(stored) : {};
+    } catch { return {}; }
+  });
+
+  useEffect(() => {
+    localStorage.setItem(`psql-buddy-search-${schema.name}`, JSON.stringify(columnSearchTerms));
+  }, [columnSearchTerms, schema.name]);
   
   // State for collapsible tables - PERSISTED
   const [collapsedTables, setCollapsedTables] = useState<Set<string>>(() => {

@@ -36,15 +36,22 @@ const DataVisualizer: React.FC<DataVisualizerProps> = ({ data }) => {
     const firstRow = cleanData[0];
     const keys = Object.keys(firstRow);
     
-    // Find keys that are actually numbers in at least one of the first few valid rows
-    // Previously only checked first row, failing if it was null
-    const numKeys = keys.filter(k => {
-       const hasNumber = cleanData.slice(0, 10).some(row => {
+    // Find keys that are actually numbers in at least ONE row
+    let numKeys = keys.filter(k => {
+       const hasNumber = cleanData.some(row => {
           const val = row[k];
           return typeof val === 'number';
        });
        return hasNumber && k !== 'id' && !k.endsWith('_id');
     });
+
+    // Fallback: If no strict metrics found, allow IDs to be charted (e.g. counting)
+    if (numKeys.length === 0) {
+       numKeys = keys.filter(k => {
+          const hasNumber = cleanData.some(row => typeof row[k] === 'number');
+          return hasNumber;
+       });
+    }
 
     return { processedData: cleanData, allKeys: keys, potentialNumberKeys: numKeys };
   }, [data]);
