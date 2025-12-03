@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { DatabaseSchema } from '../types';
-import { X, ZoomIn, ZoomOut, Move, Maximize, MousePointer2, Loader2 } from 'lucide-react';
+import { X, ZoomIn, ZoomOut, Move, Maximize, MousePointer2, Loader2, Search } from 'lucide-react';
 
 interface SchemaDiagramModalProps {
   schema: DatabaseSchema;
@@ -24,6 +24,9 @@ const SchemaDiagramModal: React.FC<SchemaDiagramModalProps> = ({ schema, onClose
   const [draggedNode, setDraggedNode] = useState<string | null>(null);
   const [containerSize, setContainerSize] = useState({ w: 0, h: 0 });
   const [initializing, setInitializing] = useState(true);
+  
+  // Search State
+  const [searchTerm, setSearchTerm] = useState('');
   
   const containerRef = useRef<HTMLDivElement>(null);
   const lastMousePos = useRef({ x: 0, y: 0 });
@@ -70,6 +73,64 @@ const SchemaDiagramModal: React.FC<SchemaDiagramModalProps> = ({ schema, onClose
     return () => window.removeEventListener('resize', updateSize);
   }, []);
 
+  // --- SEARCH FOCUS LOGIC ---
+  useEffect(() => {
+    if (!searchTerm.trim() || initializing || containerSize.w === 0) return;
+
+    const term = searchTerm.toLowerCase();
+    const matchingTables = schema.tables.filter(t => 
+      t.name.toLowerCase().includes(term) || 
+      t.columns.some(c => c.name.toLowerCase().includes(term))
+    );
+
+    if (matchingTables.length === 0) return;
+
+    // Calculate Bounding Box of matches
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+
+    matchingTables.forEach(t => {
+      const pos = positions[t.name];
+      if (pos) {
+        minX = Math.min(minX, pos.x);
+        maxX = Math.max(maxX, pos.x);
+        minY = Math.min(minY, pos.y);
+        maxY = Math.max(maxY, pos.y);
+      }
+    });
+
+    // Add table dimensions to max values
+    maxX += TABLE_WIDTH;
+    // Estimate height
+    const estHeight = 300; 
+    maxY += estHeight;
+
+    if (minX === Infinity) return;
+
+    // Calculate center of the bounding box
+    const centerX = (minX + maxX) / 2;
+    const centerY = (minY + maxY) / 2;
+
+    // Calculate required width/height
+    const reqWidth = maxX - minX + 100; // buffer
+    const reqHeight = maxY - minY + 100;
+
+    // Determine scale to fit
+    const scaleX = containerSize.w / reqWidth;
+    const scaleY = containerSize.h / reqHeight;
+    const newScale = Math.min(Math.max(Math.min(scaleX, scaleY), 0.2), 1.2); // Clamp scale
+
+    // Calculate Pan to center the box
+    // formula: pan = (screenCenter) - (worldCenter * scale)
+    const newPanX = (containerSize.w / 2) - (centerX * newScale);
+    const newPanY = (containerSize.h / 2) - (centerY * newScale);
+
+    // Apply animation effect via state updates
+    setScale(newScale);
+    setPan({ x: newPanX, y: newPanY });
+
+  }, [searchTerm, positions, containerSize, initializing, schema.tables]);
+
+
   // --- VIRTUALIZATION LOGIC ---
   
   // Calculate visible area in "world space"
@@ -100,6 +161,13 @@ const SchemaDiagramModal: React.FC<SchemaDiagramModalProps> = ({ schema, onClose
     return 'high';                    // Full detail
   }, [scale]);
 
+  // Check if a table matches search
+  const isMatch = useCallback((tableName: string, columns: any[]) => {
+    if (!searchTerm) return true;
+    const term = searchTerm.toLowerCase();
+    return tableName.toLowerCase().includes(term) || columns.some(c => c.name.toLowerCase().includes(term));
+  }, [searchTerm]);
+
   // Filter visible tables
   const visibleTables = useMemo(() => {
      if (!visibleBounds || initializing) return [];
@@ -108,8 +176,12 @@ const SchemaDiagramModal: React.FC<SchemaDiagramModalProps> = ({ schema, onClose
         const pos = positions[t.name];
         if (!pos) return false;
         
+        // Always render if it matches search, even if slightly off screen (to allow pan to work correctly visually)
+        if (searchTerm && isMatch(t.name, t.columns)) {
+           return true;
+        }
+
         // Approx height based on LOD to optimize cull check
-        // Low/Med = fixed height, High = variable based on columns
         const height = lodLevel === 'high' 
            ? HEADER_HEIGHT + (t.columns.length * ROW_HEIGHT) 
            : HEADER_HEIGHT;
@@ -122,7 +194,7 @@ const SchemaDiagramModal: React.FC<SchemaDiagramModalProps> = ({ schema, onClose
            pos.y < visibleBounds.yMax
         );
      });
-  }, [positions, visibleBounds, initializing, lodLevel, schema.tables]);
+  }, [positions, visibleBounds, initializing, lodLevel, schema.tables, searchTerm, isMatch]);
 
 
   // --- INTERACTION HANDLERS ---
@@ -181,6 +253,8 @@ const SchemaDiagramModal: React.FC<SchemaDiagramModalProps> = ({ schema, onClose
       const startPos = positions[table.name];
       if (!startPos) return;
 
+      const tableMatches = isMatch(table.name, table.columns);
+
       table.columns.forEach((col, colIndex) => {
         if (col.isForeignKey && col.references) {
           const [targetTable, targetCol] = col.references.split('.');
@@ -189,9 +263,14 @@ const SchemaDiagramModal: React.FC<SchemaDiagramModalProps> = ({ schema, onClose
           // Optimization: If target is not loaded/exists, skip
           if (!endPos) return;
 
-          // Don't render lines if BOTH nodes are far off screen (should be covered by visibleTables check partially)
-          // But visibleTables only guarantees source is visible. 
-          // If target is very far, we draw a long line. That's fine.
+          // Check opacity for connection
+          const targetTableDef = schema.tables.find(t => t.name === targetTable);
+          const targetMatches = targetTableDef ? isMatch(targetTable, targetTableDef.columns) : true;
+          
+          // If search is active, dim line unless BOTH ends match
+          const isDimmed = searchTerm && (!tableMatches || !targetMatches);
+          const opacity = isDimmed ? 0.05 : (lodLevel === 'low' ? 0.3 : 0.6);
+          const strokeColor = isDimmed ? "#94a3b8" : "#6366f1";
 
           // Start Point
           const startX = startPos.x + TABLE_WIDTH;
@@ -201,7 +280,6 @@ const SchemaDiagramModal: React.FC<SchemaDiagramModalProps> = ({ schema, onClose
              : startPos.y + (HEADER_HEIGHT / 2);
           
           // End Point
-          const targetTableDef = schema.tables.find(t => t.name === targetTable);
           const targetColIndex = targetTableDef?.columns.findIndex(c => c.name === targetCol) ?? 0;
           
           const endX = endPos.x;
@@ -218,19 +296,19 @@ const SchemaDiagramModal: React.FC<SchemaDiagramModalProps> = ({ schema, onClose
           const simplifiedPath = `M ${startX} ${startY} L ${endX} ${endY}`;
 
           lines.push(
-            <g key={`${table.name}-${col.name}`} className="pointer-events-none">
+            <g key={`${table.name}-${col.name}`} className="pointer-events-none transition-opacity duration-300">
                <path 
                   d={lodLevel === 'low' ? simplifiedPath : pathD} 
-                  stroke="#6366f1" 
+                  stroke={strokeColor} 
                   strokeWidth={lodLevel === 'low' ? 4 : 2} 
                   fill="none" 
-                  opacity={lodLevel === 'low' ? 0.3 : 0.6} 
-                  markerEnd={lodLevel === 'high' ? "url(#arrowhead)" : undefined}
+                  opacity={opacity} 
+                  markerEnd={(!isDimmed && lodLevel === 'high') ? "url(#arrowhead)" : undefined}
                />
-               {lodLevel === 'high' && (
+               {lodLevel === 'high' && !isDimmed && (
                  <>
-                   <circle cx={startX} cy={startY} r="3" fill="#6366f1" />
-                   <circle cx={endX} cy={endY} r="3" fill="#6366f1" />
+                   <circle cx={startX} cy={startY} r="3" fill={strokeColor} />
+                   <circle cx={endX} cy={endY} r="3" fill={strokeColor} />
                  </>
                )}
             </g>
@@ -239,7 +317,7 @@ const SchemaDiagramModal: React.FC<SchemaDiagramModalProps> = ({ schema, onClose
       });
     });
     return lines;
-  }, [visibleTables, positions, lodLevel, schema.tables]);
+  }, [visibleTables, positions, lodLevel, schema.tables, searchTerm, isMatch]);
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/90 backdrop-blur-sm flex items-center justify-center p-4">
@@ -261,6 +339,21 @@ const SchemaDiagramModal: React.FC<SchemaDiagramModalProps> = ({ schema, onClose
               <button onClick={() => { setScale(1); setPan({x:0, y:0}); }} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded text-slate-600 dark:text-slate-300"><Maximize className="w-5 h-5" /></button>
            </div>
            
+           {/* Search Input */}
+           <div className="bg-white dark:bg-slate-800 p-2 rounded-lg shadow-md border border-slate-200 dark:border-slate-700 flex items-center gap-2 w-64">
+              <Search className="w-4 h-4 text-slate-400" />
+              <input 
+                type="text" 
+                placeholder="Buscar tabela..." 
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="bg-transparent border-none outline-none text-xs text-slate-700 dark:text-slate-200 w-full placeholder-slate-400"
+              />
+              {searchTerm && (
+                 <button onClick={() => setSearchTerm('')} className="text-slate-400 hover:text-slate-600"><X className="w-3 h-3" /></button>
+              )}
+           </div>
+
            <div className="bg-white/90 dark:bg-slate-800/90 px-3 py-2 rounded-lg shadow-md border border-slate-200 dark:border-slate-700">
               <div className="flex items-center gap-2 text-xs font-medium text-slate-500 mb-1">
                  <MousePointer2 className="w-3 h-3" />
@@ -298,7 +391,7 @@ const SchemaDiagramModal: React.FC<SchemaDiagramModalProps> = ({ schema, onClose
                // Hardware acceleration hint
                willChange: 'transform'
              }}
-             className="relative w-full h-full"
+             className="relative w-full h-full transition-transform duration-500 ease-out"
           >
              <svg className="absolute inset-0 pointer-events-none overflow-visible w-full h-full" style={{ zIndex: 0 }}>
                <defs>
@@ -312,6 +405,9 @@ const SchemaDiagramModal: React.FC<SchemaDiagramModalProps> = ({ schema, onClose
              {/* Virtualized Nodes */}
              {visibleTables.map(table => {
                 const pos = positions[table.name] || {x: 0, y: 0};
+                const matches = isMatch(table.name, table.columns);
+                const isDimmed = searchTerm && !matches;
+
                 return (
                    <div
                       key={table.name}
@@ -321,15 +417,18 @@ const SchemaDiagramModal: React.FC<SchemaDiagramModalProps> = ({ schema, onClose
                          width: TABLE_WIDTH,
                          // Only apply shadow/borders if scale is reasonable to save paint performance on low LOD
                          boxShadow: lodLevel === 'low' ? 'none' : undefined,
+                         opacity: isDimmed ? 0.2 : 1,
                       }}
-                      className={`absolute bg-white dark:bg-slate-800 rounded-lg cursor-grab active:cursor-grabbing hover:border-indigo-400 dark:hover:border-indigo-500 transition-colors z-10 
+                      className={`absolute bg-white dark:bg-slate-800 rounded-lg cursor-grab active:cursor-grabbing hover:border-indigo-400 dark:hover:border-indigo-500 transition-all duration-300 z-10 
                          ${lodLevel === 'low' ? 'border border-slate-400 dark:border-slate-600' : 'shadow-xl border-2 border-slate-200 dark:border-slate-700'}
+                         ${matches && searchTerm ? 'ring-4 ring-indigo-500/30 border-indigo-500 dark:border-indigo-400 scale-105 z-20' : ''}
                       `}
                    >
                       {/* Node Header - Adapts to LOD */}
                       <div className={`
-                         flex items-center justify-between rounded-t-md overflow-hidden
+                         flex items-center justify-between rounded-t-md overflow-hidden transition-colors
                          ${lodLevel === 'low' ? 'h-full justify-center text-center p-2 bg-indigo-100 dark:bg-indigo-900/50' : 'h-10 bg-slate-100 dark:bg-slate-900/50 border-b border-slate-200 dark:border-slate-700 px-3'}
+                         ${matches && searchTerm ? 'bg-indigo-100 dark:bg-indigo-900' : ''}
                       `}>
                          <span 
                            className={`font-bold text-slate-700 dark:text-slate-200 truncate ${lodLevel === 'low' ? 'text-[10px] whitespace-normal' : 'text-xs'}`} 
@@ -346,7 +445,7 @@ const SchemaDiagramModal: React.FC<SchemaDiagramModalProps> = ({ schema, onClose
                       {lodLevel === 'high' && (
                          <div className="py-1">
                             {table.columns.map(col => (
-                               <div key={col.name} className="px-3 py-1 flex items-center justify-between text-[10px] hover:bg-slate-50 dark:hover:bg-slate-700/50">
+                               <div key={col.name} className={`px-3 py-1 flex items-center justify-between text-[10px] hover:bg-slate-50 dark:hover:bg-slate-700/50 ${searchTerm && col.name.toLowerCase().includes(searchTerm.toLowerCase()) ? 'bg-yellow-100 dark:bg-yellow-900/30' : ''}`}>
                                   <div className="flex items-center gap-1.5 overflow-hidden">
                                      {col.isPrimaryKey && <span className="text-amber-500 font-bold text-[8px]">PK</span>}
                                      {col.isForeignKey && <span className="text-blue-500 font-bold text-[8px]">FK</span>}
