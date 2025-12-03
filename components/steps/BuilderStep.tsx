@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo, useEffect, useCallback, useDeferredValue, memo, useRef } from 'react';
 import { DatabaseSchema, BuilderState, ExplicitJoin, JoinType, Filter, Operator, OrderBy, AppSettings, SavedQuery, AggregateFunction, Column } from '../../types';
 import { Layers, ChevronRight, Settings2, RefreshCw, Search, X, CheckSquare, Square, Plus, Trash2, ArrowRightLeft, Filter as FilterIcon, ArrowDownAZ, List, Link2, Check, ChevronDown, Pin, XCircle, Undo2, Redo2, Save, FolderOpen, Calendar, Clock, Sigma, Key, Combine, ArrowRight, ArrowLeft, FastForward, Target, CornerDownRight } from 'lucide-react';
@@ -330,8 +329,20 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
   // State for column search within specific tables
   const [columnSearchTerms, setColumnSearchTerms] = useState<Record<string, string>>({});
   
-  // State for collapsible tables
-  const [collapsedTables, setCollapsedTables] = useState<Set<string>>(new Set());
+  // State for collapsible tables - PERSISTED
+  const [collapsedTables, setCollapsedTables] = useState<Set<string>>(() => {
+    try {
+      const stored = localStorage.getItem(`psql-buddy-collapsed-${schema.name}`);
+      return stored ? new Set(JSON.parse(stored)) : new Set();
+    } catch {
+      return new Set();
+    }
+  });
+
+  // Persist Collapsed State Effect
+  useEffect(() => {
+     localStorage.setItem(`psql-buddy-collapsed-${schema.name}`, JSON.stringify(Array.from(collapsedTables)));
+  }, [collapsedTables, schema.name]);
 
   // State for Hover Highlights (Table, Column, References)
   const [hoveredColumn, setHoveredColumn] = useState<{ table: string; col: string; references?: string } | null>(null);

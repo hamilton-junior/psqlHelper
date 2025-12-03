@@ -15,12 +15,19 @@ import { executeQueryReal } from './services/dbService';
 import { AlertTriangle, X, ZapOff, History as HistoryIcon, Clock, CheckCircle2, AlertCircle as AlertCircleIcon } from 'lucide-react';
 import { getHistory, clearHistory } from './services/historyService';
 
+// Helper for safe storage loading
+function loadFromStorage<T>(key: string, defaultValue: T): T {
+  try {
+    const stored = localStorage.getItem(key);
+    return stored ? JSON.parse(stored) : defaultValue;
+  } catch (e) {
+    return defaultValue;
+  }
+}
+
 function App() {
   // Settings State
-  const [settings, setSettings] = useState<AppSettings>(() => {
-    const saved = localStorage.getItem('psql-buddy-settings');
-    return saved ? JSON.parse(saved) : DEFAULT_SETTINGS;
-  });
+  const [settings, setSettings] = useState<AppSettings>(() => loadFromStorage('psql-buddy-settings', DEFAULT_SETTINGS));
   const [showSettings, setShowSettings] = useState(false);
   const [showDiagram, setShowDiagram] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
@@ -42,7 +49,6 @@ function App() {
 
   // Apply Theme - STRICT MODE for Tailwind
   useEffect(() => {
-    // Apply class to HTML element for full page theming
     const root = document.documentElement;
     const body = document.body;
     
@@ -52,7 +58,6 @@ function App() {
     if (settings.theme === 'dark') {
       root.classList.add('dark');
       body.classList.add('dark');
-      // Ensure body background is consistent with theme to prevent white flashes
       body.style.backgroundColor = '#0f172a'; // slate-900
     } else {
       body.style.backgroundColor = '#f8fafc'; // slate-50
@@ -68,15 +73,13 @@ function App() {
     setShowOnboarding(false);
   };
 
-  // Navigation State
-  const [currentStep, setCurrentStep] = useState<AppStep>('connection');
-  
-  // App Data State
-  const [schema, setSchema] = useState<DatabaseSchema | null>(null);
-  const [credentials, setCredentials] = useState<DbCredentials | null>(null);
-  const [simulationData, setSimulationData] = useState<SimulationData | null>(null);
+  // --- Session State (Persisted) ---
+  const [currentStep, setCurrentStep] = useState<AppStep>(() => loadFromStorage('psql-buddy-step', 'connection'));
+  const [schema, setSchema] = useState<DatabaseSchema | null>(() => loadFromStorage('psql-buddy-schema', null));
+  const [credentials, setCredentials] = useState<DbCredentials | null>(() => loadFromStorage('psql-buddy-creds', null));
+  const [simulationData, setSimulationData] = useState<SimulationData | null>(() => loadFromStorage('psql-buddy-simdata', null));
 
-  const [builderState, setBuilderState] = useState<BuilderState>({
+  const [builderState, setBuilderState] = useState<BuilderState>(() => loadFromStorage('psql-buddy-builder', {
     selectedTables: [],
     selectedColumns: [],
     aggregations: {},
@@ -85,19 +88,39 @@ function App() {
     groupBy: [],
     orderBy: [],
     limit: settings.defaultLimit
-  });
+  }));
   
+  // Transient State (Not persisted heavily)
   const [queryResult, setQueryResult] = useState<QueryResult | null>(null);
   const [dbResults, setDbResults] = useState<any[]>([]);
   
-  const [isProcessing, setIsProcessing] = useState(false); // For SQL Gen & Execution
-  const [progressMessage, setProgressMessage] = useState<string>(''); // Detailed progress
-  const [isValidating, setIsValidating] = useState(false); // For Background Validation
+  const [isProcessing, setIsProcessing] = useState(false); 
+  const [progressMessage, setProgressMessage] = useState<string>(''); 
+  const [isValidating, setIsValidating] = useState(false); 
   const [error, setError] = useState<{message: string, action?: {label: string, handler: () => void}} | null>(null);
   const [warningToast, setWarningToast] = useState<string | null>(null);
 
-  // Reference to track the active request ID to handle race conditions (skip/cancel)
   const generationRequestId = useRef(0);
+
+  // --- Persistence Effect ---
+  useEffect(() => {
+    const saveTimeout = setTimeout(() => {
+       localStorage.setItem('psql-buddy-step', JSON.stringify(currentStep));
+       if (schema) localStorage.setItem('psql-buddy-schema', JSON.stringify(schema));
+       else localStorage.removeItem('psql-buddy-schema');
+
+       if (credentials) localStorage.setItem('psql-buddy-creds', JSON.stringify(credentials));
+       else localStorage.removeItem('psql-buddy-creds');
+
+       if (simulationData) localStorage.setItem('psql-buddy-simdata', JSON.stringify(simulationData));
+       else localStorage.removeItem('psql-buddy-simdata');
+
+       localStorage.setItem('psql-buddy-builder', JSON.stringify(builderState));
+    }, 500); // Debounce saves
+
+    return () => clearTimeout(saveTimeout);
+  }, [currentStep, schema, credentials, simulationData, builderState]);
+
 
   // --- Handlers ---
 
@@ -106,7 +129,6 @@ function App() {
     setSchema(newSchema);
     setCredentials(creds);
     
-    // If we are connecting to a simulated DB, initialize its data immediately
     if (creds.host === 'simulated') {
        const simData = initializeSimulation(newSchema);
        setSimulationData(simData);
@@ -114,8 +136,10 @@ function App() {
        setSimulationData(null);
     }
 
-    // Reset downstream state
-    setBuilderState({ 
+    // Reset downstream state (New Connection usually implies reset)
+    // However, if we just reloaded page, we rely on the useState initializer.
+    // This handler is only called explicitly by ConnectionStep.
+    const cleanBuilderState = { 
       selectedTables: [], 
       selectedColumns: [], 
       aggregations: {},
@@ -124,7 +148,9 @@ function App() {
       groupBy: [],
       orderBy: [],
       limit: settings.defaultLimit
-    });
+    };
+    
+    setBuilderState(cleanBuilderState);
     setQueryResult(null);
     setDbResults([]);
     setCurrentStep('builder');
@@ -143,15 +169,11 @@ function App() {
   };
 
   const handleSkipAiGeneration = async () => {
-    // Increment ID to invalidate any pending AI promise result
     generationRequestId.current += 1;
     setProgressMessage("Cancelando IA e alternando para modo local...");
-    
-    // Artificial delay to let user see the status change
     await new Promise(r => setTimeout(r, 400));
     
     if (!schema) return;
-    
     try {
       const result = generateLocalSql(schema, builderState);
       setQueryResult(result);
@@ -164,25 +186,17 @@ function App() {
     }
   };
 
-  const retryWithoutExtras = () => {
-     setError(null);
-     setSettings(prev => ({...prev, enableAiTips: false, enableAiValidation: false}));
-     handleGeneratePreview();
-  };
-
   const handleGeneratePreview = async () => {
     if (!schema) return;
     setError(null);
     setIsProcessing(true);
     setWarningToast(null);
     
-    // Assign a new ID for this specific generation request
     const currentRequestId = generationRequestId.current + 1;
     generationRequestId.current = currentRequestId;
 
     setProgressMessage("Iniciando...");
 
-    // Warning Logic for High Quota Usage
     const usingExtras = settings.enableAiGeneration && (settings.enableAiValidation || settings.enableAiTips);
     if (usingExtras && !hasShownQuotaWarning && !quotaExhausted) {
        setWarningToast("Dicas e Validação consomem mais cota da API. Desative nas configurações se desejar economizar.");
@@ -193,7 +207,6 @@ function App() {
     let usedLocalFallback = false;
 
     try {
-      // 1. Attempt AI Generation if enabled
       if (settings.enableAiGeneration) {
          try {
            const includeTips = settings.enableAiTips && !quotaExhausted;
@@ -216,9 +229,7 @@ function App() {
            }
          } catch (aiError: any) {
            console.warn("AI Generation failed, attempting fallback...", aiError);
-           
            if (generationRequestId.current !== currentRequestId) return;
-
            if (aiError.message === "QUOTA_ERROR") {
               setQuotaExhausted(true);
               if (!hasShownQuotaWarning) {
@@ -236,11 +247,9 @@ function App() {
 
       if (generationRequestId.current !== currentRequestId) return;
 
-      // 2. Fallback to Local Engine
       if (usedLocalFallback) {
          setProgressMessage("Gerando SQL com motor local...");
          await new Promise(r => setTimeout(r, 500));
-         
          if (generationRequestId.current !== currentRequestId) return;
          result = generateLocalSql(schema, builderState);
       }
@@ -252,7 +261,6 @@ function App() {
       setIsProcessing(false);
       setProgressMessage("");
 
-      // 4. Run Validation
       if (settings.enableAiGeneration && settings.enableAiValidation && !quotaExhausted && !usedLocalFallback) {
         setIsValidating(true);
         validateSqlQuery(result.sql, schema)
@@ -261,13 +269,9 @@ function App() {
           })
           .catch(err => {
              console.error("Validação em segundo plano falhou:", err);
-             if (err.message === "QUOTA_ERROR") {
-                setQuotaExhausted(true);
-             }
+             if (err.message === "QUOTA_ERROR") setQuotaExhausted(true);
           })
-          .finally(() => {
-            setIsValidating(false);
-          });
+          .finally(() => setIsValidating(false));
       }
 
     } catch (e: any) {
@@ -335,6 +339,12 @@ function App() {
     setSimulationData(null);
     setQueryResult(null);
     setDbResults([]);
+    // Explicitly clear session storage
+    localStorage.removeItem('psql-buddy-schema');
+    localStorage.removeItem('psql-buddy-creds');
+    localStorage.removeItem('psql-buddy-simdata');
+    localStorage.removeItem('psql-buddy-builder');
+    localStorage.removeItem('psql-buddy-step');
   };
 
   const handleNavigate = (step: AppStep) => {
@@ -344,10 +354,8 @@ function App() {
 
   return (
     <div className="flex h-screen bg-slate-900 text-slate-100 overflow-hidden font-sans">
-      
       {showOnboarding && <AiPreferenceModal onSelect={handleAiPreferenceSelect} />}
 
-      {/* Left Navigation Sidebar */}
       <Sidebar 
         currentStep={currentStep} 
         onNavigate={handleNavigate} 
@@ -359,10 +367,7 @@ function App() {
         onDescriptionChange={handleUpdateSchemaDescription}
       />
 
-      {/* Main Content Area */}
       <main className="flex-1 flex flex-col min-w-0 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 overflow-hidden rounded-tl-3xl shadow-2xl my-2 mr-2 relative">
-        
-        {/* Progress Bar (Visual Top) */}
         <div className="h-1.5 bg-slate-200 dark:bg-slate-800 w-full shrink-0">
           <div 
             className="h-full bg-indigo-600 transition-all duration-500 ease-out"
@@ -374,7 +379,6 @@ function App() {
           />
         </div>
 
-        {/* Global Error Banner */}
         {error && (
           <div className="bg-red-50 dark:bg-red-900/30 border-b border-red-200 dark:border-red-800 p-4 flex items-center justify-between animate-in slide-in-from-top-2">
             <div className="flex items-center gap-3">
@@ -400,7 +404,6 @@ function App() {
           </div>
         )}
 
-        {/* Warning Toast (Dismissible) */}
         {warningToast && (
           <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 max-w-lg w-full px-4 animate-in fade-in slide-in-from-top-4">
              <div className="bg-amber-50 dark:bg-amber-900/90 backdrop-blur border border-amber-200 dark:border-amber-700 p-3 rounded-xl shadow-lg flex items-start gap-3">
@@ -460,7 +463,6 @@ function App() {
         </div>
       </main>
 
-      {/* Settings Modal */}
       {showSettings && (
         <SettingsModal 
           settings={settings}
@@ -470,12 +472,10 @@ function App() {
         />
       )}
 
-      {/* Diagram Modal */}
       {showDiagram && schema && (
          <SchemaDiagramModal schema={schema} onClose={() => setShowDiagram(false)} />
       )}
 
-      {/* History Modal (Inline here for simplicity, or could be component) */}
       {showHistory && (
          <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-sm flex items-center justify-center p-4">
             <div className="bg-white dark:bg-slate-800 w-full max-w-2xl rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[80vh]">

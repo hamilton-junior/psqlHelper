@@ -36,10 +36,14 @@ const DataVisualizer: React.FC<DataVisualizerProps> = ({ data }) => {
     const firstRow = cleanData[0];
     const keys = Object.keys(firstRow);
     
-    // Find keys that are actually numbers in the first valid row
+    // Find keys that are actually numbers in at least one of the first few valid rows
+    // Previously only checked first row, failing if it was null
     const numKeys = keys.filter(k => {
-       const val = firstRow[k];
-       return typeof val === 'number' && k !== 'id' && !k.endsWith('_id');
+       const hasNumber = cleanData.slice(0, 10).some(row => {
+          const val = row[k];
+          return typeof val === 'number';
+       });
+       return hasNumber && k !== 'id' && !k.endsWith('_id');
     });
 
     return { processedData: cleanData, allKeys: keys, potentialNumberKeys: numKeys };
@@ -58,7 +62,11 @@ const DataVisualizer: React.FC<DataVisualizerProps> = ({ data }) => {
     setSelectedXAxis(defaultX);
 
     // Default Y: All numeric keys found (limit to 3 to avoid clutter)
-    setSelectedYKeys(potentialNumberKeys.slice(0, 3));
+    if (potentialNumberKeys.length > 0) {
+       setSelectedYKeys(potentialNumberKeys.slice(0, 3));
+    } else {
+       setSelectedYKeys([]);
+    }
 
   }, [processedData, allKeys, potentialNumberKeys]);
 
