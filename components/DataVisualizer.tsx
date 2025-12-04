@@ -91,7 +91,12 @@ const DataVisualizer: React.FC<DataVisualizerProps> = ({ data }) => {
     });
   };
 
-  if (!processedData || processedData.length === 0) return null;
+  if (!processedData || processedData.length === 0) return (
+     <div className="flex flex-col items-center justify-center h-full text-slate-400 p-8">
+       <AlertCircle className="w-8 h-8 mb-2 opacity-50" />
+       <p className="text-sm">Sem dados para visualizar.</p>
+     </div>
+  );
 
   // Colors for multiline/multibar
   const colors = ['#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4'];

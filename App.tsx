@@ -90,10 +90,11 @@ function App() {
     limit: settings.defaultLimit
   }));
   
-  // Transient State (Not persisted heavily)
-  const [queryResult, setQueryResult] = useState<QueryResult | null>(null);
-  const [dbResults, setDbResults] = useState<any[]>([]);
+  // Persisted Results State (Added to survive reload)
+  const [queryResult, setQueryResult] = useState<QueryResult | null>(() => loadFromStorage('psql-buddy-query-result', null));
+  const [dbResults, setDbResults] = useState<any[]>(() => loadFromStorage('psql-buddy-db-results', []));
   
+  // Transient State (Not persisted heavily)
   const [isProcessing, setIsProcessing] = useState(false); 
   const [progressMessage, setProgressMessage] = useState<string>(''); 
   const [isValidating, setIsValidating] = useState(false); 
@@ -116,10 +117,17 @@ function App() {
        else localStorage.removeItem('psql-buddy-simdata');
 
        localStorage.setItem('psql-buddy-builder', JSON.stringify(builderState));
+       
+       if (queryResult) localStorage.setItem('psql-buddy-query-result', JSON.stringify(queryResult));
+       else localStorage.removeItem('psql-buddy-query-result');
+
+       if (dbResults && dbResults.length > 0) localStorage.setItem('psql-buddy-db-results', JSON.stringify(dbResults));
+       else localStorage.removeItem('psql-buddy-db-results');
+
     }, 500); // Debounce saves
 
     return () => clearTimeout(saveTimeout);
-  }, [currentStep, schema, credentials, simulationData, builderState]);
+  }, [currentStep, schema, credentials, simulationData, builderState, queryResult, dbResults]);
 
 
   // --- Handlers ---
@@ -137,8 +145,6 @@ function App() {
     }
 
     // Reset downstream state (New Connection usually implies reset)
-    // However, if we just reloaded page, we rely on the useState initializer.
-    // This handler is only called explicitly by ConnectionStep.
     const cleanBuilderState = { 
       selectedTables: [], 
       selectedColumns: [], 
@@ -345,6 +351,8 @@ function App() {
     localStorage.removeItem('psql-buddy-simdata');
     localStorage.removeItem('psql-buddy-builder');
     localStorage.removeItem('psql-buddy-step');
+    localStorage.removeItem('psql-buddy-query-result');
+    localStorage.removeItem('psql-buddy-db-results');
   };
 
   const handleNavigate = (step: AppStep) => {
