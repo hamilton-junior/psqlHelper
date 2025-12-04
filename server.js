@@ -167,12 +167,9 @@ app.post('/api/connect', async (req, res) => {
         const col = tablesMap[key].columns.find(c => c.name === row.column_name);
         if (col) {
           col.isForeignKey = true;
-          // IMPORTANT: If referencing a table in a different schema, prepending might be necessary in queries,
-          // but for now we keep the format simple. The frontend handles logic.
-          // If schemas differ, we might want to store "schema.table", but to keep consistency with existing logic:
-          // We assume simple names for now or update frontend to handle full names.
-          // Let's store simple references for visual clarity, but robust builders need schema.
-          col.references = `${row.foreign_table_name}.${row.foreign_column_name}`;
+          // IMPORTANT: Store Fully Qualified Reference: schema.table.column
+          // This allows the frontend to disambiguate tables with same name in diff schemas
+          col.references = `${row.foreign_table_schema}.${row.foreign_table_name}.${row.foreign_column_name}`;
         }
       }
     });

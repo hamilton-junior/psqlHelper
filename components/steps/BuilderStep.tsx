@@ -193,16 +193,38 @@ const TableCard = memo(({
   const selectedCount = selectedColumns.filter(c => c.startsWith(`${tableId}.`)).length;
 
   // 1. Target Logic: Am I the table being referenced by the hovered column?
-  const isTarget = hoveredColumn?.references?.startsWith(table.name + '.') || false; // Approximation for visual hit
+  const isTarget = useMemo(() => {
+    if (!hoveredColumn?.references) return false;
+    const parts = hoveredColumn.references.split('.');
+    
+    // Check 3-part schema.table.col
+    if (parts.length === 3) {
+       const [s, t] = parts;
+       return table.name === t && table.schema === s;
+    }
+    
+    // Check 2-part table.col
+    return hoveredColumn.references.startsWith(table.name + '.');
+  }, [table.name, table.schema, hoveredColumn]);
 
   // 2. Child Logic: Do I have a column that references the hovered PK (or column)?
-  // We check if any of MY columns reference the `hoveredColumn`
   const isChild = useMemo(() => {
     if (!hoveredColumn) return false;
-    // We assume hoverColumn refs are simplified names for now as per schema logic
-    // But ideally we match fully qualified
-    const targetRef = `${hoveredColumn.tableId.split('.')[1]}.${hoveredColumn.col}`; 
-    return table.columns.some(c => c.references === targetRef);
+    
+    const hoveredTable = hoveredColumn.tableId.split('.')[1]; // get just table name
+    const hoveredSchema = hoveredColumn.tableId.split('.')[0]; // get schema
+    
+    // We want to see if MY columns reference "hoveredSchema.hoveredTable.col"
+    return table.columns.some(c => {
+       if (!c.references) return false;
+       const parts = c.references.split('.');
+       
+       if (parts.length === 3) {
+          return c.references === `${hoveredSchema}.${hoveredTable}.${hoveredColumn.col}`;
+       }
+       // Fallback for legacy refs
+       return c.references === `${hoveredTable}.${hoveredColumn.col}`;
+    });
   }, [table.columns, hoveredColumn]);
 
   return (
@@ -281,15 +303,31 @@ const TableCard = memo(({
                   const isHovered = hoveredColumn?.tableId === tableId && hoveredColumn?.col === col.name;
                   
                   // Is this the "Target" (PK) of the hovered FK?
-                  const isRelTarget = hoveredColumn?.references === `${table.name}.${col.name}`;
+                  let isRelTarget = false;
+                  if (hoveredColumn?.references) {
+                     const parts = hoveredColumn.references.split('.');
+                     if (parts.length === 3) {
+                        // schema.table.col
+                        isRelTarget = hoveredColumn.references === `${table.schema}.${table.name}.${col.name}`;
+                     } else {
+                        // table.col
+                        isRelTarget = hoveredColumn.references === `${table.name}.${col.name}`;
+                     }
+                  }
                   
                   // Is this an FK that points to the hovered PK?
                   // Source logic: Check if current col references "HoveredTable.HoveredCol"
-                  // Note: hoveredColumn.tableId is "schema.table", but references are usually "table.col"
-                  const hoveredTableSimple = hoveredColumn?.tableId.split('.')[1];
-                  const isRelSource = !col.references 
-                     ? false 
-                     : col.references === `${hoveredTableSimple}.${hoveredColumn?.col}`;
+                  let isRelSource = false;
+                  if (col.references && hoveredColumn) {
+                     const parts = col.references.split('.');
+                     const [hSchema, hTable, hCol] = hoveredColumn.tableId.split('.'); // Hovered PK is schema.table.col
+                     
+                     if (parts.length === 3) {
+                        isRelSource = col.references === `${hSchema}.${hTable}.${hoveredColumn.col}`;
+                     } else {
+                        isRelSource = col.references === `${hTable}.${hoveredColumn.col}`;
+                     }
+                  }
 
                   return (
                     <ColumnItem 
@@ -323,11 +361,11 @@ const TableCard = memo(({
    const isHoverRelevant = 
       (prev.hoveredColumn?.tableId === tableIdPrev) || 
       (next.hoveredColumn?.tableId === tableIdNext) ||
-      (prev.hoveredColumn?.references?.startsWith(prev.table.name)) ||
-      (next.hoveredColumn?.references?.startsWith(next.table.name)) ||
+      (prev.hoveredColumn?.references?.includes(prev.table.name)) ||
+      (next.hoveredColumn?.references?.includes(next.table.name)) ||
       // Re-render children tables when hover changes
-      (prev.table.columns.some(c => c.references === `${prev.hoveredColumn?.tableId.split('.')[1]}.${prev.hoveredColumn?.col}`)) ||
-      (next.table.columns.some(c => c.references === `${next.hoveredColumn?.tableId.split('.')[1]}.${next.hoveredColumn?.col}`));
+      (prev.table.columns.some(c => c.references?.includes(prev.hoveredColumn?.tableId.split('.')[1] || '---'))) ||
+      (next.table.columns.some(c => c.references?.includes(next.hoveredColumn?.tableId.split('.')[1] || '---')));
       
    return prev.isCollapsed === next.isCollapsed &&
           prev.colSearchTerm === next.colSearchTerm &&

@@ -19,6 +19,19 @@ type VisualState = 'normal' | 'focused' | 'dimmed' | 'parent' | 'child' | 'targe
 // Helper to generate unique ID
 const getTableId = (t: Table) => `${t.schema || 'public'}.${t.name}`;
 
+// Helper to extract table ID from reference string (schema.table.col or table.col)
+const getRefTableId = (ref: string, currentSchema: string) => {
+  const parts = ref.split('.');
+  if (parts.length === 3) {
+    // schema.table.col
+    return `${parts[0]}.${parts[1]}`;
+  } else if (parts.length === 2) {
+    // table.col (legacy/simulated) - assume same schema or public
+    return `${currentSchema || 'public'}.${parts[0]}`;
+  }
+  return '';
+};
+
 // --- Sub-component Memoized: SchemaColumnItem ---
 
 interface SchemaColumnItemProps {
@@ -124,7 +137,7 @@ interface SchemaTableItemProps {
   sortField: SortField;
   sortDirection: SortDirection;
   hoveredColumnKey: string | null; // "schema.table.col"
-  hoveredColumnRef: string | null; // "targetTable.targetCol" (note: ref usually doesn't include schema in simplified definitions, handled by logic)
+  hoveredColumnRef: string | null; // "targetTable.targetCol" or "schema.table.col"
   
   onToggleExpand: (e: React.MouseEvent, tableId: string) => void;
   onTableClick: (tableId: string) => void;
@@ -282,13 +295,43 @@ const SchemaTableItem = memo(({
                const colKey = `${tableId}.${col.name}`;
                const isHovered = hoveredColumnKey === colKey;
                
-               // References check usually relies on simple table name in definition,
-               // but we need to match against fully qualified if possible or smart match
-               const isRelTarget = hoveredColumnRef === colKey || (hoveredColumnRef && hoveredColumnRef.endsWith(`.${col.name}`) && hoveredColumnRef.includes(table.name));
+               // Complex Relationship Matching logic
+               // Check if this column is the target of a hover action
+               let isRelTarget = false;
+               if (hoveredColumnRef) {
+                 const refParts = hoveredColumnRef.split('.');
+                 const targetColName = refParts[refParts.length - 1]; // last part is column
+                 
+                 // Check if the table portion matches THIS table
+                 if (refParts.length === 3) {
+                    // schema.table.col
+                    isRelTarget = hoveredColumnRef === colKey; // Exact match
+                 } else {
+                    // legacy table.col
+                    // Does hoveredColumnRef match table.col? 
+                    // AND table matches
+                    isRelTarget = hoveredColumnRef === `${table.name}.${col.name}`;
+                 }
+               }
                
-               const isRelSource = 
-                  (col.references && (col.references === hoveredColumnKey || col.references.endsWith(hoveredColumnKey?.split('.').pop() || ''))) ||
-                  (hoveredColumnRef && hoveredColumnRef === colKey);
+               // Check if this column is the source of a relationship to the hovered column
+               let isRelSource = false;
+               if (col.references && hoveredColumnKey) {
+                  const refParts = col.references.split('.');
+                  if (refParts.length === 3) {
+                     // Reference is schema.table.col
+                     isRelSource = col.references === hoveredColumnKey;
+                  } else {
+                     // Reference is table.col
+                     const [targetTable, targetCol] = refParts;
+                     // hoveredColumnKey is schema.table.col
+                     const [hSchema, hTable, hCol] = hoveredColumnKey.split('.');
+                     isRelSource = (targetTable === hTable && targetCol === hCol);
+                  }
+               } else if (hoveredColumnRef && hoveredColumnRef === colKey) {
+                  // Special case: reverse highlight
+                  isRelSource = true;
+               }
                
                return (
                  <SchemaColumnItem 
@@ -298,7 +341,7 @@ const SchemaTableItem = memo(({
                    tableName={table.name} 
                    isHovered={isHovered} 
                    isRelTarget={isRelTarget} 
-                   isRelSource={!!isRelSource} 
+                   isRelSource={isRelSource} 
                    debouncedTerm={debouncedTerm}
                    onHover={onColumnHover}
                    onHoverOut={onColumnHoverOut}
@@ -377,7 +420,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
   // Hover States 
   const [hoveredTableId, setHoveredTableId] = useState<string | null>(null);
   const [hoveredColumnKey, setHoveredColumnKey] = useState<string | null>(null); // "schema.table.col"
-  const [hoveredColumnRef, setHoveredColumnRef] = useState<string | null>(null); 
+  const [hoveredColumnRef, setHoveredColumnRef] = useState<string | null>(null); // "schema.table.col" (preferred) or "table.col"
 
   const deferredHoveredTableId = useDeferredValue(hoveredTableId);
   const deferredHoveredColumnRef = useDeferredValue(hoveredColumnRef);
@@ -399,24 +442,19 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
 
       table.columns.forEach(col => {
         if (col.isForeignKey && col.references) {
-          // Refs typically don't include schema, assuming matching schema or public
-          // We need smart matching here. For now, simple matching.
-          const [targetTableName] = col.references.split('.');
+          // Refs can be 2-part or 3-part. 
+          const refTableId = getRefTableId(col.references, table.schema);
           
-          // Try to find the target in the schema list to get its full ID
-          // Priority: Same schema > Public > First Match
-          const targetTableDef = schema.tables.find(t => 
-             t.name === targetTableName && (t.schema === table.schema || t.schema === 'public')
-          ) || schema.tables.find(t => t.name === targetTableName);
-
-          if (targetTableDef) {
-             const targetId = getTableId(targetTableDef);
-             if (targetId !== tableId) {
+          if (refTableId && refTableId !== tableId) {
+             // Find matching table in schema to ensure it exists
+             const exists = schema.tables.some(t => getTableId(t) === refTableId);
+             
+             if (exists) {
                 if (!parents[tableId]) parents[tableId] = new Set();
-                parents[tableId].add(targetId);
+                parents[tableId].add(refTableId);
 
-                if (!children[targetId]) children[targetId] = new Set();
-                children[targetId].add(tableId);
+                if (!children[refTableId]) children[refTableId] = new Set();
+                children[refTableId].add(tableId);
              }
           }
         }
@@ -582,10 +620,8 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
      setHoveredColumnRef(ref || null);
      if (ref) {
        // Try to resolve ref to a tableId
-       const [targetName] = ref.split('.');
-       // Simple heuristic, find first table with that name
-       const target = schema.tables.find(t => t.name === targetName);
-       if (target) setHoveredTableId(getTableId(target));
+       const refTableId = getRefTableId(ref, tableId.split('.')[0]); // Best effort schema
+       if (refTableId) setHoveredTableId(refTableId);
      } else {
        setHoveredTableId(tableId);
      }
@@ -631,11 +667,20 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
 
     // 1. Column Hover Logic 
     if (deferredHoveredColumnRef) {
-       const [targetName] = deferredHoveredColumnRef.split('.');
-       // We only have the table name in the ref string, so we assume schema match logic or just name match
-       // Highlight ALL tables with this name to be safe in this visualizer context
+       // Identify which table is the target of this ref
+       // Ref could be "schema.table.col" or "table.col"
+       const parts = deferredHoveredColumnRef.split('.');
+       const targetTableName = parts.length === 3 ? parts[1] : parts[0];
+       const targetSchema = parts.length === 3 ? parts[0] : null;
+
+       // If schema is known, match exact. If not, match name.
        schema.tables.forEach(t => {
-           if (t.name === targetName) map.set(getTableId(t), 'target');
+           const id = getTableId(t);
+           if (targetSchema) {
+              if (t.name === targetTableName && t.schema === targetSchema) map.set(id, 'target');
+           } else {
+              if (t.name === targetTableName) map.set(id, 'target');
+           }
        });
        
        if (deferredHoveredColumnKey) {

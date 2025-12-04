@@ -56,7 +56,7 @@ export const generateLocalSql = (schema: DatabaseSchema, state: BuilderState): Q
       (j.toTable === targetTableId && joinedTables.has(j.fromTable))
     );
 
-    if (!alreadyExplicitlyJoined) {
+    if (!alreadyExplicitlyJoined && !joinedTables.has(targetTableId)) {
        // Look for FK in Schema
        let foundLink = false;
        
@@ -67,20 +67,30 @@ export const generateLocalSql = (schema: DatabaseSchema, state: BuilderState): Q
           const tSchema = schema.tables.find(t => `${t.schema || 'public'}.${t.name}` === existingTableId);
           if (tSchema) {
              const fkCol = tSchema.columns.find(c => {
-                 // Check logic: c.references usually is "table.col". 
-                 // If schemas are different, references might be complex. 
-                 // Simplified logic: does reference start with target table name?
                  if (!c.isForeignKey || !c.references) return false;
-                 const [refTable] = c.references.split('.');
-                 // Check if targetTableId contains this refTable name
-                 // e.g. targetTableId="public.users", refTable="users" -> Match
-                 return targetTableId.endsWith(`.${refTable}`);
+                 
+                 // Handle new 3-part references (schema.table.col) and legacy 2-part (table.col)
+                 const parts = c.references.split('.');
+                 
+                 if (parts.length === 3) {
+                    const [refSchema, refTable] = parts;
+                    const refTableId = `${refSchema}.${refTable}`;
+                    // Exact match on Fully Qualified ID
+                    return refTableId === targetTableId;
+                 } else {
+                    // Legacy/Simulated fallback
+                    const [refTable] = parts;
+                    return targetTableId.endsWith(`.${refTable}`);
+                 }
              });
 
              if (fkCol && fkCol.references) {
-                // If schemas differ, we'd need to be careful, but local SQL generator assumes simple refs
-                // We use qualified name for JOIN target
-                joinClauses.push(`LEFT JOIN ${targetTableId} ON ${existingTableId}.${fkCol.name} = ${fkCol.references}`); // Note: refs might need qualification in real DBs if cross schema
+                // Determine the target column name strictly
+                const parts = fkCol.references.split('.');
+                const targetColName = parts[parts.length - 1]; // Last part is always column
+                
+                // SQL Construction: JOIN targetTable ON existing.fk = targetTable.pk
+                joinClauses.push(`LEFT JOIN ${targetTableId} ON ${existingTableId}.${fkCol.name} = ${targetTableId}.${targetColName}`); 
                 joinedTables.add(targetTableId);
                 foundLink = true;
                 break;
@@ -95,20 +105,25 @@ export const generateLocalSql = (schema: DatabaseSchema, state: BuilderState): Q
              for (const existingTableId of Array.from(joinedTables)) {
                 const fkCol = targetSchema.columns.find(c => {
                    if (!c.isForeignKey || !c.references) return false;
-                   const [refTable] = c.references.split('.');
-                   return existingTableId.endsWith(`.${refTable}`);
+                   
+                   const parts = c.references.split('.');
+                   if (parts.length === 3) {
+                      const [refSchema, refTable] = parts;
+                      const refTableId = `${refSchema}.${refTable}`;
+                      return refTableId === existingTableId;
+                   } else {
+                      const [refTable] = parts;
+                      return existingTableId.endsWith(`.${refTable}`);
+                   }
                 });
 
                 if (fkCol && fkCol.references) {
-                   // targetTable LEFT JOIN existingTable? No, usually existing JOIN target
-                   // Since existing is already in FROM, we append target via JOIN
-                   // LEFT JOIN target ON target.fk = existing.id
-                   // But wait, existing is ALREADY there. 
-                   // Valid SQL: FROM existing LEFT JOIN target ON target.fk = existing.ref
-                   
-                   // We need qualified name for the reference if cross schema, but assume local logic is simple
-                   // Use targetTableId (qualified)
-                   joinClauses.push(`LEFT JOIN ${targetTableId} ON ${targetTableId}.${fkCol.name} = ${existingTableId}.${fkCol.references.split('.')[1]}`); // Approximate fix
+                   // Determine the target column name (on the existing table)
+                   const parts = fkCol.references.split('.');
+                   const targetColName = parts[parts.length - 1];
+
+                   // SQL Construction: JOIN targetTable ON targetTable.fk = existing.pk
+                   joinClauses.push(`LEFT JOIN ${targetTableId} ON ${targetTableId}.${fkCol.name} = ${existingTableId}.${targetColName}`);
                    joinedTables.add(targetTableId);
                    foundLink = true;
                    break;
@@ -120,6 +135,7 @@ export const generateLocalSql = (schema: DatabaseSchema, state: BuilderState): Q
        // Fallback: Cross Join (Comma) if no relationship found
        if (!foundLink) {
           fromClause += `, ${targetTableId}`;
+          joinedTables.add(targetTableId);
        }
     }
   });
