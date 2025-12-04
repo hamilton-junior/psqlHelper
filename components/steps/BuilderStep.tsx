@@ -1,6 +1,6 @@
-import React, { useState, useMemo, useEffect, useCallback, useDeferredValue, memo, useRef } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, memo, useRef } from 'react';
 import { DatabaseSchema, BuilderState, ExplicitJoin, JoinType, Filter, Operator, OrderBy, AppSettings, SavedQuery, AggregateFunction, Column, Table } from '../../types';
-import { Layers, ChevronRight, Settings2, RefreshCw, Search, X, CheckSquare, Square, Plus, Trash2, ArrowRightLeft, Filter as FilterIcon, ArrowDownAZ, List, Link2, Check, ChevronDown, Pin, XCircle, Undo2, Redo2, Save, FolderOpen, Calendar, Clock, Sigma, Key, Combine, ArrowRight, ArrowLeft, FastForward, Target, CornerDownRight, Wand2, Sparkles, Loader2 } from 'lucide-react';
+import { Layers, ChevronRight, Settings2, RefreshCw, Search, X, CheckSquare, Square, Plus, Trash2, ArrowRightLeft, Filter as FilterIcon, ArrowDownAZ, List, Link2, ChevronDown, Save, FolderOpen, Calendar, Clock, Key, Combine, ArrowRight, ArrowLeft, FastForward, Target, CornerDownRight, Wand2, Loader2, Undo2, Redo2 } from 'lucide-react';
 import SchemaViewer from '../SchemaViewer';
 import { generateBuilderStateFromPrompt } from '../../services/geminiService';
 
@@ -21,6 +21,93 @@ type TabType = 'columns' | 'joins' | 'filters' | 'sortgroup';
 // Helper to ensure consistent ID generation
 const getTableId = (t: Table) => `${t.schema || 'public'}.${t.name}`;
 const getColId = (tableId: string, colName: string) => `${tableId}.${colName}`;
+
+// --- Helper to find automatic joins ---
+const findBestJoin = (schema: DatabaseSchema, tableId1: string, tableId2: string): ExplicitJoin | null => {
+  const t1Parts = tableId1.split('.');
+  const t2Parts = tableId2.split('.');
+  if (t1Parts.length < 2 || t2Parts.length < 2) return null;
+
+  const t1Schema = t1Parts[0]; const t1Name = t1Parts[1];
+  const t2Schema = t2Parts[0]; const t2Name = t2Parts[1];
+
+  const table1 = schema.tables.find(t => t.name === t1Name && (t.schema || 'public') === t1Schema);
+  const table2 = schema.tables.find(t => t.name === t2Name && (t.schema || 'public') === t2Schema);
+  
+  if (!table1 || !table2) return null;
+
+  // 1. Check T1 -> T2 (T1 has FK pointing to T2)
+  for (const col of table1.columns) {
+      if (col.isForeignKey && col.references) {
+          // ref is schema.table.col or table.col
+          const refParts = col.references.split('.');
+          let targetMatch = false;
+          let targetColName = '';
+
+          if (refParts.length === 3) {
+             // Exact schema match
+             if (refParts[0] === t2Schema && refParts[1] === t2Name) {
+                targetMatch = true;
+                targetColName = refParts[2];
+             }
+          } else if (refParts.length === 2) {
+             // Legacy match (assume matches table name)
+             if (refParts[0] === t2Name) {
+                targetMatch = true;
+                targetColName = refParts[1];
+             }
+          }
+
+          if (targetMatch) {
+               return {
+                   id: crypto.randomUUID(),
+                   fromTable: tableId1,
+                   fromColumn: col.name,
+                   type: 'LEFT',
+                   toTable: tableId2,
+                   toColumn: targetColName
+               };
+          }
+      }
+  }
+
+  // 2. Check T2 -> T1 (T2 has FK pointing to T1)
+  for (const col of table2.columns) {
+      if (col.isForeignKey && col.references) {
+          const refParts = col.references.split('.');
+          let targetMatch = false;
+          let targetColName = '';
+
+          if (refParts.length === 3) {
+             if (refParts[0] === t1Schema && refParts[1] === t1Name) {
+                targetMatch = true;
+                targetColName = refParts[2];
+             }
+          } else if (refParts.length === 2) {
+             if (refParts[0] === t1Name) {
+                targetMatch = true;
+                targetColName = refParts[1];
+             }
+          }
+
+          if (targetMatch) {
+               // We found T2 -> T1. 
+               // Conventionally: LEFT JOIN T2 ON T2.fk = T1.pk
+               return {
+                   id: crypto.randomUUID(),
+                   fromTable: tableId2,
+                   fromColumn: col.name,
+                   type: 'LEFT',
+                   toTable: tableId1,
+                   toColumn: targetColName
+               };
+          }
+      }
+  }
+
+  return null;
+}
+
 
 // --- Sub-components Memoized for Performance ---
 
@@ -643,9 +730,22 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
       });
     } else {
       newTables = [...currentState.selectedTables, tableId];
-      updateStateWithHistory({ ...currentState, selectedTables: newTables });
+      
+      // AUTO-JOIN LOGIC: Check if new table connects to existing ones
+      const newJoins = [...currentState.joins];
+      for (const existingTableId of currentState.selectedTables) {
+         // Check both directions
+         const joinForward = findBestJoin(schema, existingTableId, tableId);
+         if (joinForward) newJoins.push(joinForward);
+         else {
+            const joinBackward = findBestJoin(schema, tableId, existingTableId);
+            if (joinBackward) newJoins.push(joinBackward);
+         }
+      }
+
+      updateStateWithHistory({ ...currentState, selectedTables: newTables, joins: newJoins });
     }
-  }, [updateStateWithHistory]);
+  }, [updateStateWithHistory, schema]);
 
   const clearAllTables = useCallback(() => {
      updateStateWithHistory({ ...stateRef.current, selectedTables: [], selectedColumns: [], aggregations: {}, joins: [], filters: [] });
