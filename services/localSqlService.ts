@@ -1,6 +1,9 @@
 
 import { BuilderState, DatabaseSchema, QueryResult, ExplicitJoin } from '../types';
 
+// Helper to ensure consistent ID generation
+const getTableId = (t: any) => `${t.schema || 'public'}.${t.name}`;
+
 export const generateLocalSql = (schema: DatabaseSchema, state: BuilderState): QueryResult => {
   const { selectedTables, selectedColumns, aggregations, joins, filters, groupBy, orderBy, limit } = state;
 
@@ -126,6 +129,39 @@ export const generateLocalSql = (schema: DatabaseSchema, state: BuilderState): Q
                    joinedTables.add(targetTableId);
                    foundLink = true;
                    break;
+                }
+             }
+          }
+       }
+
+       // --- Heuristic: Shared Name Logic (e.g. abast.abastecimento = movto.abastecimento) ---
+       if (!foundLink) {
+          const targetName = targetTableId.split('.')[1]; // get table name part
+          // Find any existing table with the same name but different schema
+          const existingMatchId = Array.from(joinedTables).find(jid => jid.split('.')[1] === targetName);
+
+          if (existingMatchId) {
+             const targetSchemaObj = schema.tables.find(t => getTableId(t) === targetTableId);
+             const existingSchemaObj = schema.tables.find(t => getTableId(t) === existingMatchId);
+
+             if (targetSchemaObj && existingSchemaObj) {
+                // Try finding common 'id' or PK
+                const hasIdTarget = targetSchemaObj.columns.some(c => c.name.toLowerCase() === 'id');
+                const hasIdExisting = existingSchemaObj.columns.some(c => c.name.toLowerCase() === 'id');
+
+                if (hasIdTarget && hasIdExisting) {
+                    joinClauses.push(`INNER JOIN ${targetTableId} ON ${existingMatchId}.id = ${targetTableId}.id`);
+                    joinedTables.add(targetTableId);
+                    foundLink = true;
+                } else {
+                    // Try PKs
+                    const targetPk = targetSchemaObj.columns.find(c => c.isPrimaryKey);
+                    const existingPk = existingSchemaObj.columns.find(c => c.isPrimaryKey);
+                    if (targetPk && existingPk && targetPk.name === existingPk.name) {
+                         joinClauses.push(`INNER JOIN ${targetTableId} ON ${existingMatchId}.${existingPk.name} = ${targetTableId}.${targetPk.name}`);
+                         joinedTables.add(targetTableId);
+                         foundLink = true;
+                    }
                 }
              }
           }

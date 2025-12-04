@@ -105,6 +105,26 @@ const findBestJoin = (schema: DatabaseSchema, tableId1: string, tableId2: string
       }
   }
 
+  // 3. Heuristic: Shared Name (e.g. abast.abastecimento vs movto.abastecimento)
+  if (t1Name === t2Name && t1Schema !== t2Schema) {
+     // Try to find a common ID column or PK
+     const commonId = table1.columns.find(c => 
+        (c.name.toLowerCase() === 'id' || c.isPrimaryKey) && 
+        table2.columns.some(c2 => c2.name === c.name && c2.type === c.type)
+     );
+
+     if (commonId) {
+        return {
+           id: crypto.randomUUID(),
+           fromTable: tableId1,
+           fromColumn: commonId.name,
+           type: 'INNER',
+           toTable: tableId2,
+           toColumn: commonId.name
+        };
+     }
+  }
+
   return null;
 }
 
@@ -1192,7 +1212,7 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
                       </div>
                       <p className="text-slate-600 dark:text-slate-300 font-medium mb-1">Nenhum JOIN definido manualmente.</p>
                       <p className="text-xs text-slate-400 max-w-sm">
-                        O sistema tentará detectar relacionamentos automaticamente via chaves estrangeiras (FK), mas para consultas complexas, recomendamos definir aqui.
+                        O sistema tentará detectar relacionamentos automaticamente via chaves estrangeiras (FK) ou por nomes coincidentes, mas para consultas complexas, recomendamos definir aqui.
                       </p>
                    </div>
                  ) : (
