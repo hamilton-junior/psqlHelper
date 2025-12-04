@@ -34,7 +34,8 @@ const DataVisualizer: React.FC<DataVisualizerProps> = ({ data }) => {
     });
 
     // Extract ALL keys from ALL rows (handling sparse data)
-    const allUniqueKeys = Array.from(new Set(cleanData.flatMap(Object.keys)));
+    // Cast to string[] to avoid 'unknown' type errors during filter
+    const allUniqueKeys = Array.from(new Set(cleanData.flatMap((row: any) => Object.keys(row)))) as string[];
 
     // Find keys that are actually numbers in at least ONE row
     let numKeys = allUniqueKeys.filter(k => {

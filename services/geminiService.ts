@@ -1,5 +1,5 @@
 import { GoogleGenAI, Type, Schema } from "@google/genai";
-import { DatabaseSchema, QueryResult, ValidationResult, BuilderState } from "../types";
+import { DatabaseSchema, QueryResult, ValidationResult, BuilderState, AggregateFunction, Operator, JoinType } from "../types";
 
 // Vite will replace 'process.env.API_KEY' with the actual string from your .env file at build time.
 // @ts-ignore: process is defined via Vite config
@@ -16,11 +16,132 @@ const cleanJsonString = (str: string): string => {
 
 const formatSchemaForPrompt = (schema: DatabaseSchema): string => {
   // Use a more structured JSON-like format for the prompt to reduce ambiguity
+  // Include schema explicitly!
   const simplifiedStructure = schema.tables.map(t => ({
     tableName: t.name,
+    schema: t.schema || 'public',
+    fullName: `${t.schema || 'public'}.${t.name}`,
     columns: t.columns.map(c => c.name) // Only names needed for validation existence check
   }));
   return JSON.stringify(simplifiedStructure, null, 2);
+};
+
+/**
+ * Converts a natural language user request into a structured BuilderState object.
+ * This allows the UI to be auto-filled based on a sentence like "Show sales by country".
+ */
+export const generateBuilderStateFromPrompt = async (
+  schema: DatabaseSchema,
+  userPrompt: string
+): Promise<Partial<BuilderState>> => {
+  
+  const schemaContext = formatSchemaForPrompt(schema);
+
+  const systemInstruction = `
+    Você é um assistente de BI que configura ferramentas de consulta visual.
+    
+    SEU OBJETIVO:
+    Traduzir a pergunta do usuário em uma configuração JSON para um Query Builder visual.
+    
+    SCHEMA DISPONÍVEL:
+    ${schemaContext}
+
+    REGRAS:
+    1. Use APENAS nomes de tabelas e colunas que existem no schema.
+    2. Para 'selectedTables', use o formato "schema.tabela" (ex: "public.users").
+    3. Para 'selectedColumns', use o formato "schema.tabela.coluna".
+    4. Para 'aggregations', mapeie colunas para: COUNT, SUM, AVG, MIN, MAX ou NONE.
+    5. Infira JOINS se múltiplas tabelas forem necessárias. Tente adivinhar as colunas de ligação (fk/pk) pelos nomes.
+    6. Infira FILTROS se o usuário pedir (ex: "vendas acima de 100" -> operator: ">", value: "100").
+    7. Se o usuário pedir agrupamento (ex: "por país"), adicione ao 'groupBy'.
+
+    Retorne APENAS JSON.
+  `;
+
+  const prompt = `Solicitação do usuário: "${userPrompt}"`;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: prompt,
+      config: {
+        systemInstruction: systemInstruction,
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            selectedTables: { type: Type.ARRAY, items: { type: Type.STRING } },
+            selectedColumns: { type: Type.ARRAY, items: { type: Type.STRING } },
+            aggregations: { 
+               type: Type.OBJECT, 
+               description: "Map of 'schema.table.column' keys to aggregation function strings"
+            }, 
+            filters: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  column: { type: Type.STRING },
+                  operator: { type: Type.STRING },
+                  value: { type: Type.STRING }
+                }
+              }
+            },
+            joins: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  fromTable: { type: Type.STRING },
+                  fromColumn: { type: Type.STRING },
+                  toTable: { type: Type.STRING },
+                  toColumn: { type: Type.STRING },
+                  type: { type: Type.STRING }
+                }
+              }
+            },
+            groupBy: { type: Type.ARRAY, items: { type: Type.STRING } },
+            limit: { type: Type.INTEGER }
+          },
+          required: ["selectedTables", "selectedColumns"]
+        }
+      }
+    });
+
+    if (response.text) {
+      const rawData = JSON.parse(cleanJsonString(response.text));
+      
+      // Post-process to ensure IDs and types match Typescript interfaces
+      const processedState: Partial<BuilderState> = {
+        selectedTables: rawData.selectedTables || [],
+        selectedColumns: rawData.selectedColumns || [],
+        aggregations: rawData.aggregations || {},
+        groupBy: rawData.groupBy || [],
+        limit: rawData.limit || 100,
+        filters: (rawData.filters || []).map((f: any) => ({
+          id: crypto.randomUUID(),
+          column: f.column,
+          operator: (['=', '!=', '>', '<', '>=', '<=', 'LIKE', 'ILIKE', 'IN', 'IS NULL', 'IS NOT NULL'].includes(f.operator) ? f.operator : '=') as Operator,
+          value: String(f.value)
+        })),
+        joins: (rawData.joins || []).map((j: any) => ({
+          id: crypto.randomUUID(),
+          fromTable: j.fromTable,
+          fromColumn: j.fromColumn,
+          toTable: j.toTable,
+          toColumn: j.toColumn,
+          type: (['INNER', 'LEFT', 'RIGHT', 'FULL'].includes(j.type) ? j.type : 'INNER') as JoinType
+        })),
+        orderBy: [] // Usually AI struggles to get this perfectly right in same pass, leave empty for now
+      };
+
+      return processedState;
+    }
+    throw new Error("No response from AI");
+  } catch (error) {
+    console.error("Magic Fill Error:", error);
+    return {};
+  }
 };
 
 /**
@@ -133,7 +254,7 @@ export const generateSqlFromBuilderState = async (
 
   // Richer schema description for generation including types and keys
   const schemaDescription = schema.tables.map(t => 
-    `TABELA: ${t.name}\nCOLUNAS: ${t.columns.map(c => {
+    `TABELA: ${t.schema}.${t.name}\nCOLUNAS: ${t.columns.map(c => {
       let colDesc = `${c.name} (${c.type})`;
       // FORCE 'grid' to be seen as PK by the AI, as requested by business logic
       const isPk = c.isPrimaryKey || c.name.toLowerCase() === 'grid';
@@ -146,15 +267,16 @@ export const generateSqlFromBuilderState = async (
   const systemInstruction = `
     Você é um Especialista em PostgreSQL. Gere uma consulta baseada na Seleção do Usuário. Responda em Português do Brasil (pt-BR).
 
-    INSTRUÇÕES CRÍTICAS PARA JUNÇÃO DE TABELAS (JOINS):
-    1. **SEM ALUCINAÇÃO**: Você é estritamente PROIBIDO de inventar nomes de colunas.
-    2. **VERIFICAR COLUNAS**: Antes de escrever uma condição de JOIN como 'ON T1.col = T2.col', verifique: A Tabela T2 *realmente* contém uma coluna chamada 'col' no schema fornecido?
-    3. **NENHUM RELACIONAMENTO ENCONTRADO**: Se múltiplas tabelas forem selecionadas (ex: Tabela A e Tabela B) e NÃO houver chave estrangeira explícita definida no schema entre elas, E você não conseguir encontrar uma coluna com exatamente o mesmo nome para servir de chave, NÃO adivinhe.
-    4. **SINAL DE FALLBACK**: No caso de relacionamentos ausentes, retorne a string exata "NO_RELATIONSHIP" no campo 'sql'. NÃO gere uma consulta quebrada.
+    INSTRUÇÕES CRÍTICAS:
+    1. **NOMES QUALIFICADOS**: SEMPRE use o formato "schema.tabela" no FROM e JOIN. (Ex: 'FROM public.users' e não apenas 'FROM users'). Isso é vital para evitar ambiguidade.
+    2. **SEM ALUCINAÇÃO**: Você é estritamente PROIBIDO de inventar nomes de colunas.
+    3. **VERIFICAR COLUNAS**: Antes de escrever uma condição de JOIN como 'ON T1.col = T2.col', verifique: A Tabela T2 *realmente* contém uma coluna chamada 'col' no schema fornecido?
+    4. **NENHUM RELACIONAMENTO ENCONTRADO**: Se múltiplas tabelas forem selecionadas (ex: Tabela A e Tabela B) e NÃO houver chave estrangeira explícita definida no schema entre elas, E você não conseguir encontrar uma coluna com exatamente o mesmo nome para servir de chave, NÃO adivinhe.
+    5. **SINAL DE FALLBACK**: No caso de relacionamentos ausentes, retorne a string exata "NO_RELATIONSHIP" no campo 'sql'. NÃO gere uma consulta quebrada.
     
     INSTRUÇÕES CRÍTICAS PARA ORDENAÇÃO E GROUP BY:
-    5. **ORDER BY**: Se o usuário fornecer instruções de 'OrderBy', você DEVE anexar uma cláusula 'ORDER BY'. Não ignore.
-    6. **AGREGAÇÃO**: Se o usuário solicitou uma função de agregação (COUNT, SUM, etc.) em uma coluna, você DEVE incluí-la no SELECT e adicionar o GROUP BY apropriado para as outras colunas.
+    6. **ORDER BY**: Se o usuário fornecer instruções de 'OrderBy', você DEVE anexar uma cláusula 'ORDER BY'. Não ignore.
+    7. **AGREGAÇÃO**: Se o usuário solicitou uma função de agregação (COUNT, SUM, etc.) em uma coluna, você DEVE incluí-la no SELECT e adicionar o GROUP BY apropriado para as outras colunas.
 
     Formatação:
     - Use espaçamento estrito (ex: 'SELECT * FROM' não 'SELECT*FROM').
@@ -163,9 +285,13 @@ export const generateSqlFromBuilderState = async (
 
   // Format columns to include aggregation requests
   const formattedColumns = state.selectedColumns.map(col => {
+     // Format input: "schema.table.column"
      const agg = state.aggregations?.[col];
      if (agg && agg !== 'NONE') {
-        return `${agg}(${col}) AS ${agg.toLowerCase()}_${col.split('.')[1]}`;
+        // extract column name (last part)
+        const parts = col.split('.');
+        const colName = parts[parts.length - 1];
+        return `${agg}(${col}) AS ${agg.toLowerCase()}_${colName}`;
      }
      return col;
   });
@@ -435,7 +561,7 @@ export const generateMockData = async (schema: DatabaseSchema, sql: string): Pro
     Gere dados fictícios (Mock Data) para o seguinte cenário.
     
     SCHEMA DO BANCO:
-    ${JSON.stringify(schema.tables.map(t => ({ table: t.name, columns: t.columns.map(c => c.name) })))}
+    ${JSON.stringify(schema.tables.map(t => ({ table: `${t.schema || 'public'}.${t.name}`, columns: t.columns.map(c => c.name) })))}
 
     QUERY SQL:
     ${sql}

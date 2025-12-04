@@ -1,7 +1,8 @@
 import React, { useState, useMemo, useEffect, useCallback, useDeferredValue, memo, useRef } from 'react';
-import { DatabaseSchema, BuilderState, ExplicitJoin, JoinType, Filter, Operator, OrderBy, AppSettings, SavedQuery, AggregateFunction, Column } from '../../types';
-import { Layers, ChevronRight, Settings2, RefreshCw, Search, X, CheckSquare, Square, Plus, Trash2, ArrowRightLeft, Filter as FilterIcon, ArrowDownAZ, List, Link2, Check, ChevronDown, Pin, XCircle, Undo2, Redo2, Save, FolderOpen, Calendar, Clock, Sigma, Key, Combine, ArrowRight, ArrowLeft, FastForward, Target, CornerDownRight } from 'lucide-react';
+import { DatabaseSchema, BuilderState, ExplicitJoin, JoinType, Filter, Operator, OrderBy, AppSettings, SavedQuery, AggregateFunction, Column, Table } from '../../types';
+import { Layers, ChevronRight, Settings2, RefreshCw, Search, X, CheckSquare, Square, Plus, Trash2, ArrowRightLeft, Filter as FilterIcon, ArrowDownAZ, List, Link2, Check, ChevronDown, Pin, XCircle, Undo2, Redo2, Save, FolderOpen, Calendar, Clock, Sigma, Key, Combine, ArrowRight, ArrowLeft, FastForward, Target, CornerDownRight, Wand2, Sparkles, Loader2 } from 'lucide-react';
 import SchemaViewer from '../SchemaViewer';
+import { generateBuilderStateFromPrompt } from '../../services/geminiService';
 
 interface BuilderStepProps {
   schema: DatabaseSchema;
@@ -17,10 +18,15 @@ interface BuilderStepProps {
 
 type TabType = 'columns' | 'joins' | 'filters' | 'sortgroup';
 
+// Helper to ensure consistent ID generation
+const getTableId = (t: Table) => `${t.schema || 'public'}.${t.name}`;
+const getColId = (tableId: string, colName: string) => `${tableId}.${colName}`;
+
 // --- Sub-components Memoized for Performance ---
 
 interface ColumnItemProps {
   col: Column;
+  tableId: string;
   tableName: string;
   isSelected: boolean;
   aggregation: AggregateFunction;
@@ -28,14 +34,14 @@ interface ColumnItemProps {
   isHovered: boolean;
   isRelTarget: boolean; // Is this the PK being pointed to?
   isRelSource: boolean; // Is this an FK pointing to the hovered PK?
-  onToggle: (tableName: string, colName: string) => void;
-  onAggregationChange: (tableName: string, colName: string, func: AggregateFunction) => void;
-  onHover: (tableName: string, colName: string, references?: string) => void;
+  onToggle: (tableId: string, colName: string) => void;
+  onAggregationChange: (tableId: string, colName: string, func: AggregateFunction) => void;
+  onHover: (tableId: string, colName: string, references?: string) => void;
   onHoverOut: () => void;
 }
 
 // Memoized Column Item
-const ColumnItem = memo(({ col, tableName, isSelected, aggregation, isHovered, isRelTarget, isRelSource, onToggle, onAggregationChange, onHover, onHoverOut }: ColumnItemProps) => {
+const ColumnItem = memo(({ col, tableId, tableName, isSelected, aggregation, isHovered, isRelTarget, isRelSource, onToggle, onAggregationChange, onHover, onHoverOut }: ColumnItemProps) => {
   
   // Determine visual style based on relationship state
   let containerClasses = "bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 hover:border-indigo-200 dark:hover:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-700 hover:scale-[1.01]";
@@ -61,8 +67,8 @@ const ColumnItem = memo(({ col, tableName, isSelected, aggregation, isHovered, i
 
   return (
     <div 
-      onClick={() => onToggle(tableName, col.name)}
-      onMouseEnter={() => onHover(tableName, col.name, col.references)}
+      onClick={() => onToggle(tableId, col.name)}
+      onMouseEnter={() => onHover(tableId, col.name, col.references)}
       onMouseLeave={onHoverOut}
       className={`flex items-center p-2 rounded border cursor-pointer transition-all duration-200 ease-in-out relative group ${containerClasses}`}
       title={`Clique para selecionar ${col.name}`}
@@ -107,7 +113,7 @@ const ColumnItem = memo(({ col, tableName, isSelected, aggregation, isHovered, i
          >
             <select
                value={aggregation}
-               onChange={(e) => onAggregationChange(tableName, col.name, e.target.value as AggregateFunction)}
+               onChange={(e) => onAggregationChange(tableId, col.name, e.target.value as AggregateFunction)}
                className={`text-[10px] font-bold uppercase rounded px-1 py-0.5 outline-none border cursor-pointer transition-colors ${
                   aggregation !== 'NONE' 
                     ? 'bg-indigo-600 text-white border-indigo-600' 
@@ -132,26 +138,26 @@ const ColumnItem = memo(({ col, tableName, isSelected, aggregation, isHovered, i
          prev.isRelTarget === next.isRelTarget &&
          prev.isRelSource === next.isRelSource &&
          prev.col.name === next.col.name &&
-         prev.tableName === next.tableName;
+         prev.tableId === next.tableId;
 });
 
 interface TableCardProps {
-  table: { name: string, columns: Column[] };
+  table: Table;
   selectedColumns: string[];
   aggregations: Record<string, AggregateFunction>;
   isCollapsed: boolean;
   colSearchTerm: string;
   // Highlight State
-  hoveredColumn: { table: string; col: string; references?: string } | null;
+  hoveredColumn: { tableId: string; col: string; references?: string } | null;
   
-  onToggleCollapse: (tableName: string) => void;
-  onToggleColumn: (tableName: string, colName: string) => void;
-  onAggregationChange: (tableName: string, colName: string, func: AggregateFunction) => void;
-  onSelectAll: (tableName: string, visibleColumns: string[]) => void;
-  onSelectNone: (tableName: string, visibleColumns: string[]) => void;
-  onSearchChange: (tableName: string, term: string) => void;
-  onClearSearch: (tableName: string) => void;
-  onHoverColumn: (tableName: string, colName: string, references?: string) => void;
+  onToggleCollapse: (tableId: string) => void;
+  onToggleColumn: (tableId: string, colName: string) => void;
+  onAggregationChange: (tableId: string, colName: string, func: AggregateFunction) => void;
+  onSelectAll: (tableId: string, visibleColumns: string[]) => void;
+  onSelectNone: (tableId: string, visibleColumns: string[]) => void;
+  onSearchChange: (tableId: string, term: string) => void;
+  onClearSearch: (tableId: string) => void;
+  onHoverColumn: (tableId: string, colName: string, references?: string) => void;
   onHoverOutColumn: () => void;
 }
 
@@ -159,6 +165,8 @@ const TableCard = memo(({
   table, selectedColumns, aggregations, isCollapsed, colSearchTerm, hoveredColumn,
   onToggleCollapse, onToggleColumn, onAggregationChange, onSelectAll, onSelectNone, onSearchChange, onClearSearch, onHoverColumn, onHoverOutColumn
 }: TableCardProps) => {
+
+  const tableId = getTableId(table);
 
   // Advanced Search Logic moved inside TableCard and memoized
   const filteredColumns = useMemo(() => {
@@ -182,16 +190,18 @@ const TableCard = memo(({
   }, [table.columns, colSearchTerm]);
 
   const visibleColNames = useMemo(() => filteredColumns.map(c => c.name), [filteredColumns]);
-  const selectedCount = selectedColumns.filter(c => c.startsWith(`${table.name}.`)).length;
+  const selectedCount = selectedColumns.filter(c => c.startsWith(`${tableId}.`)).length;
 
   // 1. Target Logic: Am I the table being referenced by the hovered column?
-  const isTarget = hoveredColumn?.references?.startsWith(table.name + '.') || false;
+  const isTarget = hoveredColumn?.references?.startsWith(table.name + '.') || false; // Approximation for visual hit
 
   // 2. Child Logic: Do I have a column that references the hovered PK (or column)?
   // We check if any of MY columns reference the `hoveredColumn`
   const isChild = useMemo(() => {
     if (!hoveredColumn) return false;
-    const targetRef = `${hoveredColumn.table}.${hoveredColumn.col}`;
+    // We assume hoverColumn refs are simplified names for now as per schema logic
+    // But ideally we match fully qualified
+    const targetRef = `${hoveredColumn.tableId.split('.')[1]}.${hoveredColumn.col}`; 
     return table.columns.some(c => c.references === targetRef);
   }, [table.columns, hoveredColumn]);
 
@@ -208,12 +218,13 @@ const TableCard = memo(({
              isChild ? 'bg-emerald-50 dark:bg-emerald-900/30 border-emerald-200 dark:border-emerald-700' : 
              'bg-slate-50 dark:bg-slate-900 border-slate-100 dark:border-slate-700'}
          `}
-         onClick={() => onToggleCollapse(table.name)}
+         onClick={() => onToggleCollapse(tableId)}
          title={isCollapsed ? "Expandir colunas" : "Recolher colunas"}
        >
          <div className="flex items-center gap-2">
             {isCollapsed ? <ChevronRight className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
             <h4 className={`font-bold ${isTarget ? 'text-amber-800 dark:text-amber-200' : isChild ? 'text-emerald-800 dark:text-emerald-200' : 'text-slate-700 dark:text-slate-300'}`}>
+               <span className="text-[10px] font-normal text-slate-400 mr-1">{table.schema}.</span>
                {table.name}
                {isTarget && <span className="ml-2 text-[10px] bg-amber-200 dark:bg-amber-700 text-amber-900 dark:text-amber-100 px-1.5 py-0.5 rounded font-extrabold uppercase tracking-wide">Alvo</span>}
                {isChild && <span className="ml-2 text-[10px] bg-emerald-200 dark:bg-emerald-700 text-emerald-900 dark:text-emerald-100 px-1.5 py-0.5 rounded font-extrabold uppercase tracking-wide">Filho</span>}
@@ -223,8 +234,8 @@ const TableCard = memo(({
             </span>
          </div>
          <div className="flex gap-2" onClick={e => e.stopPropagation()}>
-            <button onClick={() => onSelectAll(table.name, visibleColNames)} title="Selecionar todas as colunas visíveis" className="text-xs font-bold text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 px-2 py-1 rounded transition-colors">Todas</button>
-            <button onClick={() => onSelectNone(table.name, visibleColNames)} title="Desmarcar todas as colunas" className="text-xs font-bold text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 px-2 py-1 rounded transition-colors">Nenhuma</button>
+            <button onClick={() => onSelectAll(tableId, visibleColNames)} title="Selecionar todas as colunas visíveis" className="text-xs font-bold text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 px-2 py-1 rounded transition-colors">Todas</button>
+            <button onClick={() => onSelectNone(tableId, visibleColNames)} title="Desmarcar todas as colunas" className="text-xs font-bold text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 px-2 py-1 rounded transition-colors">Nenhuma</button>
          </div>
        </div>
 
@@ -237,14 +248,14 @@ const TableCard = memo(({
                  <input 
                     type="text" 
                     value={colSearchTerm}
-                    onChange={(e) => onSearchChange(table.name, e.target.value)}
+                    onChange={(e) => onSearchChange(tableId, e.target.value)}
                     placeholder={`Filtrar colunas em ${table.name}...`}
                     className="w-full pl-8 pr-2 py-1 bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-700 rounded text-xs focus:ring-1 focus:ring-indigo-500 outline-none transition-all placeholder-slate-400 text-slate-700 dark:text-slate-300"
                     title="Filtrar colunas desta tabela"
                  />
                  {colSearchTerm && (
                     <button 
-                      onClick={() => onClearSearch(table.name)}
+                      onClick={() => onClearSearch(tableId)}
                       className="absolute right-2 top-1.5 text-slate-300 hover:text-slate-500"
                       title="Limpar filtro"
                     >
@@ -262,26 +273,29 @@ const TableCard = memo(({
                 </div>
              ) : (
                 filteredColumns.map(col => {
-                  const colFullId = `${table.name}.${col.name}`;
+                  const colFullId = getColId(tableId, col.name);
                   const isChecked = selectedColumns.includes(colFullId);
                   const agg = aggregations[colFullId] || 'NONE';
                   
                   // Highlight Logic
-                  const isHovered = hoveredColumn?.table === table.name && hoveredColumn?.col === col.name;
+                  const isHovered = hoveredColumn?.tableId === tableId && hoveredColumn?.col === col.name;
                   
                   // Is this the "Target" (PK) of the hovered FK?
                   const isRelTarget = hoveredColumn?.references === `${table.name}.${col.name}`;
                   
                   // Is this an FK that points to the hovered PK?
                   // Source logic: Check if current col references "HoveredTable.HoveredCol"
+                  // Note: hoveredColumn.tableId is "schema.table", but references are usually "table.col"
+                  const hoveredTableSimple = hoveredColumn?.tableId.split('.')[1];
                   const isRelSource = !col.references 
                      ? false 
-                     : col.references === `${hoveredColumn?.table}.${hoveredColumn?.col}`;
+                     : col.references === `${hoveredTableSimple}.${hoveredColumn?.col}`;
 
                   return (
                     <ColumnItem 
                       key={col.name}
                       col={col}
+                      tableId={tableId}
                       tableName={table.name}
                       isSelected={isChecked}
                       aggregation={agg}
@@ -303,18 +317,21 @@ const TableCard = memo(({
   );
 }, (prev, next) => {
    // Optimization: Only re-render if visual state relevant to this table changes
+   const tableIdPrev = getTableId(prev.table);
+   const tableIdNext = getTableId(next.table);
+
    const isHoverRelevant = 
-      (prev.hoveredColumn?.table === prev.table.name) || 
-      (next.hoveredColumn?.table === next.table.name) ||
+      (prev.hoveredColumn?.tableId === tableIdPrev) || 
+      (next.hoveredColumn?.tableId === tableIdNext) ||
       (prev.hoveredColumn?.references?.startsWith(prev.table.name)) ||
       (next.hoveredColumn?.references?.startsWith(next.table.name)) ||
       // Re-render children tables when hover changes
-      (prev.table.columns.some(c => c.references === `${prev.hoveredColumn?.table}.${prev.hoveredColumn?.col}`)) ||
-      (next.table.columns.some(c => c.references === `${next.hoveredColumn?.table}.${next.hoveredColumn?.col}`));
+      (prev.table.columns.some(c => c.references === `${prev.hoveredColumn?.tableId.split('.')[1]}.${prev.hoveredColumn?.col}`)) ||
+      (next.table.columns.some(c => c.references === `${next.hoveredColumn?.tableId.split('.')[1]}.${next.hoveredColumn?.col}`));
       
    return prev.isCollapsed === next.isCollapsed &&
           prev.colSearchTerm === next.colSearchTerm &&
-          prev.table.name === next.table.name &&
+          tableIdPrev === tableIdNext &&
           prev.selectedColumns === next.selectedColumns &&
           prev.aggregations === next.aggregations &&
           !isHoverRelevant; // Only skip render if hover is NOT relevant
@@ -333,7 +350,7 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
     localStorage.setItem(`psql-buddy-tab-${schema.name}`, activeTab);
   }, [activeTab, schema.name]);
   
-  // Persistence for Column Search Terms
+  // Persistence for Column Search Terms (Keys are Table IDs)
   const [columnSearchTerms, setColumnSearchTerms] = useState<Record<string, string>>(() => {
     try {
         const stored = localStorage.getItem(`psql-buddy-search-${schema.name}`);
@@ -345,7 +362,7 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
     localStorage.setItem(`psql-buddy-search-${schema.name}`, JSON.stringify(columnSearchTerms));
   }, [columnSearchTerms, schema.name]);
   
-  // State for collapsible tables - PERSISTED
+  // State for collapsible tables - PERSISTED (Keys are Table IDs)
   const [collapsedTables, setCollapsedTables] = useState<Set<string>>(() => {
     try {
       const stored = localStorage.getItem(`psql-buddy-collapsed-${schema.name}`);
@@ -360,11 +377,15 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
      localStorage.setItem(`psql-buddy-collapsed-${schema.name}`, JSON.stringify(Array.from(collapsedTables)));
   }, [collapsedTables, schema.name]);
 
-  // State for Hover Highlights (Table, Column, References)
-  const [hoveredColumn, setHoveredColumn] = useState<{ table: string; col: string; references?: string } | null>(null);
+  // State for Hover Highlights
+  const [hoveredColumn, setHoveredColumn] = useState<{ tableId: string; col: string; references?: string } | null>(null);
 
   // Show skip button if generating for too long
   const [showSkipButton, setShowSkipButton] = useState(false);
+  
+  // Magic Fill State
+  const [magicPrompt, setMagicPrompt] = useState('');
+  const [isMagicFilling, setIsMagicFilling] = useState(false);
 
   useEffect(() => {
     let timer: any;
@@ -479,38 +500,74 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
   const relevantSavedQueries = useMemo(() => 
     savedQueries.filter(q => q.schemaName === schema.name), 
   [savedQueries, schema.name]);
+  
+  // --- Magic Fill Handler ---
+  const handleMagicFill = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!magicPrompt.trim() || isMagicFilling) return;
+    
+    setIsMagicFilling(true);
+    try {
+       // Save current state first for Undo
+       const currentStateCopy = JSON.parse(JSON.stringify(stateRef.current));
+       setHistory(prev => [...prev, currentStateCopy]);
+       setFuture([]);
+
+       // Call AI Service
+       const newStatePartial = await generateBuilderStateFromPrompt(schema, magicPrompt);
+       
+       if (newStatePartial && newStatePartial.selectedTables) {
+          // Merge with defaults
+          const newState: BuilderState = {
+             ...stateRef.current, // Keep existing limit/order if not provided
+             ...newStatePartial as BuilderState
+          };
+          onStateChange(newState);
+          setMagicPrompt("");
+          // Auto-switch tabs based on what was filled
+          if (newState.joins.length > 0) setActiveTab('joins');
+          else setActiveTab('columns');
+       }
+    } catch (e) {
+       alert("Não foi possível preencher automaticamente. Tente reformular.");
+    } finally {
+       setIsMagicFilling(false);
+    }
+  };
+
 
   // --- Helpers ---
-  const getColumnsForTable = useCallback((tableName: string) => {
-    const t = schema.tables.find(table => table.name === tableName);
+  const getColumnsForTable = useCallback((tableId: string) => {
+    // Look for matching schema.table
+    const t = schema.tables.find(table => getTableId(table) === tableId);
     return t ? t.columns : [];
   }, [schema.tables]);
 
   const getAllSelectedTableColumns = () => {
-    let cols: {table: string, column: string}[] = [];
-    state.selectedTables.forEach(tName => {
-      const t = schema.tables.find(table => table.name === tName);
+    let cols: {tableId: string, table: string, column: string}[] = [];
+    state.selectedTables.forEach(tId => {
+      const t = schema.tables.find(table => getTableId(table) === tId);
       if (t) {
-        t.columns.forEach(c => cols.push({ table: tName, column: c.name }));
+        t.columns.forEach(c => cols.push({ tableId: tId, table: t.name, column: c.name }));
       }
     });
     return cols;
   };
 
-  const toggleTableCollapse = useCallback((tableName: string) => {
+  const toggleTableCollapse = useCallback((tableId: string) => {
     setCollapsedTables(prev => {
       const newSet = new Set(prev);
-      if (newSet.has(tableName)) {
-        newSet.delete(tableName);
+      if (newSet.has(tableId)) {
+        newSet.delete(tableId);
       } else {
-        newSet.add(tableName);
+        newSet.add(tableId);
       }
       return newSet;
     });
   }, []);
 
-  const handleHoverColumn = useCallback((tableName: string, colName: string, references?: string) => {
-     setHoveredColumn({ table: tableName, col: colName, references });
+  const handleHoverColumn = useCallback((tableId: string, colName: string, references?: string) => {
+     setHoveredColumn({ tableId, col: colName, references });
   }, []);
 
   const handleHoverOutColumn = useCallback(() => {
@@ -518,19 +575,19 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
   }, []);
 
   // --- Logic for selection ---
-  const toggleTable = useCallback((tableName: string) => {
+  const toggleTable = useCallback((tableId: string) => {
     const currentState = stateRef.current;
-    const isSelected = currentState.selectedTables.includes(tableName);
+    const isSelected = currentState.selectedTables.includes(tableId);
     let newTables = [];
     
     if (isSelected) {
-      newTables = currentState.selectedTables.filter(t => t !== tableName);
-      const newColumns = currentState.selectedColumns.filter(c => !c.startsWith(`${tableName}.`));
-      const newJoins = currentState.joins.filter(j => j.fromTable !== tableName && j.toTable !== tableName);
-      const newFilters = currentState.filters.filter(f => !f.column.startsWith(`${tableName}.`));
+      newTables = currentState.selectedTables.filter(t => t !== tableId);
+      const newColumns = currentState.selectedColumns.filter(c => !c.startsWith(`${tableId}.`));
+      const newJoins = currentState.joins.filter(j => j.fromTable !== tableId && j.toTable !== tableId);
+      const newFilters = currentState.filters.filter(f => !f.column.startsWith(`${tableId}.`));
       const newAggs = { ...currentState.aggregations };
       Object.keys(newAggs).forEach(key => {
-        if (key.startsWith(`${tableName}.`)) delete newAggs[key];
+        if (key.startsWith(`${tableId}.`)) delete newAggs[key];
       });
 
       updateStateWithHistory({ 
@@ -543,11 +600,11 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
       });
       setColumnSearchTerms(prev => {
          const next = { ...prev };
-         delete next[tableName];
+         delete next[tableId];
          return next;
       });
     } else {
-      newTables = [...currentState.selectedTables, tableName];
+      newTables = [...currentState.selectedTables, tableId];
       updateStateWithHistory({ ...currentState, selectedTables: newTables });
     }
   }, [updateStateWithHistory]);
@@ -556,9 +613,9 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
      updateStateWithHistory({ ...stateRef.current, selectedTables: [], selectedColumns: [], aggregations: {}, joins: [], filters: [] });
   }, [updateStateWithHistory]);
 
-  const toggleColumn = useCallback((tableName: string, colName: string) => {
+  const toggleColumn = useCallback((tableId: string, colName: string) => {
     const currentState = stateRef.current;
-    const fullId = `${tableName}.${colName}`;
+    const fullId = getColId(tableId, colName);
     const isSelected = currentState.selectedColumns.includes(fullId);
     let newColumns = [];
     const newAggs = { ...currentState.aggregations };
@@ -571,14 +628,14 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
     }
     
     let newTables = currentState.selectedTables;
-    if (!currentState.selectedTables.includes(tableName)) newTables = [...currentState.selectedTables, tableName];
+    if (!currentState.selectedTables.includes(tableId)) newTables = [...currentState.selectedTables, tableId];
 
     updateStateWithHistory({ ...currentState, selectedTables: newTables, selectedColumns: newColumns, aggregations: newAggs });
   }, [updateStateWithHistory]);
   
-  const updateAggregation = useCallback((tableName: string, colName: string, func: AggregateFunction) => {
+  const updateAggregation = useCallback((tableId: string, colName: string, func: AggregateFunction) => {
     const currentState = stateRef.current;
-    const fullId = `${tableName}.${colName}`;
+    const fullId = getColId(tableId, colName);
     const newAggs = { ...currentState.aggregations };
     if (func === 'NONE') {
       delete newAggs[fullId];
@@ -594,19 +651,19 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
     updateStateWithHistory({ ...currentState, selectedColumns: newColumns, aggregations: newAggs });
   }, [updateStateWithHistory]);
 
-  const selectAllColumns = useCallback((tableName: string, visibleColumns: string[]) => {
+  const selectAllColumns = useCallback((tableId: string, visibleColumns: string[]) => {
     const currentState = stateRef.current;
     const newColsSet = new Set(currentState.selectedColumns);
-    visibleColumns.forEach(colName => newColsSet.add(`${tableName}.${colName}`));
+    visibleColumns.forEach(colName => newColsSet.add(getColId(tableId, colName)));
     const newCols = Array.from(newColsSet);
     let newTables = currentState.selectedTables;
-    if (!currentState.selectedTables.includes(tableName)) newTables = [...currentState.selectedTables, tableName];
+    if (!currentState.selectedTables.includes(tableId)) newTables = [...currentState.selectedTables, tableId];
     updateStateWithHistory({ ...currentState, selectedTables: newTables, selectedColumns: newCols });
   }, [updateStateWithHistory]);
 
-  const selectNoneColumns = useCallback((tableName: string, visibleColumns: string[]) => {
+  const selectNoneColumns = useCallback((tableId: string, visibleColumns: string[]) => {
     const currentState = stateRef.current;
-    const visibleSet = new Set(visibleColumns.map(c => `${tableName}.${c}`));
+    const visibleSet = new Set(visibleColumns.map(c => getColId(tableId, c)));
     const newCols = currentState.selectedColumns.filter(c => !visibleSet.has(c));
     const newAggs = { ...currentState.aggregations };
     visibleSet.forEach(key => delete newAggs[key]);
@@ -614,12 +671,12 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
     updateStateWithHistory({ ...currentState, selectedColumns: newCols, aggregations: newAggs });
   }, [updateStateWithHistory]);
 
-  const handleColumnSearchChange = useCallback((tableName: string, term: string) => {
-    setColumnSearchTerms(prev => ({...prev, [tableName]: term}));
+  const handleColumnSearchChange = useCallback((tableId: string, term: string) => {
+    setColumnSearchTerms(prev => ({...prev, [tableId]: term}));
   }, []);
 
-  const handleClearColumnSearch = useCallback((tableName: string) => {
-    setColumnSearchTerms(prev => ({...prev, [tableName]: ''}));
+  const handleClearColumnSearch = useCallback((tableId: string) => {
+    setColumnSearchTerms(prev => ({...prev, [tableId]: ''}));
   }, []);
 
   const addJoin = useCallback(() => {
@@ -648,9 +705,12 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
 
   const addFilter = useCallback(() => {
     const currentState = stateRef.current;
+    // Default to first selected column ID or first table ID . id
+    const defaultCol = currentState.selectedColumns[0] || (currentState.selectedTables[0] ? `${currentState.selectedTables[0]}.id` : '');
+    
     const newFilter: Filter = {
       id: crypto.randomUUID(),
-      column: currentState.selectedColumns[0] || (currentState.selectedTables[0] ? `${currentState.selectedTables[0]}.id` : ''),
+      column: defaultCol,
       operator: '=',
       value: ''
     };
@@ -668,10 +728,10 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
     updateStateWithHistory({ ...currentState, filters: currentState.filters.filter(f => f.id !== id) });
   }, [updateStateWithHistory]);
 
-  const toggleGroupBy = useCallback((col: string) => {
+  const toggleGroupBy = useCallback((colFullId: string) => {
     const currentState = stateRef.current;
-    const exists = currentState.groupBy.includes(col);
-    const newGroup = exists ? currentState.groupBy.filter(g => g !== col) : [...currentState.groupBy, col];
+    const exists = currentState.groupBy.includes(colFullId);
+    const newGroup = exists ? currentState.groupBy.filter(g => g !== colFullId) : [...currentState.groupBy, colFullId];
     updateStateWithHistory({ ...currentState, groupBy: newGroup });
   }, [updateStateWithHistory]);
 
@@ -712,8 +772,8 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
     </button>
   );
 
-  const renderColumnSelect = (tableName: string, value: string, onChange: (val: string) => void, placeholder: string) => {
-    const cols = getColumnsForTable(tableName);
+  const renderColumnSelect = (tableId: string, value: string, onChange: (val: string) => void, placeholder: string) => {
+    const cols = getColumnsForTable(tableId);
     const keys = cols.filter(c => c.isPrimaryKey || c.isForeignKey);
     const data = cols.filter(c => !c.isPrimaryKey && !c.isForeignKey);
 
@@ -777,7 +837,7 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
 
   return (
     <div className="w-full h-full flex flex-col relative">
-      <div className="flex justify-between items-end mb-6 shrink-0">
+      <div className="flex justify-between items-end mb-4 shrink-0">
         <div>
           <h2 className="text-2xl font-bold text-slate-800 dark:text-white flex items-center gap-2">
             <Layers className="w-6 h-6 text-indigo-600" />
@@ -830,6 +890,35 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
           </div>
         </div>
       </div>
+      
+      {/* Magic Fill Bar */}
+      {settings.enableAiGeneration && (
+        <form onSubmit={handleMagicFill} className="mb-4 relative z-20 shrink-0">
+          <div className="relative group">
+            <div className={`absolute -inset-0.5 bg-gradient-to-r from-pink-500 to-indigo-500 rounded-lg blur opacity-25 group-hover:opacity-50 transition duration-1000 group-hover:duration-200 ${isMagicFilling ? 'opacity-75 animate-pulse' : ''}`}></div>
+            <div className="relative flex items-center bg-white dark:bg-slate-900 rounded-lg shadow-sm border border-slate-200 dark:border-slate-700">
+               <div className="pl-3 text-indigo-500">
+                  {isMagicFilling ? <Loader2 className="w-5 h-5 animate-spin" /> : <Wand2 className="w-5 h-5" />}
+               </div>
+               <input 
+                  type="text" 
+                  value={magicPrompt}
+                  onChange={(e) => setMagicPrompt(e.target.value)}
+                  placeholder="✨ Magic Fill: Digite o que você quer (ex: 'Vendas por país em 2023') e a IA preencherá o builder..."
+                  className="w-full p-3 bg-transparent outline-none text-sm text-slate-700 dark:text-slate-200 placeholder-slate-400"
+                  disabled={isMagicFilling}
+               />
+               <button 
+                  type="submit" 
+                  disabled={!magicPrompt.trim() || isMagicFilling}
+                  className="mr-2 p-1.5 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 rounded-md hover:bg-indigo-100 dark:hover:bg-indigo-900/50 disabled:opacity-50 transition-colors"
+               >
+                  <ArrowRight className="w-4 h-4" />
+               </button>
+            </div>
+          </div>
+        </form>
+      )}
 
       {/* SAVED QUERIES MODAL/OVERLAY */}
       {showSavedQueries && (
@@ -885,7 +974,7 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
           <SchemaViewer 
             schema={schema}
             selectionMode={true}
-            selectedTableIds={state.selectedTables}
+            selectedTableIds={state.selectedTables} // This now expects IDs (schema.table)
             onToggleTable={toggleTable}
             onDescriptionChange={onDescriptionChange}
           />
@@ -914,19 +1003,20 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
                      <p className="text-sm">Selecione tabelas na barra lateral para ver colunas</p>
                    </div>
                  ) : (
-                   state.selectedTables.map(tableName => {
-                     const table = schema.tables.find(t => t.name === tableName);
+                   state.selectedTables.map(tableId => {
+                     // Find table by ID (schema.table)
+                     const table = schema.tables.find(t => getTableId(t) === tableId);
                      if (!table) return null;
                      
                      // Use the memoized TableCard here
                      return (
                         <TableCard 
-                           key={tableName}
+                           key={tableId}
                            table={table}
                            selectedColumns={state.selectedColumns}
                            aggregations={state.aggregations}
-                           isCollapsed={collapsedTables.has(tableName)}
-                           colSearchTerm={columnSearchTerms[tableName] || ''}
+                           isCollapsed={collapsedTables.has(tableId)}
+                           colSearchTerm={columnSearchTerms[tableId] || ''}
                            hoveredColumn={hoveredColumn}
                            onToggleCollapse={toggleTableCollapse}
                            onToggleColumn={toggleColumn}
@@ -988,12 +1078,12 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
                                       <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 ml-1">Tabela A (Left)</label>
                                       <div className="relative">
                                          <select 
-                                            value={join.fromTable}
+                                            value={join.fromTable} // Stores Table ID (schema.table)
                                             onChange={(e) => updateJoin(join.id, 'fromTable', e.target.value)}
                                             className="w-full appearance-none pl-3 pr-8 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-bold text-slate-700 dark:text-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none"
                                          >
                                             <option value="" disabled>Selecione...</option>
-                                            {state.selectedTables.map(t => <option key={t} value={t}>{t}</option>)}
+                                            {state.selectedTables.map(tId => <option key={tId} value={tId}>{tId}</option>)}
                                          </select>
                                          <ChevronDown className="absolute right-3 top-3 w-4 h-4 text-slate-400 pointer-events-none" />
                                       </div>
@@ -1008,12 +1098,12 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
                                       <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 ml-1">Tabela B (Right)</label>
                                       <div className="relative">
                                          <select 
-                                            value={join.toTable}
+                                            value={join.toTable} // Stores Table ID
                                             onChange={(e) => updateJoin(join.id, 'toTable', e.target.value)}
                                             className="w-full appearance-none pl-3 pr-8 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-bold text-slate-700 dark:text-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none"
                                          >
                                             <option value="" disabled>Selecione...</option>
-                                            {state.selectedTables.map(t => <option key={t} value={t}>{t}</option>)}
+                                            {state.selectedTables.map(tId => <option key={tId} value={tId}>{tId}</option>)}
                                          </select>
                                          <ChevronDown className="absolute right-3 top-3 w-4 h-4 text-slate-400 pointer-events-none" />
                                       </div>
@@ -1079,8 +1169,8 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
                              >
                                 <option value="" disabled>Selecione a Coluna</option>
                                 {getAllSelectedTableColumns().map(c => (
-                                   <option key={`${c.table}.${c.column}`} value={`${c.table}.${c.column}`}>
-                                      {c.table}.{c.column}
+                                   <option key={`${c.tableId}.${c.column}`} value={`${c.tableId}.${c.column}`}>
+                                      {c.tableId}.{c.column}
                                    </option>
                                 ))}
                              </select>
@@ -1131,7 +1221,7 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
                        <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">Selecione colunas para agrupar (útil para agregações).</p>
                        <div className="flex flex-wrap gap-2">
                           {getAllSelectedTableColumns().map(col => {
-                             const fullId = `${col.table}.${col.column}`;
+                             const fullId = `${col.tableId}.${col.column}`;
                              const isGrouped = state.groupBy.includes(fullId);
                              return (
                                 <button
@@ -1176,8 +1266,8 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
                                 >
                                    <option value="" disabled>Selecione a Coluna</option>
                                    {getAllSelectedTableColumns().map(c => (
-                                      <option key={`${c.table}.${c.column}`} value={`${c.table}.${c.column}`}>
-                                         {c.table}.{c.column}
+                                      <option key={`${c.tableId}.${c.column}`} value={`${c.tableId}.${c.column}`}>
+                                         {c.tableId}.{c.column}
                                       </option>
                                    ))}
                                 </select>

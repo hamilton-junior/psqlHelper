@@ -14,7 +14,10 @@ export const generateLocalSql = (schema: DatabaseSchema, state: BuilderState): Q
     selectClause = selectedColumns.map(col => {
       const agg = aggregations[col];
       if (agg && agg !== 'NONE') {
-        const alias = `${agg.toLowerCase()}_${col.split('.')[1]}`;
+        // extract col name from "schema.table.col"
+        const parts = col.split('.');
+        const colName = parts[parts.length - 1];
+        const alias = `${agg.toLowerCase()}_${colName}`;
         return `${agg}(${col}) AS ${alias}`;
       }
       return col;
@@ -22,9 +25,10 @@ export const generateLocalSql = (schema: DatabaseSchema, state: BuilderState): Q
   }
 
   // --- 2. FROM & JOIN Clause ---
-  const primaryTable = selectedTables[0];
-  let fromClause = `FROM ${primaryTable}`;
-  const joinedTables = new Set<string>([primaryTable]);
+  // selectedTables contains strings like "schema.table"
+  const primaryTableId = selectedTables[0];
+  let fromClause = `FROM ${primaryTableId}`;
+  const joinedTables = new Set<string>([primaryTableId]);
   let joinClauses: string[] = [];
 
   // 2a. Process Explicit Joins first
@@ -39,17 +43,17 @@ export const generateLocalSql = (schema: DatabaseSchema, state: BuilderState): Q
 
   // 2b. Implicit Auto-Join (Local FK Logic) for tables not yet joined
   // If user didn't specify a join but selected multiple tables, try to find a FK link
-  const tablesToAutoJoin = selectedTables.filter(t => !joinedTables.has(t) && t !== primaryTable);
+  const tablesToAutoJoin = selectedTables.filter(t => !joinedTables.has(t) && t !== primaryTableId);
   
   // Also check if any of the "joinedTables" need to be linked to each other but weren't explicit
   // Simple Strategy: Try to link remaining tables to the primary table or already joined tables
-  const remainingTables = selectedTables.filter(t => t !== primaryTable);
+  const remainingTables = selectedTables.filter(t => t !== primaryTableId);
   
-  remainingTables.forEach(targetTable => {
+  remainingTables.forEach(targetTableId => {
     // Check if we already covered this in explicit joins
     const alreadyExplicitlyJoined = joins.some(j => 
-      (j.fromTable === targetTable && joinedTables.has(j.toTable)) || 
-      (j.toTable === targetTable && joinedTables.has(j.fromTable))
+      (j.fromTable === targetTableId && joinedTables.has(j.toTable)) || 
+      (j.toTable === targetTableId && joinedTables.has(j.fromTable))
     );
 
     if (!alreadyExplicitlyJoined) {
@@ -57,13 +61,27 @@ export const generateLocalSql = (schema: DatabaseSchema, state: BuilderState): Q
        let foundLink = false;
        
        // Try to find a link from an existing table TO the target table
-       for (const existingTable of Array.from(joinedTables)) {
-          const tSchema = schema.tables.find(t => t.name === existingTable);
+       // Note: schema.tables contains raw Table objects, we need to match via ID construction
+       for (const existingTableId of Array.from(joinedTables)) {
+          // Find actual Table object
+          const tSchema = schema.tables.find(t => `${t.schema || 'public'}.${t.name}` === existingTableId);
           if (tSchema) {
-             const fkCol = tSchema.columns.find(c => c.isForeignKey && c.references?.startsWith(`${targetTable}.`));
+             const fkCol = tSchema.columns.find(c => {
+                 // Check logic: c.references usually is "table.col". 
+                 // If schemas are different, references might be complex. 
+                 // Simplified logic: does reference start with target table name?
+                 if (!c.isForeignKey || !c.references) return false;
+                 const [refTable] = c.references.split('.');
+                 // Check if targetTableId contains this refTable name
+                 // e.g. targetTableId="public.users", refTable="users" -> Match
+                 return targetTableId.endsWith(`.${refTable}`);
+             });
+
              if (fkCol && fkCol.references) {
-                joinClauses.push(`LEFT JOIN ${targetTable} ON ${existingTable}.${fkCol.name} = ${fkCol.references}`);
-                joinedTables.add(targetTable);
+                // If schemas differ, we'd need to be careful, but local SQL generator assumes simple refs
+                // We use qualified name for JOIN target
+                joinClauses.push(`LEFT JOIN ${targetTableId} ON ${existingTableId}.${fkCol.name} = ${fkCol.references}`); // Note: refs might need qualification in real DBs if cross schema
+                joinedTables.add(targetTableId);
                 foundLink = true;
                 break;
              }
@@ -72,13 +90,26 @@ export const generateLocalSql = (schema: DatabaseSchema, state: BuilderState): Q
 
        // If not found, try to find a link FROM the target table TO an existing table
        if (!foundLink) {
-          const targetSchema = schema.tables.find(t => t.name === targetTable);
+          const targetSchema = schema.tables.find(t => `${t.schema || 'public'}.${t.name}` === targetTableId);
           if (targetSchema) {
-             for (const existingTable of Array.from(joinedTables)) {
-                const fkCol = targetSchema.columns.find(c => c.isForeignKey && c.references?.startsWith(`${existingTable}.`));
+             for (const existingTableId of Array.from(joinedTables)) {
+                const fkCol = targetSchema.columns.find(c => {
+                   if (!c.isForeignKey || !c.references) return false;
+                   const [refTable] = c.references.split('.');
+                   return existingTableId.endsWith(`.${refTable}`);
+                });
+
                 if (fkCol && fkCol.references) {
-                   joinClauses.push(`LEFT JOIN ${targetTable} ON ${targetTable}.${fkCol.name} = ${fkCol.references}`);
-                   joinedTables.add(targetTable);
+                   // targetTable LEFT JOIN existingTable? No, usually existing JOIN target
+                   // Since existing is already in FROM, we append target via JOIN
+                   // LEFT JOIN target ON target.fk = existing.id
+                   // But wait, existing is ALREADY there. 
+                   // Valid SQL: FROM existing LEFT JOIN target ON target.fk = existing.ref
+                   
+                   // We need qualified name for the reference if cross schema, but assume local logic is simple
+                   // Use targetTableId (qualified)
+                   joinClauses.push(`LEFT JOIN ${targetTableId} ON ${targetTableId}.${fkCol.name} = ${existingTableId}.${fkCol.references.split('.')[1]}`); // Approximate fix
+                   joinedTables.add(targetTableId);
                    foundLink = true;
                    break;
                 }
@@ -86,14 +117,9 @@ export const generateLocalSql = (schema: DatabaseSchema, state: BuilderState): Q
           }
        }
 
-       // Fallback: Cross Join (Comma) if no relationship found, but usually standard builders prefer explicit Cross Join or leave it for user.
-       // We will just append it to FROM if it's completely disconnected, essentially a cross join.
+       // Fallback: Cross Join (Comma) if no relationship found
        if (!foundLink) {
-          // This creates a Cartesian product, but it's valid SQL behavior for "SELECT * FROM A, B"
-          // We'll treat it as a separate FROM entry or CROSS JOIN
-          // Using comma notation for simplicity in "Manual Mode"
-          // However, to keep standard format:
-          fromClause += `, ${targetTable}`;
+          fromClause += `, ${targetTableId}`;
        }
     }
   });
@@ -132,14 +158,13 @@ ${joinClauses.length > 0 ? joinClauses.join('\n') : ''}
 ${whereClause}
 ${groupByClause}
 ${orderByClause}
-LIMIT ${limit};`.trim(); // Remove empty lines if logic allows, but strict templates usually ok.
+LIMIT ${limit};`.trim();
 
-  // Remove multiple newlines
   const cleanSql = sql.replace(/\n\s*\n/g, '\n');
 
   return {
     sql: cleanSql,
     explanation: "Consulta gerada localmente baseada na sua seleção manual. O modo offline não fornece explicações detalhadas de lógica.",
-    tips: [] // No tips in local mode
+    tips: [] 
   };
 };
