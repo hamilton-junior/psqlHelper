@@ -25,6 +25,7 @@ const SchemaDiagramModal: React.FC<SchemaDiagramModalProps> = ({ schema, onClose
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [isDraggingCanvas, setIsDraggingCanvas] = useState(false);
   const [draggedNode, setDraggedNode] = useState<string | null>(null);
+  const [hoveredNode, setHoveredNode] = useState<string | null>(null); // New hover state
   const [containerSize, setContainerSize] = useState({ w: 0, h: 0 });
   const [isLayoutReady, setIsLayoutReady] = useState(false);
   
@@ -389,38 +390,57 @@ const SchemaDiagramModal: React.FC<SchemaDiagramModalProps> = ({ schema, onClose
                 const pos = positions[table.name];
                 if (!pos) return null; // Safety check
                 
+                const isHovered = hoveredNode === table.name;
+                
+                // Determine display LOD
+                // If hovered and zoomed out, force 'high' detail
+                const shouldMagnify = isHovered && lodLevel !== 'high';
+                const displayLOD = shouldMagnify ? 'high' : lodLevel;
+                
+                // Calculate magnification scale to counteract global zoom out
+                // We clamp it so it doesn't get ridiculously huge
+                // Formula: 1/scale attempts to restore 1:1 view. We multiply to make it even bigger/smaller.
+                // Cap between 1.5x (minimum pop) and 6.0x (max explosion)
+                const hoverScale = shouldMagnify 
+                   ? Math.min(Math.max(1 / scale, 1.5), 6.0) 
+                   : 1;
+                
                 return (
                    <div
                       key={table.name}
                       onMouseDown={(e) => handleMouseDown(e, table.name)}
+                      onMouseEnter={() => setHoveredNode(table.name)}
+                      onMouseLeave={() => setHoveredNode(null)}
                       style={{
-                         transform: `translate(${pos.x}px, ${pos.y}px)`,
+                         transform: `translate(${pos.x}px, ${pos.y}px) scale(${hoverScale})`,
+                         transformOrigin: 'top left', // Scale from top-left keeps it anchored somewhat predictable
                          width: TABLE_WIDTH,
                          boxShadow: lodLevel === 'low' ? 'none' : undefined,
+                         zIndex: isHovered ? 100 : 10, // Bring to front on hover
                       }}
-                      className={`absolute bg-white dark:bg-slate-800 rounded-lg cursor-grab active:cursor-grabbing hover:border-indigo-400 dark:hover:border-indigo-500 transition-all duration-300 z-10 
-                         ${lodLevel === 'low' ? 'border border-slate-400 dark:border-slate-600' : 'shadow-xl border-2 border-slate-200 dark:border-slate-700'}
+                      className={`absolute bg-white dark:bg-slate-800 rounded-lg cursor-grab active:cursor-grabbing hover:border-indigo-400 dark:hover:border-indigo-500 transition-all duration-200 ease-out 
+                         ${lodLevel === 'low' && !shouldMagnify ? 'border border-slate-400 dark:border-slate-600' : 'shadow-xl border-2 border-slate-200 dark:border-slate-700'}
                       `}
                    >
                       {/* Node Header */}
                       <div className={`
                          flex items-center justify-between rounded-t-md overflow-hidden transition-colors
-                         ${lodLevel === 'low' ? 'h-full justify-center text-center p-2 bg-indigo-100 dark:bg-indigo-900/50' : 'h-10 bg-slate-100 dark:bg-slate-900/50 border-b border-slate-200 dark:border-slate-700 px-3'}
+                         ${displayLOD === 'low' ? 'h-full justify-center text-center p-2 bg-indigo-100 dark:bg-indigo-900/50' : 'h-10 bg-slate-100 dark:bg-slate-900/50 border-b border-slate-200 dark:border-slate-700 px-3'}
                          ${debouncedTerm ? 'bg-indigo-100 dark:bg-indigo-900' : ''}
                       `}>
                          <span 
-                           className={`font-bold text-slate-700 dark:text-slate-200 truncate ${lodLevel === 'low' ? 'text-[10px] whitespace-normal' : 'text-xs'}`} 
+                           className={`font-bold text-slate-700 dark:text-slate-200 truncate ${displayLOD === 'low' ? 'text-[10px] whitespace-normal' : 'text-xs'}`} 
                            title={table.name}
                          >
                             {table.name}
                          </span>
-                         {lodLevel !== 'low' && (
+                         {displayLOD !== 'low' && (
                             <span className="text-[9px] text-slate-400 uppercase">{table.schema}</span>
                          )}
                       </div>
                       
                       {/* Columns */}
-                      {lodLevel === 'high' && (
+                      {displayLOD === 'high' && (
                          <div className="py-1">
                             {table.columns.map(col => (
                                <div key={col.name} className={`px-3 py-1 flex items-center justify-between text-[10px] hover:bg-slate-50 dark:hover:bg-slate-700/50 ${debouncedTerm && col.name.toLowerCase().includes(debouncedTerm.toLowerCase()) ? 'bg-yellow-100 dark:bg-yellow-900/30' : ''}`}>
@@ -438,7 +458,7 @@ const SchemaDiagramModal: React.FC<SchemaDiagramModalProps> = ({ schema, onClose
                       )}
 
                       {/* Medium LOD Summary */}
-                      {lodLevel === 'medium' && (
+                      {displayLOD === 'medium' && (
                          <div className="px-3 py-2 text-[10px] text-slate-500 dark:text-slate-400 flex justify-between">
                             <span>{table.columns.length} columns</span>
                             {table.columns.some(c => c.isPrimaryKey) && <span className="text-amber-500 font-bold">PK</span>}
