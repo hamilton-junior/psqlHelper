@@ -1,5 +1,3 @@
-
-
 import React, { useState, useEffect, useRef } from 'react';
 import { DatabaseSchema, AppStep, BuilderState, QueryResult, DbCredentials, AppSettings, DEFAULT_SETTINGS, DashboardItem } from './types';
 import Sidebar from './components/Sidebar';
@@ -518,9 +516,10 @@ function App() {
             />
           )}
 
-          {currentStep === 'preview' && queryResult && (
+          {currentStep === 'preview' && queryResult && schema && (
             <PreviewStep 
               queryResult={queryResult}
+              schema={schema}
               onExecute={handleExecuteQuery}
               onBack={() => handleNavigate('builder')}
               isExecuting={isProcessing}

@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
-import { QueryResult } from '../../types';
+import React, { useState, useEffect, useRef } from 'react';
+import { DatabaseSchema, QueryResult } from '../../types';
 import { Terminal, Play, ArrowLeft, CheckCircle2, ShieldAlert, Info, Copy, Check, Loader2, Lightbulb, ShieldOff, AlertCircle } from 'lucide-react';
-import Editor from '@monaco-editor/react';
+import Editor, { useMonaco } from '@monaco-editor/react';
 
 interface PreviewStepProps {
   queryResult: QueryResult;
@@ -10,12 +10,86 @@ interface PreviewStepProps {
   isExecuting: boolean;
   isValidating: boolean;
   validationDisabled?: boolean;
+  schema?: DatabaseSchema;
 }
 
-const PreviewStep: React.FC<PreviewStepProps> = ({ queryResult, onExecute, onBack, isExecuting, isValidating, validationDisabled }) => {
+const PreviewStep: React.FC<PreviewStepProps> = ({ queryResult, onExecute, onBack, isExecuting, isValidating, validationDisabled, schema }) => {
   const [copied, setCopied] = useState(false);
   const [editedSql, setEditedSql] = useState(queryResult.sql);
   
+  const monaco = useMonaco();
+
+  // Configure IntelliSense with Schema Data
+  useEffect(() => {
+    if (!monaco || !schema) return;
+
+    // Dispose old providers to avoid duplication on re-renders
+    const disposable = monaco.languages.registerCompletionItemProvider('sql', {
+      provideCompletionItems: (model, position) => {
+        const word = model.getWordUntilPosition(position);
+        const range = {
+          startLineNumber: position.lineNumber,
+          endLineNumber: position.lineNumber,
+          startColumn: word.startColumn,
+          endColumn: word.endColumn,
+        };
+
+        const suggestions = [];
+
+        // 1. Add Tables
+        schema.tables.forEach(table => {
+           suggestions.push({
+              label: table.name,
+              kind: monaco.languages.CompletionItemKind.Class,
+              insertText: table.name,
+              detail: `Table (${table.schema})`,
+              documentation: table.description || 'Table definition',
+              range: range
+           });
+           
+           // Also add full qualified name
+           suggestions.push({
+              label: `${table.schema}.${table.name}`,
+              kind: monaco.languages.CompletionItemKind.Class,
+              insertText: `${table.schema}.${table.name}`,
+              detail: `Full Table Name`,
+              range: range
+           });
+        });
+
+        // 2. Add Columns
+        schema.tables.forEach(table => {
+           table.columns.forEach(col => {
+              suggestions.push({
+                 label: col.name,
+                 kind: monaco.languages.CompletionItemKind.Field,
+                 insertText: col.name,
+                 detail: `Column (${table.name})`,
+                 documentation: `${col.type} ${col.isPrimaryKey ? '[PK]' : ''} ${col.isForeignKey ? '[FK]' : ''}`,
+                 range: range,
+                 sortText: `0_${col.name}` // Boost priority slightly
+              });
+           });
+        });
+
+        // 3. Add SQL Keywords (Basic subset)
+        const keywords = ['SELECT', 'FROM', 'WHERE', 'JOIN', 'LEFT JOIN', 'INNER JOIN', 'GROUP BY', 'ORDER BY', 'LIMIT', 'COUNT', 'SUM', 'AVG', 'AS', 'ON', 'AND', 'OR', 'IS NULL', 'NOT'];
+        keywords.forEach(kw => {
+           suggestions.push({
+              label: kw,
+              kind: monaco.languages.CompletionItemKind.Keyword,
+              insertText: kw,
+              range: range
+           });
+        });
+
+        return { suggestions };
+      }
+    });
+
+    return () => disposable.dispose();
+  }, [monaco, schema]);
+
   // Sync state if prop changes (e.g. from new generation)
   useEffect(() => {
     setEditedSql(queryResult.sql);
@@ -64,13 +138,21 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ queryResult, onExecute, onBac
                    <span className="text-[10px] text-amber-400 bg-amber-900/30 px-1.5 rounded ml-2">Modificado</span>
                 )}
              </div>
-             <button 
-               onClick={handleCopy}
-               className="text-slate-400 hover:text-white transition-colors flex items-center gap-1.5 text-xs bg-[#333] hover:bg-[#444] px-2 py-1 rounded"
-             >
-               {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-               {copied ? 'Copiado!' : 'Copiar'}
-             </button>
+             <div className="flex items-center gap-2">
+                {schema && (
+                  <div className="text-[10px] text-slate-500 bg-[#333] px-2 py-0.5 rounded flex items-center gap-1">
+                     <div className="w-1.5 h-1.5 rounded-full bg-emerald-500"></div>
+                     IntelliSense Ativo
+                  </div>
+                )}
+                <button 
+                  onClick={handleCopy}
+                  className="text-slate-400 hover:text-white transition-colors flex items-center gap-1.5 text-xs bg-[#333] hover:bg-[#444] px-2 py-1 rounded"
+                >
+                  {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                  {copied ? 'Copiado!' : 'Copiar'}
+                </button>
+             </div>
            </div>
            
            <div className="flex-1 relative">
