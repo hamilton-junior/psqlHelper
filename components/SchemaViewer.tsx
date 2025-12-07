@@ -1,6 +1,7 @@
+
 import React, { useState, useMemo, useEffect, useCallback, memo, useDeferredValue, useRef } from 'react';
 import { DatabaseSchema, Table, Column } from '../types';
-import { Database, Table as TableIcon, Key, Search, ChevronDown, ChevronRight, Link, ArrowUpRight, ArrowDownLeft, X, ArrowUpDown, ArrowUp, ArrowDown, Pencil, Check, Filter, PlusCircle, Target, CornerDownRight, Loader2, ArrowRight, Folder, FolderOpen, Play, Info } from 'lucide-react';
+import { Database, Table as TableIcon, Key, Search, ChevronDown, ChevronRight, Link, ArrowUpRight, ArrowDownLeft, X, ArrowUpDown, ArrowUp, ArrowDown, Pencil, Check, Filter, PlusCircle, Target, CornerDownRight, Loader2, ArrowRight, Folder, FolderOpen, Play, Info, Star } from 'lucide-react';
 
 interface SchemaViewerProps {
   schema: DatabaseSchema;
@@ -149,6 +150,7 @@ interface SchemaTableItemProps {
   visualState: VisualState;
   isExpanded: boolean;
   isSelected: boolean;
+  isFavorite: boolean;
   selectionMode: boolean;
   editingTable: string | null;
   tempDesc: string;
@@ -170,12 +172,13 @@ interface SchemaTableItemProps {
   onColumnHover: (tableId: string, col: string, ref?: string) => void;
   onColumnHoverOut: () => void;
   onPreview?: (tableName: string) => void;
+  onToggleFavorite: (tableId: string) => void;
 }
 
 const SchemaTableItem = memo(({
-  table, visualState, isExpanded, isSelected, selectionMode, editingTable, tempDesc, 
+  table, visualState, isExpanded, isSelected, isFavorite, selectionMode, editingTable, tempDesc, 
   debouncedTerm, selectedTypeFilter, sortField, sortDirection, hoveredColumnKey, hoveredColumnRef,
-  onToggleExpand, onTableClick, onMouseEnter, onStartEditing, onSaveDescription, onDescChange, onSetEditing, onSortChange, onColumnHover, onColumnHoverOut, onPreview
+  onToggleExpand, onTableClick, onMouseEnter, onStartEditing, onSaveDescription, onDescChange, onSetEditing, onSortChange, onColumnHover, onColumnHoverOut, onPreview, onToggleFavorite
 }: SchemaTableItemProps) => {
 
   const tableId = getTableId(table);
@@ -269,6 +272,14 @@ const SchemaTableItem = memo(({
         <div className="flex-1 min-w-0 pr-2">
            <div className="flex items-center gap-2">
               <span className={`font-medium text-sm truncate ${isSelected ? 'text-indigo-700 dark:text-indigo-300 font-bold' : 'text-slate-700 dark:text-slate-200'}`}>{table.name}</span>
+              {/* Star Button */}
+              <button 
+                 onClick={(e) => { e.stopPropagation(); onToggleFavorite(tableId); }}
+                 className={`p-1 rounded opacity-0 group-hover/table:opacity-100 transition-opacity ${isFavorite ? 'opacity-100 text-amber-400 hover:text-amber-500' : 'text-slate-300 hover:text-amber-400'}`}
+                 title={isFavorite ? "Remover dos favoritos" : "Favoritar tabela"}
+              >
+                 <Star className={`w-3 h-3 ${isFavorite ? 'fill-current' : ''}`} />
+              </button>
               {/* Preview Button Action */}
               {onPreview && (
                 <button 
@@ -391,6 +402,7 @@ const SchemaTableItem = memo(({
          prev.visualState === next.visualState &&
          prev.isExpanded === next.isExpanded &&
          prev.isSelected === next.isSelected &&
+         prev.isFavorite === next.isFavorite &&
          prev.editingTable === next.editingTable &&
          prev.tempDesc === next.tempDesc &&
          prev.hoveredColumnKey === next.hoveredColumnKey &&
@@ -410,6 +422,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
   // Search State
   const [inputValue, setInputValue] = useState('');
   const [debouncedTerm, setDebouncedTerm] = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
   
   // Filtering & Sorting
   const [selectedTypeFilter, setSelectedTypeFilter] = useState<string>('');
@@ -417,8 +430,6 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
 
   // UI State - PERSISTED (Uses table names for now, but safer to stick to IDs in future)
-  // For backwards compatibility and visual state, we keep using table names for expand,
-  // but if collision, both expand. It's acceptable for UI state.
   const [expandedTables, setExpandedTables] = useState<Set<string>>(() => {
     try {
       const stored = localStorage.getItem(`psql-buddy-viewer-tables-${schema.name}`);
@@ -437,6 +448,16 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
     }
   });
 
+  // Favorite Tables State
+  const [favoriteTables, setFavoriteTables] = useState<Set<string>>(() => {
+     try {
+        const stored = localStorage.getItem(`psql-buddy-favorites-${schema.name}`);
+        return stored ? new Set(JSON.parse(stored)) : new Set();
+     } catch {
+        return new Set();
+     }
+  });
+
   useEffect(() => {
     localStorage.setItem(`psql-buddy-viewer-tables-${schema.name}`, JSON.stringify(Array.from(expandedTables)));
   }, [expandedTables, schema.name]);
@@ -444,6 +465,22 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
   useEffect(() => {
     localStorage.setItem(`psql-buddy-viewer-schemas-${schema.name}`, JSON.stringify(Array.from(expandedSchemas)));
   }, [expandedSchemas, schema.name]);
+
+  useEffect(() => {
+     localStorage.setItem(`psql-buddy-favorites-${schema.name}`, JSON.stringify(Array.from(favoriteTables)));
+  }, [favoriteTables, schema.name]);
+
+  // Shortcut Listener (Ctrl+K)
+  useEffect(() => {
+     const handleKeyDown = (e: KeyboardEvent) => {
+        if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+           e.preventDefault();
+           inputRef.current?.focus();
+        }
+     };
+     window.addEventListener('keydown', handleKeyDown);
+     return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   const [editingTable, setEditingTable] = useState<string | null>(null);
   const [tempDesc, setTempDesc] = useState('');
@@ -549,6 +586,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
     
     sorted.sort((a, b) => {
       if (term) {
+        // ... (existing sort logic)
         const nameA = a.name.toLowerCase();
         const nameB = b.name.toLowerCase();
         if (nameA === term && nameB !== term) return -1;
@@ -584,13 +622,33 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
     const groups: Record<string, Table[]> = {};
     const visible = filteredTables.slice(0, renderLimit);
 
+    // If searching, we just show schemas naturally
+    // If NOT searching, we inject the "Favorites" group
+    const showFavorites = !debouncedTerm && favoriteTables.size > 0;
+
+    if (showFavorites) {
+       groups['__favorites__'] = [];
+    }
+
     visible.forEach(table => {
       const s = table.schema || 'public';
+      const tId = getTableId(table);
+      
+      if (showFavorites && favoriteTables.has(tId)) {
+         groups['__favorites__'].push(table);
+      }
+      
       if (!groups[s]) groups[s] = [];
       groups[s].push(table);
     });
+    
+    // If favorite group ended up empty (because of pagination limit), clean it
+    if (showFavorites && groups['__favorites__'].length === 0) {
+       delete groups['__favorites__'];
+    }
+
     return groups;
-  }, [filteredTables, renderLimit]);
+  }, [filteredTables, renderLimit, debouncedTerm, favoriteTables]);
 
   const sortedSchemas = useMemo(() => {
      const schemas = Object.keys(groupedTables);
@@ -609,7 +667,12 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
             return rankA - rankB;
          });
      }
-     return schemas.sort();
+     
+     return schemas.sort((a, b) => {
+        if (a === '__favorites__') return -1;
+        if (b === '__favorites__') return 1;
+        return a.localeCompare(b);
+     });
   }, [groupedTables, filteredTables, debouncedTerm]);
 
   // Handlers
@@ -623,6 +686,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
   }, []);
 
   const handleToggleSchema = useCallback((schemaName: string) => {
+    if (schemaName === '__favorites__') return; // Always open
     setExpandedSchemas(prev => {
       const newSet = new Set(prev);
       if (newSet.has(schemaName)) newSet.delete(schemaName); else newSet.add(schemaName);
@@ -682,6 +746,15 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
 
   const handleDescChange = useCallback((val: string) => setTempDesc(val), []);
   const handleSetEditing = useCallback((name: string | null) => setEditingTable(name), []);
+  
+  const handleToggleFavorite = useCallback((tableId: string) => {
+     setFavoriteTables(prev => {
+        const newSet = new Set(prev);
+        if (newSet.has(tableId)) newSet.delete(tableId);
+        else newSet.add(tableId);
+        return newSet;
+     });
+  }, []);
 
   const expandAll = () => {
      setExpandedTables(new Set(filteredTables.map(t => getTableId(t))));
@@ -742,7 +815,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
   };
 
   return (
-    <div className="h-full flex flex-col bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 overflow-hidden select-none">
+    <div id="schema-viewer-container" className="h-full flex flex-col bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 overflow-hidden select-none">
       {/* Header */}
       {!selectionMode && (
         <div className="p-4 border-b border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 flex justify-between items-center shrink-0">
@@ -765,7 +838,8 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
            <div className="relative flex-1">
              <Search className={`absolute left-3 top-2.5 w-4 h-4 ${inputValue !== debouncedTerm ? 'text-indigo-400 animate-pulse' : 'text-slate-400'}`} />
              <input
-               type="text" placeholder="Buscar tabelas..." value={inputValue} onChange={(e) => setInputValue(e.target.value)} disabled={loading}
+               ref={inputRef}
+               type="text" placeholder="Buscar tabelas... (Ctrl+K)" value={inputValue} onChange={(e) => setInputValue(e.target.value)} disabled={loading}
                className="w-full pl-9 pr-8 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded text-xs focus:ring-2 focus:ring-indigo-500 outline-none transition-all text-slate-700 dark:text-slate-200 placeholder-slate-400"
              />
              {inputValue && <button onClick={() => setInputValue('')} className="absolute right-2 top-2.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"><X className="w-3 h-3" /></button>}
@@ -804,7 +878,8 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
                const tablesInSchema = groupedTables[schemaName];
                if (!tablesInSchema || tablesInSchema.length === 0) return null;
                
-               const isSchemaExpanded = expandedSchemas.has(schemaName);
+               const isFavoritesGroup = schemaName === '__favorites__';
+               const isSchemaExpanded = isFavoritesGroup ? true : expandedSchemas.has(schemaName);
 
                return (
                   <div key={schemaName} className="mb-2">
@@ -813,12 +888,15 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
                         className={`flex items-center gap-2 px-2 py-1.5 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 rounded select-none group sticky top-0 z-10 bg-white/95 dark:bg-slate-900/95 backdrop-blur border-b border-transparent ${isSchemaExpanded ? 'border-slate-100 dark:border-slate-800' : ''}`}
                         onClick={() => handleToggleSchema(schemaName)}
                      >
-                        {isSchemaExpanded ? 
-                           <FolderOpen className="w-4 h-4 text-indigo-500 dark:text-indigo-400 fill-indigo-100 dark:fill-indigo-900/30" /> : 
-                           <Folder className="w-4 h-4 text-slate-400 fill-slate-100 dark:fill-slate-800" />
-                        }
-                        <span className={`text-xs font-bold ${isSchemaExpanded ? 'text-indigo-800 dark:text-indigo-200' : 'text-slate-500 dark:text-slate-400 group-hover:text-slate-700 dark:group-hover:text-slate-200'}`}>
-                           {schemaName}
+                        {isFavoritesGroup ? (
+                           <Star className="w-4 h-4 text-amber-400 fill-amber-400" />
+                        ) : (
+                           isSchemaExpanded ? 
+                              <FolderOpen className="w-4 h-4 text-indigo-500 dark:text-indigo-400 fill-indigo-100 dark:fill-indigo-900/30" /> : 
+                              <Folder className="w-4 h-4 text-slate-400 fill-slate-100 dark:fill-slate-800" />
+                        )}
+                        <span className={`text-xs font-bold ${isFavoritesGroup ? 'text-amber-600 dark:text-amber-400' : isSchemaExpanded ? 'text-indigo-800 dark:text-indigo-200' : 'text-slate-500 dark:text-slate-400 group-hover:text-slate-700 dark:group-hover:text-slate-200'}`}>
+                           {isFavoritesGroup ? '⭐ Favoritas' : schemaName}
                         </span>
                         <span className="text-[10px] text-slate-400 ml-auto bg-slate-50 dark:bg-slate-800 px-1.5 rounded-full border border-slate-100 dark:border-slate-700">
                            {tablesInSchema.length}
@@ -832,10 +910,10 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
                               const tableId = getTableId(table);
                               const isSelected = selectedTableIds.includes(tableId);
                               const prevTable = index > 0 ? tablesInSchema[index-1] : null;
-                              const showSeparator = !debouncedTerm && prevTable && selectedTableIds.includes(getTableId(prevTable)) && !isSelected;
+                              const showSeparator = !debouncedTerm && !isFavoritesGroup && prevTable && selectedTableIds.includes(getTableId(prevTable)) && !isSelected;
 
                               return (
-                                 <React.Fragment key={tableId}>
+                                 <React.Fragment key={`${schemaName}-${tableId}`}>
                                     {showSeparator && (
                                        <div className="flex items-center gap-3 py-2 px-1 animate-in fade-in duration-300">
                                           <div className="h-px bg-slate-200 dark:bg-slate-700/50 flex-1"></div>
@@ -848,6 +926,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
                                        visualState={getTableState(tableId)}
                                        isExpanded={expandedTables.has(tableId)}
                                        isSelected={isSelected}
+                                       isFavorite={favoriteTables.has(tableId)}
                                        selectionMode={selectionMode}
                                        editingTable={editingTable}
                                        tempDesc={tempDesc}
@@ -868,6 +947,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
                                        onColumnHover={handleColumnHover}
                                        onColumnHoverOut={handleColumnHoverOut}
                                        onPreview={onPreviewTable}
+                                       onToggleFavorite={handleToggleFavorite}
                                     />
                                  </React.Fragment>
                               );

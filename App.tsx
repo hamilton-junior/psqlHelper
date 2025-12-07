@@ -11,6 +11,7 @@ import SettingsModal from './components/SettingsModal';
 import AiPreferenceModal from './components/AiPreferenceModal';
 import SchemaDiagramModal from './components/SchemaDiagramModal';
 import TablePreviewModal from './components/TablePreviewModal';
+import TourGuide, { TourStep } from './components/TourGuide';
 import { generateSqlFromBuilderState, validateSqlQuery, generateMockData, fixSqlError } from './services/geminiService';
 import { generateLocalSql } from './services/localSqlService';
 import { initializeSimulation, executeOfflineQuery, SimulationData } from './services/simulationService';
@@ -37,6 +38,8 @@ function App() {
   
   // Onboarding State
   const [showOnboarding, setShowOnboarding] = useState(false);
+  const [showTour, setShowTour] = useState(false);
+  const [tourCompleted, setTourCompleted] = useState(() => !!localStorage.getItem('psql-buddy-tour-completed'));
 
   // Check if it's first run to show onboarding
   useEffect(() => {
@@ -84,6 +87,12 @@ function App() {
     setShowOnboarding(false);
   };
 
+  const handleCompleteTour = () => {
+     setShowTour(false);
+     setTourCompleted(true);
+     localStorage.setItem('psql-buddy-tour-completed', 'true');
+  };
+
   // --- Session State (Persisted) ---
   const [currentStep, setCurrentStep] = useState<AppStep>(() => loadFromStorage('psql-buddy-step', 'connection'));
   const [schema, setSchema] = useState<DatabaseSchema | null>(() => loadFromStorage('psql-buddy-schema', null));
@@ -105,6 +114,7 @@ function App() {
   // Persisted Results State
   const [queryResult, setQueryResult] = useState<QueryResult | null>(() => loadFromStorage('psql-buddy-query-result', null));
   const [dbResults, setDbResults] = useState<any[]>(() => loadFromStorage('psql-buddy-db-results', []));
+  const [executionDuration, setExecutionDuration] = useState<number>(0);
   
   // Dashboard State (Persisted)
   const [dashboards, setDashboards] = useState<DashboardItem[]>(() => loadFromStorage('psql-buddy-dashboards', []));
@@ -152,6 +162,13 @@ function App() {
     return () => clearTimeout(saveTimeout);
   }, [currentStep, schema, credentials, simulationData, builderState, queryResult, dbResults, dashboards]);
 
+  // Trigger Tour when entering Builder Step for the first time
+  useEffect(() => {
+     if (currentStep === 'builder' && !tourCompleted) {
+        // Wait for render
+        setTimeout(() => setShowTour(true), 500);
+     }
+  }, [currentStep, tourCompleted]);
 
   // --- Handlers ---
 
@@ -393,6 +410,8 @@ function App() {
        sqlToExecute = tempSql;
     }
 
+    const startTime = performance.now(); // Start Timer
+
     try {
       let data: any[] = [];
       
@@ -451,6 +470,8 @@ function App() {
          setError({ message: "Falha na execução: " + e.message });
       }
     } finally {
+      const endTime = performance.now();
+      setExecutionDuration(endTime - startTime); // Set duration
       setIsProcessing(false);
       setProgressMessage("");
     }
@@ -492,9 +513,45 @@ function App() {
     setCurrentStep(step);
   };
 
+  const tourSteps: TourStep[] = [
+     {
+        targetId: 'schema-viewer-panel',
+        title: 'Explorador de Banco',
+        content: 'Aqui você vê todas as suas tabelas. Clique para selecionar colunas ou expanda para ver detalhes.',
+        position: 'right'
+     },
+     {
+        targetId: 'magic-fill-bar',
+        title: 'IA Magic Fill',
+        content: 'A maneira mais rápida de começar. Digite o que você quer (ex: "Vendas por mês") e a IA configurará o builder para você.',
+        position: 'bottom'
+     },
+     {
+        targetId: 'builder-main-panel',
+        title: 'Área de Construção',
+        content: 'Refine sua query aqui. Use as abas para configurar Joins, Filtros e Ordenação manualmente.',
+        position: 'left'
+     },
+     {
+        targetId: 'builder-footer-actions',
+        title: 'Executar e Visualizar',
+        content: 'Quando terminar, clique aqui para gerar o SQL, ver o preview e executar a consulta.',
+        position: 'top'
+     }
+  ];
+
   return (
     <div className="flex h-screen bg-slate-900 text-slate-100 overflow-hidden font-sans">
       {showOnboarding && <AiPreferenceModal onSelect={handleAiPreferenceSelect} />}
+      
+      {showTour && (
+         <TourGuide 
+            steps={tourSteps}
+            isOpen={showTour}
+            onClose={() => setShowTour(false)}
+            onComplete={handleCompleteTour}
+         />
+      )}
 
       <Sidebar 
         currentStep={currentStep} 
@@ -621,6 +678,7 @@ function App() {
               onAddToDashboard={handleAddToDashboard}
               onShowToast={showToast}
               credentials={credentials}
+              executionDuration={executionDuration}
             />
           )}
 

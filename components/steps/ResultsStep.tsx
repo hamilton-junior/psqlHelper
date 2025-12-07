@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { ArrowLeft, Database, ChevronLeft, ChevronRight, FileSpreadsheet, Search, Copy, Check, BarChart2, MessageSquare, Download, Activity, LayoutGrid, FileText, Pin, AlertCircle, Info, MoreHorizontal, FileJson, FileCode, Hash, Type, Filter, Plus, X, Trash2, SlidersHorizontal } from 'lucide-react';
+import { ArrowLeft, Database, ChevronLeft, ChevronRight, FileSpreadsheet, Search, Copy, Check, BarChart2, MessageSquare, Download, Activity, LayoutGrid, FileText, Pin, AlertCircle, Info, MoreHorizontal, FileJson, FileCode, Hash, Type, Filter, Plus, X, Trash2, SlidersHorizontal, Clock } from 'lucide-react';
 import { AppSettings, DashboardItem, ExplainNode } from '../../types';
 import DataVisualizer from '../DataVisualizer';
 import DataAnalysisChat from '../DataAnalysisChat';
@@ -291,11 +291,12 @@ interface ResultsStepProps {
   onAddToDashboard?: (item: Omit<DashboardItem, 'id' | 'createdAt'>) => void; 
   onShowToast: (message: string, type?: 'success' | 'error' | 'info') => void;
   credentials?: any; 
+  executionDuration?: number;
 }
 
 type ResultTab = 'table' | 'chart' | 'analysis' | 'explain';
 
-const ResultsStep: React.FC<ResultsStepProps> = ({ data, sql, onBackToBuilder, onNewConnection, settings, onAddToDashboard, onShowToast, credentials }) => {
+const ResultsStep: React.FC<ResultsStepProps> = ({ data, sql, onBackToBuilder, onNewConnection, settings, onAddToDashboard, onShowToast, credentials, executionDuration }) => {
   const [activeTab, setActiveTab] = useState<ResultTab>('table');
   const columns = data.length > 0 ? Object.keys(data[0]) : [];
   
@@ -314,7 +315,7 @@ const ResultsStep: React.FC<ResultsStepProps> = ({ data, sql, onBackToBuilder, o
 
   useEffect(() => {
      if (data) {
-        addToHistory({ sql, rowCount: data.length, durationMs: 0, status: 'success', schemaName: 'Database' });
+        addToHistory({ sql, rowCount: data.length, durationMs: executionDuration || 0, status: 'success', schemaName: 'Database' });
      }
   }, []);
 
@@ -566,7 +567,14 @@ const ResultsStep: React.FC<ResultsStepProps> = ({ data, sql, onBackToBuilder, o
       </div>
 
       <div className="flex items-center justify-between shrink-0">
-         <button onClick={onNewConnection} className="text-slate-400 hover:text-slate-600 text-sm flex items-center gap-2 px-2 py-1"><Database className="w-4 h-4" /> Nova Conexão</button>
+         <div className="flex items-center gap-4">
+            <button onClick={onNewConnection} className="text-slate-400 hover:text-slate-600 text-sm flex items-center gap-2 px-2 py-1"><Database className="w-4 h-4" /> Nova Conexão</button>
+            {executionDuration !== undefined && executionDuration > 0 && (
+               <span className="text-xs text-slate-400 flex items-center gap-1 bg-slate-50 dark:bg-slate-800 px-2 py-1 rounded border border-slate-200 dark:border-slate-700">
+                  <Clock className="w-3 h-3" /> Executado em {executionDuration.toFixed(0)}ms
+               </span>
+            )}
+         </div>
          <button onClick={onBackToBuilder} className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-bold shadow-lg shadow-indigo-200 dark:shadow-none transition-all flex items-center gap-2"><ArrowLeft className="w-4 h-4" /> Voltar</button>
       </div>
     </div>

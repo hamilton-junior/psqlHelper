@@ -20,6 +20,20 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ queryResult, onExecute, onBac
   const [viewMode, setViewMode] = useState<'edit' | 'diff'>('edit');
   const monaco = useMonaco();
 
+  // Shortcut Listener
+  useEffect(() => {
+     const handleKeyDown = (e: KeyboardEvent) => {
+        if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+           e.preventDefault();
+           if (!isExecuting && editedSql.trim()) {
+              onExecute(editedSql);
+           }
+        }
+     };
+     window.addEventListener('keydown', handleKeyDown);
+     return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isExecuting, editedSql, onExecute]);
+
   // Autocomplete Logic
   useEffect(() => {
     if (!monaco || !schema) return;
@@ -113,7 +127,7 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ queryResult, onExecute, onBac
       <div className="mb-4 flex items-center justify-between shrink-0">
         <div>
           <h2 className="text-2xl font-bold text-slate-800 dark:text-white flex items-center gap-2"><Terminal className="w-6 h-6 text-indigo-600" /> Editor SQL</h2>
-          <p className="text-slate-500 dark:text-slate-400 mt-1">Revise e edite o SQL antes da execução.</p>
+          <p className="text-slate-500 dark:text-slate-400 mt-1">Revise e edite o SQL antes da execução. <span className="text-xs bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded border border-slate-200 dark:border-slate-700 ml-2 font-mono">Ctrl + Enter para Executar</span></p>
         </div>
         
         <div className="bg-white dark:bg-slate-800 p-1 rounded-lg border border-slate-200 dark:border-slate-700 flex gap-1">

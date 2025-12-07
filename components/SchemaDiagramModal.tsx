@@ -472,7 +472,18 @@ const SchemaDiagramModal: React.FC<SchemaDiagramModalProps> = ({ schema, onClose
   };
 
   const handleClearTableColor = (tableName: string) => {
+     // Clear Table Color
      setTableColors(prev => { const next = { ...prev }; delete next[tableName]; return next; });
+     // Clear Column Colors for this table
+     setColumnColors(prev => {
+        const next = { ...prev };
+        Object.keys(next).forEach(key => {
+           if (key.startsWith(`${tableName}.`)) {
+              delete next[key];
+           }
+        });
+        return next;
+     });
   };
 
   const handleExportImage = async () => {
@@ -845,6 +856,9 @@ const SchemaDiagramModal: React.FC<SchemaDiagramModalProps> = ({ schema, onClose
                 const isTableHovered = hoveredNode === table.name;
                 const isRelated = !hoveredNode || hoveredNode === table.name || relationshipGraph[hoveredNode]?.has(table.name);
                 
+                // Check if this table has any column tags to show eraser button
+                const hasTags = tableColors[table.name] || table.columns.some(c => columnColors[`${table.name}.${c.name}`]);
+
                 let opacity = 1;
                 let isPathNode = false;
 
@@ -919,22 +933,50 @@ const SchemaDiagramModal: React.FC<SchemaDiagramModalProps> = ({ schema, onClose
                             <div className={`flex items-center justify-between px-3 py-2 border-b h-[42px] transition-colors relative group/header ${style.bg} ${style.darkBg} ${style.border}`}>
                                <span className={`font-bold text-sm truncate ${style.text}`} title={table.name}>{table.name}</span>
                                <div className="flex items-center gap-1">
-                                  {tableColors[table.name] && <button onClick={(e) => { e.stopPropagation(); handleClearTableColor(table.name); }} className="p-1 opacity-0 group-hover/header:opacity-100"><Eraser className="w-3 h-3" /></button>}
+                                  {hasTags && (
+                                     <button 
+                                       onClick={(e) => { e.stopPropagation(); handleClearTableColor(table.name); }} 
+                                       className="p-1 opacity-0 group-hover/header:opacity-100 hover:text-red-500 transition-colors"
+                                       title="Limpar todas as tags (tabela e colunas)"
+                                     >
+                                       <Eraser className="w-3 h-3" />
+                                     </button>
+                                  )}
                                   <span className={`text-[9px] opacity-70 ${style.text}`}>{table.schema}</span>
                                </div>
                             </div>
                             {displayLOD === 'high' && (
                                <div className="py-1">
                                   {table.columns.slice(0, 15).map(col => {
-                                     // ... (Existing column highlight logic preserved, omitted for brevity but assumed present)
+                                     // Column Color Check
+                                     const colColorId = columnColors[`${table.name}.${col.name}`];
+                                     const colStyle = colColorId ? TABLE_COLORS.find(c => c.id === colColorId) : null;
+                                     const colBg = colStyle ? colStyle.bg : 'hover:bg-slate-50 dark:hover:bg-slate-700/50';
+                                     const colText = colStyle ? colStyle.text : 'text-slate-600 dark:text-slate-400';
+
                                      return (
-                                       <div key={col.name} className="px-3 flex items-center justify-between text-[11px] h-[28px] hover:bg-slate-50 dark:hover:bg-slate-700/50 text-slate-600 dark:text-slate-400">
+                                       <div 
+                                          key={col.name} 
+                                          className={`px-3 flex items-center justify-between text-[11px] h-[28px] ${colBg} ${colText} relative group/col`}
+                                          onMouseEnter={() => !isInteracting && setHoveredColumn({ table: table.name, col: col.name, isPk: col.isPrimaryKey || false, ref: col.references })}
+                                          onMouseLeave={() => setHoveredColumn(null)}
+                                          onContextMenu={(e) => handleContextMenu(e, table.name, col.name)}
+                                       >
+                                          {colColorId && <div className={`absolute left-0 top-0 bottom-0 w-1 ${colStyle?.bg.replace('50', '400')}`}></div>}
                                           <div className="flex items-center gap-1.5 overflow-hidden">
                                              {col.isPrimaryKey && <Key className="w-3 h-3 text-amber-500 shrink-0" />}
                                              {col.isForeignKey && <Link className="w-3 h-3 text-blue-500 shrink-0" />}
                                              <span className="truncate">{col.name}</span>
                                           </div>
-                                          <span className="text-slate-300 font-mono text-[9px]">{col.type.split('(')[0]}</span>
+                                          <div className="flex items-center gap-1">
+                                             <span className="text-slate-300 font-mono text-[9px]">{col.type.split('(')[0]}</span>
+                                             {/* Column Hover Actions (Optional) */}
+                                             {/* 
+                                             <div className="flex items-center opacity-0 group-hover/col:opacity-100 transition-opacity absolute right-1 bg-white dark:bg-slate-800 shadow-sm border rounded p-0.5">
+                                                <Target className="w-3 h-3 text-slate-400" />
+                                             </div> 
+                                             */}
+                                          </div>
                                        </div>
                                      );
                                   })}

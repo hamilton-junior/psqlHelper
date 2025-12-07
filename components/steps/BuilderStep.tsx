@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo, useEffect, useCallback, memo, useRef } from 'react';
 import { DatabaseSchema, BuilderState, ExplicitJoin, JoinType, Filter, Operator, OrderBy, AppSettings, SavedQuery, AggregateFunction, Column, Table, CalculatedColumn } from '../../types';
-import { Layers, ChevronRight, Settings2, RefreshCw, Search, X, CheckSquare, Square, Plus, Trash2, ArrowRightLeft, Filter as FilterIcon, ArrowDownAZ, List, Link2, ChevronDown, Save, FolderOpen, Calendar, Clock, Key, Combine, ArrowRight, ArrowLeft, FastForward, Target, CornerDownRight, Wand2, Loader2, Undo2, Redo2, Calculator } from 'lucide-react';
+import { Layers, ChevronRight, Settings2, RefreshCw, Search, X, CheckSquare, Square, Plus, Trash2, ArrowRightLeft, Filter as FilterIcon, ArrowDownAZ, List, Link2, ChevronDown, Save, FolderOpen, Calendar, Clock, Key, Combine, ArrowRight, ArrowLeft, FastForward, Target, CornerDownRight, Wand2, Loader2, Undo2, Redo2, Calculator, Sparkles, LayoutTemplate, PlayCircle } from 'lucide-react';
 import SchemaViewer from '../SchemaViewer';
 import { generateBuilderStateFromPrompt } from '../../services/geminiService';
 
@@ -578,6 +578,80 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
     }
   }, [settings.defaultLimit]);
 
+  // --- Smart Starters Calculation (New User Experience) ---
+  const smartStarters = useMemo(() => {
+     if (state.selectedTables.length > 0) return [];
+     
+     const suggestions = [];
+     
+     // 1. Find potential 'users' or 'customers' table
+     const usersTable = schema.tables.find(t => ['users', 'user', 'cliente', 'clientes', 'customer', 'customers'].includes(t.name.toLowerCase()));
+     if (usersTable) {
+        suggestions.push({
+           icon: <LayoutTemplate className="w-5 h-5 text-indigo-500" />,
+           title: `Listar ${usersTable.name}`,
+           desc: "Visualizar os 10 primeiros registros.",
+           tables: [getTableId(usersTable)],
+           limit: 10
+        });
+     }
+
+     // 2. Find potential 'orders' or 'sales' to count
+     const ordersTable = schema.tables.find(t => ['orders', 'order', 'pedidos', 'vendas', 'sales'].includes(t.name.toLowerCase()));
+     if (ordersTable) {
+        const pk = ordersTable.columns.find(c => c.isPrimaryKey)?.name || 'id';
+        suggestions.push({
+           icon: <Calculator className="w-5 h-5 text-emerald-500" />,
+           title: `Contar ${ordersTable.name}`,
+           desc: "Total de registros na tabela.",
+           tables: [getTableId(ordersTable)],
+           columns: [getColId(getTableId(ordersTable), pk)],
+           aggs: { [getColId(getTableId(ordersTable), pk)]: 'COUNT' }
+        });
+     }
+
+     // 3. Find any table with 'created_at' for recent data
+     const recentTable = schema.tables.find(t => t.columns.some(c => c.name === 'created_at'));
+     if (recentTable) {
+        suggestions.push({
+           icon: <Clock className="w-5 h-5 text-amber-500" />,
+           title: `Recentes em ${recentTable.name}`,
+           desc: "Últimos 20 registros adicionados.",
+           tables: [getTableId(recentTable)],
+           orderBy: [{ id: '1', column: getColId(getTableId(recentTable), 'created_at'), direction: 'DESC' }],
+           limit: 20
+        });
+     }
+
+     // Fallback if no specific tables found, pick first 2
+     if (suggestions.length === 0) {
+        const first = schema.tables[0];
+        if (first) {
+           suggestions.push({
+              icon: <PlayCircle className="w-5 h-5 text-blue-500" />,
+              title: `Explorar ${first.name}`,
+              desc: "Ver dados desta tabela.",
+              tables: [getTableId(first)],
+              limit: 10
+           });
+        }
+     }
+
+     return suggestions.slice(0, 3);
+  }, [schema.tables, state.selectedTables.length]);
+
+  const applyStarter = (starter: any) => {
+     const newState: BuilderState = {
+        ...state,
+        selectedTables: starter.tables,
+        selectedColumns: starter.columns || [],
+        aggregations: starter.aggs || {},
+        orderBy: starter.orderBy || [],
+        limit: starter.limit || 10
+     };
+     updateStateWithHistory(newState);
+  };
+
   // --- History Management Wrappers ---
   
   const updateStateWithHistory = useCallback((newState: BuilderState) => {
@@ -1052,7 +1126,7 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
       
       {/* Magic Fill Bar */}
       {settings.enableAiGeneration && (
-        <form onSubmit={handleMagicFill} className="mb-4 relative z-20 shrink-0">
+        <form id="magic-fill-bar" onSubmit={handleMagicFill} className="mb-4 relative z-20 shrink-0">
           <div className="relative group">
             <div className={`absolute -inset-0.5 bg-gradient-to-r from-pink-500 to-indigo-500 rounded-lg blur opacity-25 group-hover:opacity-50 transition duration-1000 group-hover:duration-200 ${isMagicFilling ? 'opacity-75 animate-pulse' : ''}`}></div>
             <div className="relative flex items-center bg-white dark:bg-slate-900 rounded-lg shadow-sm border border-slate-200 dark:border-slate-700">
@@ -1093,7 +1167,7 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
       <div className="flex-1 flex gap-6 min-h-0">
         
         {/* Left: Schema Viewer */}
-        <div className="w-1/4 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 flex flex-col overflow-hidden shadow-sm">
+        <div id="schema-viewer-panel" className="w-1/4 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 flex flex-col overflow-hidden shadow-sm">
           <SchemaViewer 
             schema={schema} 
             selectionMode={true} 
@@ -1105,7 +1179,7 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
         </div>
 
         {/* Right: Tabbed Builder Area */}
-        <div className="flex-1 w-full bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 flex flex-col overflow-hidden shadow-sm">
+        <div id="builder-main-panel" className="flex-1 w-full bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 flex flex-col overflow-hidden shadow-sm relative">
            
            <div className="flex border-b border-slate-100 dark:border-slate-700">
              {renderTabButton('columns', 'Colunas', <List className="w-4 h-4" />, "Selecionar colunas e agregações")}
@@ -1114,7 +1188,7 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
              {renderTabButton('sortgroup', 'Ordenar/Agrupar', <ArrowDownAZ className="w-4 h-4" />, "Configurar GROUP BY e ORDER BY")}
            </div>
 
-           <div className="flex-1 overflow-y-auto p-4 bg-slate-50/50 dark:bg-slate-900/50">
+           <div className="flex-1 overflow-y-auto p-4 bg-slate-50/50 dark:bg-slate-900/50 relative">
              
              {/* --- COLUMNS TAB --- */}
              {activeTab === 'columns' && (
@@ -1150,9 +1224,27 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
                  )}
 
                  {state.selectedTables.length === 0 ? (
-                   <div className="flex flex-col items-center justify-center h-64 text-slate-400">
-                     <Layers className="w-12 h-12 mb-2 opacity-20" />
-                     <p className="text-sm">Selecione tabelas na barra lateral para ver colunas</p>
+                   <div className="flex flex-col items-center justify-center h-full text-slate-400">
+                     <Layers className="w-16 h-16 mb-4 opacity-20" />
+                     <h3 className="text-lg font-semibold text-slate-600 dark:text-slate-300 mb-2">Nenhuma tabela selecionada</h3>
+                     <p className="text-sm mb-8 text-center max-w-xs">Selecione tabelas na barra lateral ou use um modelo abaixo para começar.</p>
+                     
+                     {/* SMART STARTERS */}
+                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 w-full max-w-2xl px-4">
+                        {smartStarters.map((starter, idx) => (
+                           <button 
+                              key={idx} 
+                              onClick={() => applyStarter(starter)}
+                              className="flex flex-col items-center text-center p-4 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl hover:border-indigo-400 hover:shadow-md transition-all group"
+                           >
+                              <div className="mb-3 p-3 bg-slate-50 dark:bg-slate-900 rounded-full group-hover:scale-110 transition-transform">
+                                 {starter.icon}
+                              </div>
+                              <span className="text-sm font-bold text-slate-700 dark:text-slate-200 mb-1">{starter.title}</span>
+                              <span className="text-xs text-slate-500 dark:text-slate-400">{starter.desc}</span>
+                           </button>
+                        ))}
+                     </div>
                    </div>
                  ) : (
                    state.selectedTables.map(tableId => {
@@ -1284,7 +1376,7 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
       </div>
 
       {/* Action Footer */}
-      <div className="mt-6 bg-slate-800 text-white p-4 rounded-xl flex items-center justify-between shadow-lg">
+      <div className="mt-6 bg-slate-800 text-white p-4 rounded-xl flex items-center justify-between shadow-lg" id="builder-footer-actions">
          <div className="flex items-center gap-6">
             <div className="flex flex-col"><span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider flex items-center gap-2">Tabelas Selecionadas {state.selectedTables.length > 0 && (<button onClick={clearAllTables} className="text-slate-500 hover:text-red-400 transition-colors"><Trash2 className="w-3 h-3" /></button>)}</span><span className="font-mono text-xl font-bold">{state.selectedTables.length}</span></div>
             <div className="w-px h-8 bg-slate-700"></div>
@@ -1294,7 +1386,7 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
          <div className="flex items-center gap-4">
             <div className="flex items-center gap-2 bg-slate-900/50 px-3 py-1.5 rounded border border-slate-700" title="Número máximo de linhas a retornar"><Settings2 className="w-4 h-4 text-slate-400" /><span className="text-xs text-slate-400">Limite:</span><input type="number" value={state.limit} onChange={(e) => updateStateWithHistory({...stateRef.current, limit: parseInt(e.target.value) || 10})} className="w-16 bg-transparent text-right font-mono text-sm outline-none focus:text-indigo-400 text-white" /></div>
             {isGenerating && showSkipButton && onSkipAi && settings.enableAiGeneration && (<button onClick={onSkipAi} className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-amber-300 hover:text-amber-200 hover:bg-white/10 rounded transition-colors"><FastForward className="w-3.5 h-3.5" /> Demorando? Pular IA</button>)}
-            <button onClick={onGenerate} disabled={state.selectedTables.length === 0 || isGenerating} className="bg-indigo-500 hover:bg-indigo-400 text-white px-6 py-2.5 rounded-lg font-bold shadow-lg shadow-indigo-900/50 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2">{isGenerating ? (<><RefreshCw className="w-4 h-4 animate-spin" /><span className="text-xs opacity-90">{progressMessage || "Processando..."}</span></>) : (<>Visualizar & Executar <ChevronRight className="w-4 h-4" /></>)}</button>
+            <button id="generate-sql-btn" onClick={onGenerate} disabled={state.selectedTables.length === 0 || isGenerating} className="bg-indigo-500 hover:bg-indigo-400 text-white px-6 py-2.5 rounded-lg font-bold shadow-lg shadow-indigo-900/50 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2">{isGenerating ? (<><RefreshCw className="w-4 h-4 animate-spin" /><span className="text-xs opacity-90">{progressMessage || "Processando..."}</span></>) : (<>Visualizar & Executar <ChevronRight className="w-4 h-4" /></>)}</button>
          </div>
       </div>
     </div>
