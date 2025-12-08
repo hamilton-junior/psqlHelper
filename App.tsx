@@ -12,6 +12,7 @@ import AiPreferenceModal from './components/AiPreferenceModal';
 import SchemaDiagramModal from './components/SchemaDiagramModal';
 import TablePreviewModal from './components/TablePreviewModal';
 import ShortcutsModal from './components/ShortcutsModal';
+import SqlCheatSheetModal from './components/SqlCheatSheetModal';
 import TourGuide, { TourStep } from './components/TourGuide';
 import { generateSqlFromBuilderState, validateSqlQuery, generateMockData, fixSqlError } from './services/geminiService';
 import { generateLocalSql } from './services/localSqlService';
@@ -37,6 +38,7 @@ function App() {
   const [showDiagram, setShowDiagram] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
+  const [showCheatSheet, setShowCheatSheet] = useState(false);
   
   // Onboarding State
   const [showOnboarding, setShowOnboarding] = useState(false);
@@ -48,7 +50,6 @@ function App() {
      const handleGlobalKeys = (e: KeyboardEvent) => {
         if (e.key === '?' && e.shiftKey) {
            // Shift + ? to toggle shortcuts
-           // We check e.target to avoid triggering when typing in inputs if we want, but ? usually safe
            const tagName = (e.target as HTMLElement).tagName;
            if (tagName !== 'INPUT' && tagName !== 'TEXTAREA') {
               setShowShortcuts(prev => !prev);
@@ -596,6 +597,8 @@ function App() {
       )}
 
       {showShortcuts && <ShortcutsModal onClose={() => setShowShortcuts(false)} />}
+      
+      {showCheatSheet && <SqlCheatSheetModal onClose={() => setShowCheatSheet(false)} />}
 
       <Sidebar 
         currentStep={currentStep} 
@@ -607,6 +610,7 @@ function App() {
         onRegenerateClick={handleReset}
         onDescriptionChange={handleUpdateSchemaDescription}
         onOpenShortcuts={() => setShowShortcuts(true)}
+        onOpenCheatSheet={() => setShowCheatSheet(true)}
       />
 
       <main className="flex-1 flex flex-col min-w-0 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 overflow-hidden rounded-tl-3xl shadow-2xl my-2 mr-2 relative">

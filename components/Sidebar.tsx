@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { AppStep, DatabaseSchema } from '../types';
-import { Database, Layers, Terminal, Table, Server, ArrowRight, Settings, ChevronLeft, ChevronRight, Map, History, LayoutGrid, HelpCircle } from 'lucide-react';
+import { Database, Layers, Terminal, Table, Server, ArrowRight, Settings, ChevronLeft, ChevronRight, Map, History, LayoutGrid, HelpCircle, BookOpen } from 'lucide-react';
 
 interface SidebarProps {
   currentStep: AppStep;
@@ -13,10 +13,11 @@ interface SidebarProps {
   onRegenerateClick?: () => void;
   onDescriptionChange?: (tableName: string, newDesc: string) => void;
   onOpenShortcuts?: () => void;
+  onOpenCheatSheet?: () => void;
 }
 
 const Sidebar: React.FC<SidebarProps> = ({ 
-  currentStep, onNavigate, schema, onOpenSettings, onOpenDiagram, onOpenHistory, onRegenerateClick, onDescriptionChange, onOpenShortcuts
+  currentStep, onNavigate, schema, onOpenSettings, onOpenDiagram, onOpenHistory, onRegenerateClick, onDescriptionChange, onOpenShortcuts, onOpenCheatSheet
 }) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
 
@@ -115,6 +116,16 @@ const Sidebar: React.FC<SidebarProps> = ({
       <div className="flex-1"></div>
 
       <div className={`px-6 pb-4 shrink-0 space-y-2 ${isCollapsed ? 'px-2' : ''}`}>
+        {onOpenCheatSheet && (
+           <button 
+              onClick={onOpenCheatSheet}
+              title={isCollapsed ? "Guia SQL" : "Aprenda os conceitos básicos de SQL"}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-200 text-sm font-medium text-emerald-400 hover:bg-slate-800 hover:text-emerald-300 ${isCollapsed ? 'justify-center px-2' : ''}`}
+           >
+              <BookOpen className="w-4 h-4 shrink-0" />
+              {!isCollapsed && <span>Guia SQL (Ajuda)</span>}
+           </button>
+        )}
         {onOpenShortcuts && (
            <button 
               onClick={onOpenShortcuts}
@@ -122,7 +133,7 @@ const Sidebar: React.FC<SidebarProps> = ({
               className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-200 text-sm font-medium text-slate-400 hover:bg-slate-800 hover:text-slate-200 ${isCollapsed ? 'justify-center px-2' : ''}`}
            >
               <HelpCircle className="w-4 h-4 shrink-0" />
-              {!isCollapsed && <span>Ajuda & Atalhos</span>}
+              {!isCollapsed && <span>Atalhos</span>}
            </button>
         )}
         <button 

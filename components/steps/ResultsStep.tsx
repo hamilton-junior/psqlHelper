@@ -4,6 +4,7 @@ import { ArrowLeft, Database, ChevronLeft, ChevronRight, FileSpreadsheet, Search
 import { AppSettings, DashboardItem, ExplainNode } from '../../types';
 import DataVisualizer from '../DataVisualizer';
 import DataAnalysisChat from '../DataAnalysisChat';
+import CodeSnippetModal from '../CodeSnippetModal';
 import { addToHistory } from '../../services/historyService';
 import { explainQueryReal } from '../../services/dbService';
 import { jsPDF } from "jspdf";
@@ -425,6 +426,7 @@ const ResultsStep: React.FC<ResultsStepProps> = ({ data, sql, onBackToBuilder, o
   const [explainError, setExplainError] = useState<string | null>(null);
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [showCodeModal, setShowCodeModal] = useState(false);
   
   // Row Detail Modal
   const [selectedRow, setSelectedRow] = useState<any | null>(null);
@@ -575,10 +577,6 @@ const ResultsStep: React.FC<ResultsStepProps> = ({ data, sql, onBackToBuilder, o
 
   const toggleFullscreen = () => {
      setIsFullscreen(!isFullscreen);
-     // Dispatch custom event if needed to inform layout, 
-     // but usually we control layout via parent props or classes.
-     // In this app, App.tsx renders everything.
-     // Quick hack: Use fixed positioning overlay for true fullscreen within the app context
   };
 
   return (
@@ -586,6 +584,9 @@ const ResultsStep: React.FC<ResultsStepProps> = ({ data, sql, onBackToBuilder, o
       
       {/* Row Detail Modal */}
       {selectedRow && <RowInspector row={selectedRow} onClose={() => setSelectedRow(null)} />}
+      
+      {/* Code Snippet Modal */}
+      {showCodeModal && <CodeSnippetModal sql={sql} onClose={() => setShowCodeModal(false)} />}
 
       {/* Header & Toolbar */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 shrink-0">
@@ -648,8 +649,9 @@ const ResultsStep: React.FC<ResultsStepProps> = ({ data, sql, onBackToBuilder, o
                  <div className="absolute right-0 top-full mt-2 w-56 bg-white dark:bg-slate-800 rounded-xl shadow-xl border border-slate-200 dark:border-slate-700 z-50 overflow-hidden animate-in fade-in zoom-in-95" onClick={() => setShowExportMenu(false)}>
                     <div className="p-2 border-b border-slate-100 dark:border-slate-700">
                        <span className="text-[10px] font-bold text-slate-400 uppercase px-2 mb-1 block">Área de Transferência</span>
+                       <button onClick={() => { setShowCodeModal(true); setShowExportMenu(false); }} className="w-full text-left px-2 py-1.5 text-xs hover:bg-slate-50 dark:hover:bg-slate-700 rounded flex items-center gap-2 text-slate-700 dark:text-slate-300 font-medium text-indigo-600"><FileCode className="w-3.5 h-3.5 text-indigo-500" /> Exportar Código (Snippet)</button>
                        <button onClick={copyAsMarkdown} className="w-full text-left px-2 py-1.5 text-xs hover:bg-slate-50 dark:hover:bg-slate-700 rounded flex items-center gap-2 text-slate-700 dark:text-slate-300"><FileCode className="w-3.5 h-3.5 text-slate-400" /> Markdown (Tabela)</button>
-                       <button onClick={handleExportInsert} className="w-full text-left px-2 py-1.5 text-xs hover:bg-slate-50 dark:hover:bg-slate-700 rounded flex items-center gap-2 text-slate-700 dark:text-slate-300"><Database className="w-3.5 h-3.5 text-indigo-500" /> Copy as SQL INSERT</button>
+                       <button onClick={handleExportInsert} className="w-full text-left px-2 py-1.5 text-xs hover:bg-slate-50 dark:hover:bg-slate-700 rounded flex items-center gap-2 text-slate-700 dark:text-slate-300"><Database className="w-3.5 h-3.5 text-slate-500" /> Copy as SQL INSERT</button>
                        <button onClick={() => { navigator.clipboard.writeText(JSON.stringify(filteredData)); onShowToast("JSON copiado!", "success"); }} className="w-full text-left px-2 py-1.5 text-xs hover:bg-slate-50 dark:hover:bg-slate-700 rounded flex items-center gap-2 text-slate-700 dark:text-slate-300"><FileJson className="w-3.5 h-3.5 text-yellow-500" /> Copy JSON Raw</button>
                     </div>
                     <div className="p-2">

@@ -1,3 +1,4 @@
+
 import { GoogleGenAI, Type, Schema } from "@google/genai";
 import { DatabaseSchema, QueryResult, ValidationResult, BuilderState, AggregateFunction, Operator, JoinType } from "../types";
 
@@ -318,9 +319,9 @@ export const generateSqlFromBuilderState = async (
   ).join('\n\n');
 
   const systemInstruction = `
-    Você é um Especialista em PostgreSQL. Gere uma consulta baseada na Seleção do Usuário. Responda em Português do Brasil (pt-BR).
+    Você é um Professor Especialista em PostgreSQL. Gere uma consulta baseada na Seleção do Usuário e explique-a didaticamente. Responda em Português do Brasil (pt-BR).
 
-    INSTRUÇÕES CRÍTICAS:
+    INSTRUÇÕES CRÍTICAS DE SQL:
     1. **NOMES QUALIFICADOS**: SEMPRE use o formato "schema.tabela" no FROM e JOIN. (Ex: 'FROM public.users' e não apenas 'FROM users'). Isso é vital para evitar ambiguidade.
     2. **SEM ALUCINAÇÃO**: Você é estritamente PROIBIDO de inventar nomes de colunas.
     3. **VERIFICAR COLUNAS**: Antes de escrever uma condição de JOIN como 'ON T1.col = T2.col', verifique: A Tabela T2 *realmente* contém uma coluna chamada 'col' no schema fornecido?
@@ -330,6 +331,11 @@ export const generateSqlFromBuilderState = async (
     INSTRUÇÕES CRÍTICAS PARA ORDENAÇÃO E GROUP BY:
     6. **ORDER BY**: Se o usuário fornecer instruções de 'OrderBy', você DEVE anexar uma cláusula 'ORDER BY'. Não ignore.
     7. **AGREGAÇÃO**: Se o usuário solicitou uma função de agregação (COUNT, SUM, etc.) em uma coluna, você DEVE incluí-la no SELECT e adicionar o GROUP BY apropriado para as outras colunas.
+
+    INSTRUÇÕES DIDÁTICAS (Explanation):
+    - No campo 'explanation', não descreva apenas o que a query faz. EXPLIQUE A SINTAXE para um iniciante.
+    - Exemplo ruim: "Esta query seleciona vendas."
+    - Exemplo bom: "Estamos usando 'SELECT' para escolher as colunas e 'JOIN' para conectar a tabela de vendas com clientes através do ID. O 'GROUP BY' é necessário aqui porque usamos a função SUM() para somar totais."
 
     Formatação:
     - Use espaçamento estrito (ex: 'SELECT * FROM' não 'SELECT*FROM').
@@ -369,7 +375,7 @@ export const generateSqlFromBuilderState = async (
     Gere um JSON válido:
     {
       "sql": "string", (OU "NO_RELATIONSHIP" se nenhum join válido for encontrado)
-      "explanation": "string (pt-BR - Explique a lógica da query de forma didática)",
+      "explanation": "string (pt-BR - Explique a lógica da query de forma didática e educacional)",
       "tips": ["string"] (Apenas se solicitado, dicas de otimização em pt-BR)
     }
   `;

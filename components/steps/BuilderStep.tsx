@@ -1,9 +1,10 @@
 
 import React, { useState, useMemo, useEffect, useCallback, memo, useRef } from 'react';
 import { DatabaseSchema, BuilderState, ExplicitJoin, JoinType, Filter, Operator, OrderBy, AppSettings, SavedQuery, AggregateFunction, Column, Table, CalculatedColumn } from '../../types';
-import { Layers, ChevronRight, Settings2, RefreshCw, Search, X, CheckSquare, Square, Plus, Trash2, ArrowRightLeft, Filter as FilterIcon, ArrowDownAZ, List, Link2, ChevronDown, Save, FolderOpen, Calendar, Clock, Key, Combine, ArrowRight, ArrowLeft, FastForward, Target, CornerDownRight, Wand2, Loader2, Undo2, Redo2, Calculator, Sparkles, LayoutTemplate, PlayCircle } from 'lucide-react';
+import { Layers, ChevronRight, Settings2, RefreshCw, Search, X, CheckSquare, Square, Plus, Trash2, ArrowRightLeft, Filter as FilterIcon, ArrowDownAZ, List, Link2, ChevronDown, Save, FolderOpen, Calendar, Clock, Key, Combine, ArrowRight, ArrowLeft, FastForward, Target, CornerDownRight, Wand2, Loader2, Undo2, Redo2, Calculator, Sparkles, LayoutTemplate, PlayCircle, Eye, Info, ChevronUp } from 'lucide-react';
 import SchemaViewer from '../SchemaViewer';
 import { generateBuilderStateFromPrompt } from '../../services/geminiService';
+import { generateLocalSql } from '../../services/localSqlService';
 
 interface BuilderStepProps {
   schema: DatabaseSchema;
@@ -15,7 +16,7 @@ interface BuilderStepProps {
   progressMessage?: string;
   settings: AppSettings;
   onDescriptionChange?: (tableName: string, newDesc: string) => void;
-  onPreviewTable?: (tableName: string) => void; // New prop
+  onPreviewTable?: (tableName: string) => void; 
 }
 
 type TabType = 'columns' | 'joins' | 'filters' | 'sortgroup';
@@ -533,6 +534,24 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
   // Magic Fill State
   const [magicPrompt, setMagicPrompt] = useState('');
   const [isMagicFilling, setIsMagicFilling] = useState(false);
+
+  // Live Preview State
+  const [showLivePreview, setShowLivePreview] = useState(false);
+  const [liveSql, setLiveSql] = useState('');
+
+  // Update live preview whenever state changes
+  useEffect(() => {
+     if (state.selectedTables.length > 0) {
+        try {
+           const result = generateLocalSql(schema, state);
+           setLiveSql(result.sql);
+        } catch (e) {
+           setLiveSql('-- Complete a seleção para ver o SQL');
+        }
+     } else {
+        setLiveSql('-- Selecione tabelas para começar');
+     }
+  }, [state, schema]);
 
   useEffect(() => {
     let timer: any;
@@ -1282,7 +1301,10 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
                  {/* ... (Existing Joins Tab Content - kept clean for brevity) ... */}
                  <div className="mb-6 flex justify-between items-center">
                     <div>
-                      <h3 className="text-lg font-bold text-slate-800 dark:text-white">Configuração de Relacionamentos</h3>
+                      <h3 className="text-lg font-bold text-slate-800 dark:text-white flex items-center gap-2">
+                         Configuração de Relacionamentos
+                         <span className="text-slate-400" title="Joins conectam tabelas usando colunas em comum (chaves)."><Info className="w-4 h-4" /></span>
+                      </h3>
                       <p className="text-sm text-slate-500 dark:text-slate-400">Defina explicitamente como suas tabelas se conectam (JOIN).</p>
                     </div>
                     <button onClick={addJoin} className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-sm font-bold rounded-lg hover:bg-indigo-700 transition-colors shadow-sm"><Plus className="w-4 h-4" /> Novo Join</button>
@@ -1354,7 +1376,10 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
                <div className="max-w-3xl mx-auto space-y-8">
                  {/* ... (Existing Sort/Group content kept as is) ... */}
                  <div>
-                    <h3 className="font-bold text-slate-700 dark:text-slate-300 mb-2 flex items-center gap-2"><List className="w-4 h-4 text-indigo-600" /> Agrupar Por (Group By)</h3>
+                    <h3 className="font-bold text-slate-700 dark:text-slate-300 mb-2 flex items-center gap-2">
+                       <List className="w-4 h-4 text-indigo-600" /> Agrupar Por (Group By)
+                       <span className="text-slate-400" title="Combine linhas idênticas (ex: vendas por País). Obrigatório ao usar agregações."><Info className="w-4 h-4" /></span>
+                    </h3>
                     <div className="bg-white dark:bg-slate-800 p-4 rounded-lg border border-slate-200 dark:border-slate-700 shadow-sm">
                        <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">Selecione colunas para agrupar (útil para agregações).</p>
                        <div className="flex flex-wrap gap-2">
@@ -1376,18 +1401,42 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
         </div>
       </div>
 
-      {/* Action Footer */}
-      <div className="mt-6 bg-slate-800 text-white p-4 rounded-xl flex items-center justify-between shadow-lg" id="builder-footer-actions">
-         <div className="flex items-center gap-6">
-            <div className="flex flex-col"><span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider flex items-center gap-2">Tabelas Selecionadas {state.selectedTables.length > 0 && (<button onClick={clearAllTables} className="text-slate-500 hover:text-red-400 transition-colors"><Trash2 className="w-3 h-3" /></button>)}</span><span className="font-mono text-xl font-bold">{state.selectedTables.length}</span></div>
-            <div className="w-px h-8 bg-slate-700"></div>
-            <div className="flex flex-col"><span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Colunas Selecionadas</span><span className="font-mono text-xl font-bold">{state.selectedColumns.length === 0 ? (state.selectedTables.length > 0 ? 'TODAS (*)' : '0') : state.selectedColumns.length}</span></div>
+      {/* Action Footer & Live Preview Panel */}
+      <div className="mt-6 flex flex-col gap-2">
+         {/* Live Preview Toggle */}
+         <div className="flex justify-end px-4">
+            <button 
+               onClick={() => setShowLivePreview(!showLivePreview)}
+               className="flex items-center gap-2 text-xs font-bold text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-300 transition-colors bg-white dark:bg-slate-800 px-3 py-1.5 rounded-t-lg border border-b-0 border-slate-200 dark:border-slate-700 shadow-sm"
+            >
+               {showLivePreview ? <ChevronDown className="w-3 h-3" /> : <ChevronUp className="w-3 h-3" />}
+               Live SQL Preview
+            </button>
          </div>
 
-         <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2 bg-slate-900/50 px-3 py-1.5 rounded border border-slate-700" title="Número máximo de linhas a retornar"><Settings2 className="w-4 h-4 text-slate-400" /><span className="text-xs text-slate-400">Limite:</span><input type="number" value={state.limit} onChange={(e) => updateStateWithHistory({...stateRef.current, limit: parseInt(e.target.value) || 10})} className="w-16 bg-transparent text-right font-mono text-sm outline-none focus:text-indigo-400 text-white" /></div>
-            {isGenerating && showSkipButton && onSkipAi && settings.enableAiGeneration && (<button onClick={onSkipAi} className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-amber-300 hover:text-amber-200 hover:bg-white/10 rounded transition-colors"><FastForward className="w-3.5 h-3.5" /> Demorando? Pular IA</button>)}
-            <button id="generate-sql-btn" onClick={onGenerate} disabled={state.selectedTables.length === 0 || isGenerating} className="bg-indigo-500 hover:bg-indigo-400 text-white px-6 py-2.5 rounded-lg font-bold shadow-lg shadow-indigo-900/50 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2">{isGenerating ? (<><RefreshCw className="w-4 h-4 animate-spin" /><span className="text-xs opacity-90">{progressMessage || "Processando..."}</span></>) : (<>Visualizar & Executar <ChevronRight className="w-4 h-4" /></>)}</button>
+         {/* Collapsible Preview Panel */}
+         {showLivePreview && (
+            <div className="bg-slate-900 text-slate-300 p-4 rounded-xl border border-slate-700 shadow-inner mb-2 animate-in slide-in-from-bottom-2">
+               <div className="flex justify-between items-center mb-2">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Preview em Tempo Real</span>
+               </div>
+               <pre className="text-xs font-mono overflow-x-auto max-h-32 text-emerald-400 whitespace-pre-wrap">{liveSql}</pre>
+            </div>
+         )}
+
+         {/* Original Footer */}
+         <div className="bg-slate-800 text-white p-4 rounded-xl flex items-center justify-between shadow-lg" id="builder-footer-actions">
+            <div className="flex items-center gap-6">
+               <div className="flex flex-col"><span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider flex items-center gap-2">Tabelas Selecionadas {state.selectedTables.length > 0 && (<button onClick={clearAllTables} className="text-slate-500 hover:text-red-400 transition-colors"><Trash2 className="w-3 h-3" /></button>)}</span><span className="font-mono text-xl font-bold">{state.selectedTables.length}</span></div>
+               <div className="w-px h-8 bg-slate-700"></div>
+               <div className="flex flex-col"><span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Colunas Selecionadas</span><span className="font-mono text-xl font-bold">{state.selectedColumns.length === 0 ? (state.selectedTables.length > 0 ? 'TODAS (*)' : '0') : state.selectedColumns.length}</span></div>
+            </div>
+
+            <div className="flex items-center gap-4">
+               <div className="flex items-center gap-2 bg-slate-900/50 px-3 py-1.5 rounded border border-slate-700" title="Número máximo de linhas a retornar"><Settings2 className="w-4 h-4 text-slate-400" /><span className="text-xs text-slate-400">Limite:</span><input type="number" value={state.limit} onChange={(e) => updateStateWithHistory({...stateRef.current, limit: parseInt(e.target.value) || 10})} className="w-16 bg-transparent text-right font-mono text-sm outline-none focus:text-indigo-400 text-white" /></div>
+               {isGenerating && showSkipButton && onSkipAi && settings.enableAiGeneration && (<button onClick={onSkipAi} className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-amber-300 hover:text-amber-200 hover:bg-white/10 rounded transition-colors"><FastForward className="w-3.5 h-3.5" /> Demorando? Pular IA</button>)}
+               <button id="generate-sql-btn" onClick={onGenerate} disabled={state.selectedTables.length === 0 || isGenerating} className="bg-indigo-500 hover:bg-indigo-400 text-white px-6 py-2.5 rounded-lg font-bold shadow-lg shadow-indigo-900/50 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2">{isGenerating ? (<><RefreshCw className="w-4 h-4 animate-spin" /><span className="text-xs opacity-90">{progressMessage || "Processando..."}</span></>) : (<>Visualizar & Executar <ChevronRight className="w-4 h-4" /></>)}</button>
+            </div>
          </div>
       </div>
     </div>
