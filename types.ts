@@ -54,7 +54,7 @@ export interface QueryResult {
   optimization?: OptimizationAnalysis;
 }
 
-export type AppStep = 'connection' | 'builder' | 'preview' | 'results' | 'dashboard';
+export type AppStep = 'connection' | 'builder' | 'preview' | 'results' | 'dashboard' | 'datadiff';
 
 export type Operator = '=' | '!=' | '>' | '<' | '>=' | '<=' | 'LIKE' | 'ILIKE' | 'IN' | 'IS NULL' | 'IS NOT NULL';
 export type JoinType = 'INNER' | 'LEFT' | 'RIGHT' | 'FULL';
@@ -188,6 +188,15 @@ export interface ExplainNode {
     total: number;
   };
   children?: ExplainNode[];
+}
+
+// Diff Types
+export interface DiffRow {
+  key: string;
+  status: 'added' | 'removed' | 'modified' | 'unchanged';
+  dataA?: any;
+  dataB?: any;
+  diffColumns: string[]; // List of columns that changed
 }
 
 export const SAMPLE_SCHEMA: DatabaseSchema = {

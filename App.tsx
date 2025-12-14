@@ -1,5 +1,7 @@
 
 
+
+
 import React, { useState, useEffect, useRef } from 'react';
 import { DatabaseSchema, AppStep, BuilderState, QueryResult, DbCredentials, AppSettings, DEFAULT_SETTINGS, DashboardItem } from './types';
 import Sidebar from './components/Sidebar';
@@ -8,6 +10,7 @@ import BuilderStep from './components/steps/BuilderStep';
 import PreviewStep from './components/steps/PreviewStep';
 import ResultsStep from './components/steps/ResultsStep';
 import DashboardStep from './components/steps/DashboardStep'; 
+import DataDiffStep from './components/steps/DataDiffStep'; // New Import
 import SettingsModal from './components/SettingsModal';
 import AiPreferenceModal from './components/AiPreferenceModal';
 import SchemaDiagramModal from './components/SchemaDiagramModal';
@@ -729,7 +732,7 @@ function App() {
               onShowToast={showToast}
               credentials={credentials}
               executionDuration={executionDuration}
-              schema={schema || undefined} // NEW: Pass schema to ResultsStep
+              schema={schema || undefined} 
             />
           )}
 
@@ -738,6 +741,14 @@ function App() {
                items={dashboards} 
                onRemoveItem={handleRemoveDashboardItem} 
                onClearAll={() => setDashboards([])}
+             />
+          )}
+
+          {currentStep === 'datadiff' && schema && (
+             <DataDiffStep
+                schema={schema}
+                credentials={credentials}
+                simulationData={simulationData}
              />
           )}
         </div>

@@ -1,7 +1,5 @@
 
 
-
-
 import { GoogleGenAI, Type, Schema } from "@google/genai";
 import { DatabaseSchema, QueryResult, ValidationResult, BuilderState, AggregateFunction, Operator, JoinType, OptimizationAnalysis } from "../types";
 

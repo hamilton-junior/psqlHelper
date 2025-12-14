@@ -144,7 +144,7 @@ export const executeOfflineQuery = (
   data: SimulationData,
   state: BuilderState
 ): any[] => {
-  const { selectedTables, selectedColumns, limit, aggregations, filters, groupBy, orderBy, joins } = state;
+  const { selectedTables, selectedColumns, calculatedColumns, limit, aggregations, filters, groupBy, orderBy, joins } = state;
   
   if (selectedTables.length === 0) return [];
 
@@ -165,8 +165,6 @@ export const executeOfflineQuery = (
   });
 
   // Handle explicit joins first if any
-  // (In offline mode, we rely heavily on auto-detection if explicit joins are missing, but respect them if present)
-  
   // We iterate through remaining selected tables and try to join them
   for (let i = 1; i < selectedTables.length; i++) {
     const targetTableId = selectedTables[i]; // "schema.table"
@@ -193,20 +191,14 @@ export const executeOfflineQuery = (
        joinType = explicitJoin.type;
     } else {
         // AUTO-JOIN LOGIC (Implicit)
-        // Find relationship in schema using Fully Qualified Names
-        
-        // 1. Look for FK in Target pointing to any Joined Table
         const targetSchema = schema.tables.find(t => `${t.schema || 'public'}.${t.name}` === targetTableId);
         
         if (targetSchema) {
-           // Iterate all previously processed tables to find a match
            const joinedTablesIds = selectedTables.slice(0, i);
            
            for (const joinedId of joinedTablesIds) {
               const fk = targetSchema.columns.find(c => {
                   if (!c.isForeignKey || !c.references) return false;
-                  // ref is "schema.table.col"
-                  // check if ref starts with joinedId
                   const refParts = c.references.split('.');
                   if (refParts.length === 3) {
                       const refTableId = `${refParts[0]}.${refParts[1]}`;
@@ -217,110 +209,18 @@ export const executeOfflineQuery = (
 
               if (fk) {
                  joinColTo = `${targetTableId}.${fk.name}`; // foreign key in target
-                 joinColFrom = fk.references!; // primary key in source (full schema.table.col)
+                 joinColFrom = fk.references!; // primary key in source
                  break;
               }
            }
-        }
-
-        // 2. If not found, look for FK in any Joined Table pointing to Target
-        if (!joinColFrom) {
-           const joinedTablesIds = selectedTables.slice(0, i);
-           for (const joinedId of joinedTablesIds) {
-              const joinedSchema = schema.tables.find(t => `${t.schema || 'public'}.${t.name}` === joinedId);
-              if (joinedSchema) {
-                 const fk = joinedSchema.columns.find(c => {
-                    if (!c.isForeignKey || !c.references) return false;
-                    const refParts = c.references.split('.');
-                    if (refParts.length === 3) {
-                        const refTableId = `${refParts[0]}.${refParts[1]}`;
-                        return refTableId === targetTableId;
-                    }
-                    return false;
-                 });
-
-                 if (fk) {
-                    joinColFrom = `${joinedId}.${fk.name}`;
-                    joinColTo = fk.references!;
-                    break;
-                 }
-              }
-           }
-        }
-        
-        // 3. Heuristic: Column matches Table Name (e.g. movto.produto -> produto.grid)
-        if (!joinColFrom) {
-            const targetSimpleName = targetTableId.split('.')[1]; // 'produto'
-            const joinedTablesIds = selectedTables.slice(0, i);
-            
-            // Check if any joined table has a column named 'produto'
-            for (const joinedId of joinedTablesIds) {
-                const joinedSchema = schema.tables.find(t => `${t.schema || 'public'}.${t.name}` === joinedId);
-                const targetSchemaObj = schema.tables.find(t => `${t.schema || 'public'}.${t.name}` === targetTableId);
-
-                if (joinedSchema && targetSchemaObj) {
-                    const linkCol = joinedSchema.columns.find(c => c.name.toLowerCase() === targetSimpleName.toLowerCase());
-                    
-                    // Priority: 'grid' > PK > 'id'
-                    const targetPk = targetSchemaObj.columns.find(c => c.name.toLowerCase() === 'grid') 
-                                  || targetSchemaObj.columns.find(c => c.isPrimaryKey) 
-                                  || targetSchemaObj.columns.find(c => c.name.toLowerCase() === 'id');
-
-                    if (linkCol && targetPk) {
-                         joinColFrom = `${joinedId}.${linkCol.name}`;
-                         joinColTo = `${targetTableId}.${targetPk.name}`;
-                         break;
-                    }
-                }
-            }
-        }
-        
-        // 4. Heuristic: Reverse Column Match (e.g. produto.movto -> movto.grid)
-        if (!joinColFrom) {
-            const joinedTablesIds = selectedTables.slice(0, i);
-            const targetSchemaObj = schema.tables.find(t => `${t.schema || 'public'}.${t.name}` === targetTableId);
-            
-            if (targetSchemaObj) {
-                for (const joinedId of joinedTablesIds) {
-                    const joinedSimpleName = joinedId.split('.')[1]; // 'movto'
-                    const joinedSchema = schema.tables.find(t => `${t.schema || 'public'}.${t.name}` === joinedId);
-                    
-                    if (joinedSchema) {
-                        const linkCol = targetSchemaObj.columns.find(c => c.name.toLowerCase() === joinedSimpleName.toLowerCase());
-                        
-                        // Priority: 'grid' > PK > 'id'
-                        const joinedPk = joinedSchema.columns.find(c => c.name.toLowerCase() === 'grid') 
-                                      || joinedSchema.columns.find(c => c.isPrimaryKey)
-                                      || joinedSchema.columns.find(c => c.name.toLowerCase() === 'id');
-                        
-                        if (linkCol && joinedPk) {
-                             joinColFrom = `${joinedId}.${joinedPk.name}`;
-                             joinColTo = `${targetTableId}.${linkCol.name}`;
-                             break;
-                        }
-                    }
-                }
-            }
         }
     }
 
     // Perform Join Execution
     if (joinColFrom && joinColTo) {
-      const [tblFromS, tblFromT, colFrom] = joinColFrom.split('.'); // likely schema.table.col
-      const [tblToS, tblToT, colTo] = joinColTo.split('.'); 
-
-      // Reconstruct ID for safety
-      const fullTblFrom = joinColFrom.substring(0, joinColFrom.lastIndexOf('.'));
-      // const fullTblTo = joinColTo.substring(0, joinColTo.lastIndexOf('.'));
-
       resultRows = resultRows.map(existingRow => {
          const valFrom = existingRow[joinColFrom];
-         
-         // Find match in target data
-         // Target data keys are raw column names inside the array objects
-         // We need to match targetData[x][colName]
          const targetColName = joinColTo.split('.').pop()!;
-         
          const match = targetData.find(r => String(r[targetColName]) === String(valFrom));
          
          if (match) {
@@ -330,7 +230,6 @@ export const executeOfflineQuery = (
          } else {
             // Nulls for left join
             const joinedRow = { ...existingRow };
-            // Populate nulls
             const tSchema = schema.tables.find(t => `${t.schema || 'public'}.${t.name}` === targetTableId);
             if (tSchema) {
                 tSchema.columns.forEach(c => joinedRow[`${targetTableId}.${c.name}`] = null);
@@ -349,6 +248,42 @@ export const executeOfflineQuery = (
           return joinedRow;
        });
     }
+  }
+
+  // 1.5. Calculate Columns (Scalar) - Enrich rows before filtering/grouping
+  if (calculatedColumns && calculatedColumns.length > 0) {
+     resultRows = resultRows.map(row => {
+        const enriched = { ...row };
+        calculatedColumns.forEach(calc => {
+           try {
+              let expr = calc.expression;
+              // Sort keys by length desc to avoid partial replacement
+              const availableKeys = Object.keys(row).sort((a,b) => b.length - a.length);
+              
+              for (const key of availableKeys) {
+                 const colName = key.split('.').pop()!;
+                 // Replace word-bounded column name with value
+                 if (new RegExp(`\\b${colName}\\b`).test(expr)) {
+                    const val = row[key];
+                    const valStr = (typeof val === 'number') ? String(val) : 0; // Default to 0 for math safety
+                    expr = expr.replace(new RegExp(`\\b${colName}\\b`, 'g'), String(valStr));
+                 }
+              }
+              
+              // Safe eval for math
+              if (/^[0-9.+\-*/()\s]+$/.test(expr)) {
+                 // eslint-disable-next-line no-new-func
+                 const result = new Function(`return ${expr}`)(); 
+                 enriched[calc.alias] = parseFloat(result.toFixed(2));
+              } else {
+                 enriched[calc.alias] = null;
+              }
+           } catch(e) {
+              enriched[calc.alias] = null;
+           }
+        });
+        return enriched;
+     });
   }
 
   // 2. Filter
@@ -382,10 +317,9 @@ export const executeOfflineQuery = (
            resultRow[g] = rows[0][g];
         });
 
-        // Add Aggregated Columns OR Non-Aggregated selected columns
+        // Add Aggregated Columns
         selectedColumns.forEach(fullCol => {
            const agg = aggregations[fullCol];
-           // fullCol is "schema.table.col"
            const colName = fullCol.split('.').pop()!;
 
            if (!agg || agg === 'NONE') {
@@ -402,7 +336,6 @@ export const executeOfflineQuery = (
               else if (agg === 'MIN') val = values.length ? Math.min(...values.map(Number)) : null;
               else if (agg === 'MAX') val = values.length ? Math.max(...values.map(Number)) : null;
               
-              // Format if decimal
               if ((agg === 'AVG' || agg === 'SUM') && val !== null && !Number.isInteger(val)) {
                  val = parseFloat(val.toFixed(2));
               }
@@ -411,25 +344,36 @@ export const executeOfflineQuery = (
            }
         });
         
+        // Add Calculated Columns (Aggregated?) 
+        // Note: Complex logic omitted for simplicity, assumes scalar calculated columns are Grouped By or just picked from first row if not aggregated.
+        calculatedColumns?.forEach(calc => {
+           resultRow[calc.alias] = rows[0][calc.alias];
+        });
+
         return resultRow;
      });
   } else {
      // No Aggregation: Map to Output Format
-     // If selectedColumns is empty, implies "SELECT *" logic
      let targetCols = selectedColumns;
      if (targetCols.length === 0) {
-        // Grab all keys present in resultRows[0]
-        if (resultRows.length > 0) targetCols = Object.keys(resultRows[0]);
+        if (resultRows.length > 0) {
+           // Exclude system keys, only take full schema keys + calculated
+           targetCols = Object.keys(resultRows[0]).filter(k => k.includes('.') || calculatedColumns?.some(c => c.alias === k));
+        }
      }
 
      resultRows = resultRows.map(row => {
         const cleanRow: any = {};
         targetCols.forEach(fullCol => {
-           // fullCol is "schema.table.col"
            const colName = fullCol.split('.').pop()!;
-           
            cleanRow[colName] = row[fullCol] !== undefined ? row[fullCol] : null;
         });
+        
+        // Include Calculated Columns explicitly
+        calculatedColumns?.forEach(calc => {
+           cleanRow[calc.alias] = row[calc.alias];
+        });
+
         return cleanRow;
      });
   }
@@ -437,7 +381,6 @@ export const executeOfflineQuery = (
   // 4. Order By
   if (orderBy.length > 0) {
      const sort = orderBy[0];
-     // determine the output key for the sort column
      let sortKey = sort.column.split('.').pop()!; 
      if (aggregations[sort.column]) {
         sortKey = `${aggregations[sort.column]!.toLowerCase()}_${sortKey}`;

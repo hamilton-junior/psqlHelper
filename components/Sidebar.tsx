@@ -1,7 +1,8 @@
 
+
 import React, { useState } from 'react';
 import { AppStep, DatabaseSchema } from '../types';
-import { Database, Layers, Terminal, Table, Server, ArrowRight, Settings, ChevronLeft, ChevronRight, Map, History, LayoutGrid, HelpCircle, BookOpen } from 'lucide-react';
+import { Database, Layers, Terminal, Table, Server, ArrowRight, Settings, ChevronLeft, ChevronRight, Map, History, LayoutGrid, HelpCircle, BookOpen, GitCompare } from 'lucide-react';
 
 interface SidebarProps {
   currentStep: AppStep;
@@ -92,6 +93,10 @@ const Sidebar: React.FC<SidebarProps> = ({
           {navItem('preview', 'Visualização', <Terminal className="w-4 h-4" />, currentStep === 'connection' || currentStep === 'builder', "Visualizar SQL")}
           {navItem('results', 'Resultados', <Table className="w-4 h-4" />, currentStep !== 'results', "Ver resultados")}
           {navItem('dashboard', 'Dashboard', <LayoutGrid className="w-4 h-4" />, !schema, "Painel de Gráficos")}
+          
+          <div className="my-2 border-t border-slate-800"></div>
+          
+          {navItem('datadiff', 'Comparador', <GitCompare className="w-4 h-4" />, !schema, "Comparar dados entre tabelas")}
         </div>
         
         {/* Extra Tools Section */}
