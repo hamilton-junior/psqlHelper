@@ -655,6 +655,33 @@ const ResultsStep: React.FC<ResultsStepProps> = ({ data, sql, onBackToBuilder, o
      onShowToast("SQL INSERTs copiados para a área de transferência!", "success");
   };
 
+  const handleExportPDF = async () => {
+     const content = document.getElementById('results-content');
+     if (!content) return;
+     
+     onShowToast("Gerando PDF... Aguarde.", "info");
+     setShowExportMenu(false);
+
+     try {
+        const canvas = await html2canvas(content, {
+           scale: 2,
+           backgroundColor: document.documentElement.classList.contains('dark') ? '#0f172a' : '#ffffff'
+        });
+        
+        const imgData = canvas.toDataURL('image/png');
+        const pdf = new jsPDF('l', 'mm', 'a4');
+        const pdfWidth = pdf.internal.pageSize.getWidth();
+        const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
+        
+        pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
+        pdf.save("report.pdf");
+        onShowToast("PDF Gerado com sucesso!", "success");
+     } catch (e) {
+        console.error(e);
+        onShowToast("Erro ao gerar PDF.", "error");
+     }
+  };
+
   const handleExplain = async () => {
      setActiveTab('explain');
      setExplainError(null);
@@ -767,6 +794,7 @@ const ResultsStep: React.FC<ResultsStepProps> = ({ data, sql, onBackToBuilder, o
                     </div>
                     <div className="p-2">
                        <span className="text-[10px] font-bold text-slate-400 uppercase px-2 mb-1 block">Download Arquivo</span>
+                       <button onClick={handleExportPDF} className="w-full text-left px-2 py-1.5 text-xs hover:bg-slate-50 dark:hover:bg-slate-700 rounded flex items-center gap-2 text-slate-700 dark:text-slate-300"><FileText className="w-3.5 h-3.5 text-red-500" /> PDF Report (.pdf)</button>
                        <button onClick={handleExportCSV} className="w-full text-left px-2 py-1.5 text-xs hover:bg-slate-50 dark:hover:bg-slate-700 rounded flex items-center gap-2 text-slate-700 dark:text-slate-300"><FileSpreadsheet className="w-3.5 h-3.5 text-emerald-500" /> CSV (.csv)</button>
                        <button onClick={handleExportJSON} className="w-full text-left px-2 py-1.5 text-xs hover:bg-slate-50 dark:hover:bg-slate-700 rounded flex items-center gap-2 text-slate-700 dark:text-slate-300"><FileJson className="w-3.5 h-3.5 text-yellow-500" /> JSON (.json)</button>
                     </div>

@@ -1,6 +1,6 @@
 
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { DatabaseSchema, QueryResult, OptimizationAnalysis } from '../../types';
 import { Terminal, Play, ArrowLeft, CheckCircle2, ShieldAlert, Info, Copy, Check, Loader2, Lightbulb, ShieldOff, AlertCircle, AlignLeft, Minimize2, Split, Code2, Zap, TrendingUp, Gauge, X } from 'lucide-react';
 import Editor, { useMonaco, DiffEditor } from '@monaco-editor/react';
@@ -127,8 +127,8 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ queryResult, onExecute, onBac
   const errorLine = queryResult.validation?.errorLine;
   const hasChanges = editedSql.trim() !== (queryResult.sql || '').trim();
 
-  // Common options
-  const commonOptions = {
+  // Memoize options to prevent unnecessary re-renders/model resets
+  const commonOptions = useMemo(() => ({
      fontSize: 13,
      padding: { top: 16, bottom: 16 },
      lineNumbers: 'on' as const,
@@ -137,23 +137,23 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ queryResult, onExecute, onBac
      fontFamily: "'Fira Code', monospace",
      fontLigatures: true,
      scrollbar: { vertical: 'visible' as const, horizontal: 'visible' as const, useShadows: false, verticalScrollbarSize: 10 },
-  };
+  }), []);
 
-  const editorOptions = {
+  const editorOptions = useMemo(() => ({
      ...commonOptions,
      minimap: { enabled: false },
      renderLineHighlight: 'all' as const,
      overviewRulerLanes: 0,
      hideCursorInOverviewRuler: true,
-  };
+  }), [commonOptions]);
 
-  const diffOptions = {
+  const diffOptions = useMemo(() => ({
      ...commonOptions,
      renderSideBySide: true,
      readOnly: true, 
      originalEditable: false,
      minimap: { enabled: false }
-  };
+  }), [commonOptions]);
 
   return (
     <div className="w-full h-full flex flex-col relative">
@@ -283,6 +283,7 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ queryResult, onExecute, onBac
            <div className="flex-1 relative bg-[#1e1e1e]">
              {viewMode === 'diff' ? (
                 <DiffEditor
+                  key="diff-editor"
                   height="100%"
                   theme="vs-dark"
                   original={queryResult.sql || ''}
@@ -291,6 +292,7 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ queryResult, onExecute, onBac
                 />
              ) : (
                 <Editor
+                  key="code-editor"
                   height="100%"
                   defaultLanguage="sql"
                   theme="vs-dark"
