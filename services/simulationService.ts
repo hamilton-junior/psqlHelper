@@ -4,49 +4,76 @@ import { DatabaseSchema, BuilderState, Column } from '../types';
 export type SimulationData = Record<string, any[]>;
 
 // Constants for consistent data generation
-const COUNTRIES = ['Brasil', 'USA', 'Portugal', 'Argentina', 'Canada'];
-const CATEGORIES = ['Eletrônicos', 'Livros', 'Roupas', 'Casa', 'Esportes'];
-const NAMES_FIRST = ['Ana', 'Bruno', 'Carlos', 'Daniela', 'Eduardo', 'Fernanda', 'Gabriel', 'Helena'];
-const NAMES_LAST = ['Silva', 'Santos', 'Oliveira', 'Souza', 'Pereira', 'Lima', 'Ferreira'];
+const COUNTRIES = ['Brasil', 'USA', 'Portugal', 'Argentina', 'Canada', 'Alemanha', 'Japão'];
+const CATEGORIES = ['Eletrônicos', 'Livros', 'Roupas', 'Casa', 'Esportes', 'Beleza', 'Brinquedos'];
+const DEPARTMENTS = ['Vendas', 'TI', 'RH', 'Financeiro', 'Marketing', 'Logística'];
+const ACTIONS = ['INSERT', 'UPDATE', 'DELETE', 'LOGIN', 'LOGOUT'];
+const STATUSES = ['Pendente', 'Pago', 'Enviado', 'Entregue', 'Cancelado'];
+const NAMES_FIRST = ['Ana', 'Bruno', 'Carlos', 'Daniela', 'Eduardo', 'Fernanda', 'Gabriel', 'Helena', 'Igor', 'Julia'];
+const NAMES_LAST = ['Silva', 'Santos', 'Oliveira', 'Souza', 'Pereira', 'Lima', 'Ferreira', 'Costa', 'Almeida'];
+const COMPANIES = ['Tech Solutions', 'Global Imports', 'Soft House', 'Mega Varejo', 'LogiTrans', 'Green Foods'];
 
 // Helper to generate realistic-looking data based on column definition
 const generateValue = (col: Column, index: number, rowCount: number): any => {
   const name = col.name.toLowerCase();
   const type = col.type.toLowerCase();
 
-  // Handle IDs and Grid
+  // Handle IDs
   if (name === 'id' || name === 'grid') {
     return index + 1;
   }
 
-  // Handle Foreign Keys (Simulate relationship to other tables usually size 20)
-  if (name.endsWith('_id') || name.endsWith('_grid')) {
-    // Return a random ID between 1 and rowCount (assuming 20 rows for other tables)
-    return Math.floor(Math.random() * 20) + 1;
+  // Handle Foreign Keys (Simulate relationship)
+  // Assuming related tables have roughly 'rowCount' rows
+  if (name.endsWith('_id') || name.endsWith('_grid') || name === 'performed_by') {
+    // Generate random ID between 1 and rowCount
+    return Math.floor(Math.random() * rowCount) + 1;
   }
 
   // Handle Boolean
   if (type.includes('bool')) {
-    return index % 2 === 0;
+    // is_digital: maybe 20% true
+    if (name.includes('digital')) return Math.random() < 0.2;
+    // is_active: maybe 80% true
+    return Math.random() < 0.8;
+  }
+
+  // Handle JSONB
+  if (type.includes('json')) {
+     if (name.includes('meta')) return JSON.stringify({ ip: `192.168.1.${index}`, device: index % 2 === 0 ? 'desktop' : 'mobile', browser: 'Chrome' });
+     if (name.includes('pref')) return JSON.stringify({ theme: index % 2 === 0 ? 'dark' : 'light', newsletter: Math.random() < 0.5 });
+     return JSON.stringify({ key: `val_${index}` });
   }
 
   // Handle Numbers
   if (type.includes('int') || type.includes('serial') || type.includes('number')) {
+    if (name === 'rating') return Math.floor(Math.random() * 5) + 1; // 1 to 5
     if (name.includes('stock') || name.includes('qty') || name.includes('quantity')) {
-      return Math.floor(Math.random() * 50) + 1;
+      return Math.floor(Math.random() * 100) + 1;
     }
+    if (name.includes('year')) return 2020 + Math.floor(Math.random() * 5);
     return Math.floor(Math.random() * 1000);
   }
   
-  if (type.includes('decimal') || type.includes('numeric') || type.includes('float') || name.includes('price') || name.includes('amount')) {
-     return parseFloat((Math.random() * 1000).toFixed(2));
+  if (type.includes('decimal') || type.includes('numeric') || type.includes('float') || name.includes('price') || name.includes('amount') || name.includes('cost') || name.includes('salary')) {
+     if (name.includes('rating')) return parseFloat((3 + Math.random() * 2).toFixed(1)); // 3.0 to 5.0
+     if (name.includes('salary')) return parseFloat((3000 + Math.random() * 12000).toFixed(2));
+     if (name.includes('discount')) return parseFloat((Math.random() * 20).toFixed(2));
+     // Prices
+     return parseFloat((10 + Math.random() * 500).toFixed(2));
   }
 
   // Handle Dates
   if (type.includes('date') || type.includes('time')) {
     const date = new Date();
-    // Spread dates over the last year
-    date.setDate(date.getDate() - Math.floor(Math.random() * 365));
+    // Spread dates over the last 2 years
+    date.setDate(date.getDate() - Math.floor(Math.random() * 730));
+    
+    // Logic for shipped_at being after created_at
+    if (name.includes('ship') || name.includes('end')) {
+       date.setDate(date.getDate() + 5); 
+    }
+
     if (type.includes('date') && !type.includes('time')) {
         return date.toISOString().split('T')[0];
     }
@@ -55,20 +82,27 @@ const generateValue = (col: Column, index: number, rowCount: number): any => {
 
   // Handle Strings (Context-aware based on name)
   if (name.includes('email')) return `user${index + 1}@example.com`;
+  if (name.includes('slug')) return `item-${index + 1}-slug`;
+  
   if (name.includes('name')) {
-    if (name.includes('prod') || name.includes('item')) return `Produto ${String.fromCharCode(65 + (index % 5))} - ${index + 1}`;
+    if (name.includes('company') || name.includes('fornecedor')) return COMPANIES[index % COMPANIES.length];
+    if (name.includes('prod') || name.includes('item')) return `Produto ${CATEGORIES[index % CATEGORIES.length]} X${index}`;
+    if (name.includes('cat')) return CATEGORIES[index % CATEGORIES.length];
     if (name.includes('first')) return NAMES_FIRST[index % NAMES_FIRST.length];
     if (name.includes('last')) return NAMES_LAST[index % NAMES_LAST.length];
-    return `${NAMES_FIRST[index % NAMES_FIRST.length]} ${NAMES_LAST[index % NAMES_LAST.length]}`;
+    if (name.includes('full') || name === 'name') return `${NAMES_FIRST[index % NAMES_FIRST.length]} ${NAMES_LAST[index % NAMES_LAST.length]}`;
   }
+  
+  if (name.includes('status')) return STATUSES[index % STATUSES.length];
+  if (name.includes('action') || name.includes('type')) return ACTIONS[index % ACTIONS.length];
+  if (name.includes('department') || name.includes('dept')) return DEPARTMENTS[index % DEPARTMENTS.length];
+  
   if (name.includes('phone') || name.includes('tel')) return `(11) 9${1000 + index}-${1000 + index}`;
   if (name.includes('address') || name.includes('rua')) return `Rua Exemplo, ${index * 10}`;
   if (name.includes('city') || name.includes('cidade')) return ['São Paulo', 'Rio de Janeiro', 'Curitiba', 'Belo Horizonte'][index % 4];
-  if (name.includes('state') || name.includes('estado')) return ['SP', 'RJ', 'PR', 'MG'][index % 4];
-  if (name.includes('country')) return COUNTRIES[index % COUNTRIES.length]; // Repeating for Group By
-  if (name.includes('status')) return ['Ativo', 'Inativo', 'Pendente', 'Concluído'][index % 4];
-  if (name.includes('category') || name.includes('categoria')) return CATEGORIES[index % CATEGORIES.length]; // Repeating for Group By
-  if (name.includes('description')) return `Descrição detalhada do item ${index + 1}...`;
+  if (name.includes('country') || name.includes('pais')) return COUNTRIES[index % COUNTRIES.length];
+  
+  if (name.includes('bio') || name.includes('desc') || name.includes('comment')) return `Texto descritivo gerado para o item ${index + 1}. Lorem ipsum dolor sit amet.`;
 
   // Default String
   return `Valor ${index + 1}`;
@@ -77,8 +111,8 @@ const generateValue = (col: Column, index: number, rowCount: number): any => {
 export const initializeSimulation = (schema: DatabaseSchema): SimulationData => {
   const data: SimulationData = {};
   
-  // Generate ~20 rows for each table
-  const rowCount = 20;
+  // Increased row count for better aggregation demos
+  const rowCount = 40;
 
   schema.tables.forEach(table => {
     // Use schema-qualified name as key to ensure uniqueness in simulation store
@@ -197,7 +231,8 @@ export const executeOfflineQuery = (
            const joinedTablesIds = selectedTables.slice(0, i);
            
            for (const joinedId of joinedTablesIds) {
-              const fk = targetSchema.columns.find(c => {
+              // Check Forward: Target has FK to Joined
+              const fkForward = targetSchema.columns.find(c => {
                   if (!c.isForeignKey || !c.references) return false;
                   const refParts = c.references.split('.');
                   if (refParts.length === 3) {
@@ -207,10 +242,30 @@ export const executeOfflineQuery = (
                   return false;
               });
 
-              if (fk) {
-                 joinColTo = `${targetTableId}.${fk.name}`; // foreign key in target
-                 joinColFrom = fk.references!; // primary key in source
+              if (fkForward) {
+                 joinColTo = `${targetTableId}.${fkForward.name}`; // foreign key in target
+                 joinColFrom = fkForward.references!; // primary key in source
                  break;
+              }
+
+              // Check Backward: Joined has FK to Target
+              const joinedSchema = schema.tables.find(t => `${t.schema || 'public'}.${t.name}` === joinedId);
+              if (joinedSchema) {
+                 const fkBackward = joinedSchema.columns.find(c => {
+                    if (!c.isForeignKey || !c.references) return false;
+                    const refParts = c.references.split('.');
+                    if (refParts.length === 3) {
+                       const refTableId = `${refParts[0]}.${refParts[1]}`;
+                       return refTableId === targetTableId;
+                    }
+                    return false;
+                 });
+
+                 if (fkBackward) {
+                    joinColFrom = `${joinedId}.${fkBackward.name}`;
+                    joinColTo = fkBackward.references!;
+                    break;
+                 }
               }
            }
         }
@@ -220,7 +275,10 @@ export const executeOfflineQuery = (
     if (joinColFrom && joinColTo) {
       resultRows = resultRows.map(existingRow => {
          const valFrom = existingRow[joinColFrom];
+         
+         // Extract strict column name from joinColTo (schema.table.col)
          const targetColName = joinColTo.split('.').pop()!;
+         
          const match = targetData.find(r => String(r[targetColName]) === String(valFrom));
          
          if (match) {
@@ -238,15 +296,18 @@ export const executeOfflineQuery = (
          }
       });
     } else {
-       // Cartesian Product Fallback
-       resultRows = resultRows.map((existingRow, idx) => {
-          const match = targetData[idx % targetData.length]; 
-          const joinedRow = { ...existingRow };
-          if (match) {
-             Object.keys(match).forEach(k => joinedRow[`${targetTableId}.${k}`] = match[k]);
+       // Cartesian Product Fallback (Limit to avoid crash)
+       const limitCartesian = 100; 
+       const newRows = [];
+       for (const existingRow of resultRows) {
+          for (let k = 0; k < Math.min(targetData.length, 5); k++) {
+             const match = targetData[k];
+             const joinedRow = { ...existingRow };
+             Object.keys(match).forEach(key => joinedRow[`${targetTableId}.${key}`] = match[key]);
+             newRows.push(joinedRow);
           }
-          return joinedRow;
-       });
+       }
+       resultRows = newRows.slice(0, 500); // hard cap
     }
   }
 
@@ -265,8 +326,8 @@ export const executeOfflineQuery = (
                  // Replace word-bounded column name with value
                  if (new RegExp(`\\b${colName}\\b`).test(expr)) {
                     const val = row[key];
-                    const valStr = (typeof val === 'number') ? String(val) : 0; // Default to 0 for math safety
-                    expr = expr.replace(new RegExp(`\\b${colName}\\b`, 'g'), String(valStr));
+                    const valStr = (typeof val === 'number') ? String(val) : '0'; // Default to 0 for math safety
+                    expr = expr.replace(new RegExp(`\\b${colName}\\b`, 'g'), valStr);
                  }
               }
               
@@ -382,13 +443,18 @@ export const executeOfflineQuery = (
   if (orderBy.length > 0) {
      const sort = orderBy[0];
      let sortKey = sort.column.split('.').pop()!; 
-     if (aggregations[sort.column]) {
+     
+     // Handle aggregate aliases in sort
+     // If column 'products.price' is aggregated as 'AVG', the key in resultRow is 'avg_price'
+     // Builder state uses 'schema.table.col'. We need to map it.
+     if (aggregations[sort.column] && aggregations[sort.column] !== 'NONE') {
         sortKey = `${aggregations[sort.column]!.toLowerCase()}_${sortKey}`;
      }
      
      resultRows.sort((a, b) => {
-        const valA = a[sortKey];
-        const valB = b[sortKey];
+        // Handle direct access or aggregated access
+        const valA = a[sortKey] !== undefined ? a[sortKey] : a[sort.column];
+        const valB = b[sortKey] !== undefined ? b[sortKey] : b[sort.column];
         
         if (valA < valB) return sort.direction === 'ASC' ? -1 : 1;
         if (valA > valB) return sort.direction === 'ASC' ? 1 : -1;

@@ -217,45 +217,136 @@ export interface VirtualRelation {
 }
 
 export const SAMPLE_SCHEMA: DatabaseSchema = {
-  name: "ecommerce_sample",
+  name: "ecommerce_super_store",
   connectionSource: "simulated",
   tables: [
     {
       name: "users",
       schema: "public",
-      description: "Tabela de usuários cadastrados",
+      description: "Usuários da plataforma (Clientes)",
+      columns: [
+        { name: "id", type: "SERIAL", isPrimaryKey: true },
+        { name: "full_name", type: "VARCHAR(100)" },
+        { name: "email", type: "VARCHAR(100)" },
+        { name: "country", type: "VARCHAR(50)" },
+        { name: "created_at", type: "TIMESTAMP" },
+        { name: "is_active", type: "BOOLEAN" }
+      ]
+    },
+    {
+      name: "profiles",
+      schema: "public",
+      description: "Detalhes adicionais do usuário (1:1 com users)",
+      columns: [
+        { name: "id", type: "SERIAL", isPrimaryKey: true },
+        { name: "user_id", type: "INTEGER", isForeignKey: true, references: "public.users.id" },
+        { name: "bio", type: "TEXT" },
+        { name: "birth_date", type: "DATE" },
+        { name: "preferences", type: "JSONB" }
+      ]
+    },
+    {
+      name: "categories",
+      schema: "public",
+      description: "Categorias de produtos",
+      columns: [
+        { name: "id", type: "SERIAL", isPrimaryKey: true },
+        { name: "name", type: "VARCHAR(50)" },
+        { name: "description", type: "TEXT" },
+        { name: "slug", type: "VARCHAR(50)" }
+      ]
+    },
+    {
+      name: "suppliers",
+      schema: "public",
+      description: "Fornecedores de produtos",
+      columns: [
+        { name: "id", type: "SERIAL", isPrimaryKey: true },
+        { name: "company_name", type: "VARCHAR(100)" },
+        { name: "contact_email", type: "VARCHAR(100)" },
+        { name: "rating", type: "DECIMAL(2,1)" },
+        { name: "country", type: "VARCHAR(50)" }
+      ]
+    },
+    {
+      name: "products",
+      schema: "public",
+      description: "Catálogo de produtos",
       columns: [
         { name: "id", type: "SERIAL", isPrimaryKey: true },
         { name: "name", type: "VARCHAR(100)" },
-        { name: "email", type: "VARCHAR(100)" },
-        { name: "created_at", type: "TIMESTAMP" },
-        { name: "country", type: "VARCHAR(50)" },
-        { name: "settings", type: "JSONB" } // Added JSONB for demo
+        { name: "category_id", type: "INTEGER", isForeignKey: true, references: "public.categories.id" },
+        { name: "supplier_id", type: "INTEGER", isForeignKey: true, references: "public.suppliers.id" },
+        { name: "price", type: "DECIMAL(10,2)" },
+        { name: "cost_price", type: "DECIMAL(10,2)" },
+        { name: "stock_quantity", type: "INTEGER" },
+        { name: "is_digital", type: "BOOLEAN" }
       ]
     },
     {
       name: "orders",
       schema: "public",
-      description: "Pedidos realizados",
+      description: "Pedidos de venda (Cabeçalho)",
       columns: [
         { name: "id", type: "SERIAL", isPrimaryKey: true },
         { name: "user_id", type: "INTEGER", isForeignKey: true, references: "public.users.id" },
-        { name: "total_amount", type: "DECIMAL(10,2)" },
         { name: "status", type: "VARCHAR(20)" },
+        { name: "total_amount", type: "DECIMAL(10,2)" },
+        { name: "shipping_cost", type: "DECIMAL(10,2)" },
         { name: "created_at", type: "TIMESTAMP" },
-        { name: "metadata", type: "JSONB" }
+        { name: "shipped_at", type: "TIMESTAMP" }
       ]
     },
     {
       name: "order_items",
       schema: "public",
-      description: "Itens de cada pedido",
+      description: "Itens de cada pedido (Detalhe)",
       columns: [
         { name: "id", type: "SERIAL", isPrimaryKey: true },
         { name: "order_id", type: "INTEGER", isForeignKey: true, references: "public.orders.id" },
-        { name: "product_name", type: "VARCHAR(100)" },
+        { name: "product_id", type: "INTEGER", isForeignKey: true, references: "public.products.id" },
         { name: "quantity", type: "INTEGER" },
-        { name: "price", type: "DECIMAL(10,2)" }
+        { name: "unit_price", type: "DECIMAL(10,2)" },
+        { name: "discount", type: "DECIMAL(10,2)" }
+      ]
+    },
+    {
+      name: "reviews",
+      schema: "public",
+      description: "Avaliações de produtos",
+      columns: [
+        { name: "id", type: "SERIAL", isPrimaryKey: true },
+        { name: "product_id", type: "INTEGER", isForeignKey: true, references: "public.products.id" },
+        { name: "user_id", type: "INTEGER", isForeignKey: true, references: "public.users.id" },
+        { name: "rating", type: "INTEGER" }, // 1 to 5
+        { name: "comment", type: "TEXT" },
+        { name: "created_at", type: "TIMESTAMP" }
+      ]
+    },
+    {
+      name: "employees",
+      schema: "hr",
+      description: "Funcionários da empresa (Schema HR)",
+      columns: [
+        { name: "id", type: "SERIAL", isPrimaryKey: true },
+        { name: "first_name", type: "VARCHAR(50)" },
+        { name: "last_name", type: "VARCHAR(50)" },
+        { name: "department", type: "VARCHAR(50)" },
+        { name: "salary", type: "DECIMAL(10,2)" },
+        { name: "hire_date", type: "DATE" }
+      ]
+    },
+    {
+      name: "audit_logs",
+      schema: "system",
+      description: "Logs de auditoria do sistema (Schema System)",
+      columns: [
+        { name: "id", type: "SERIAL", isPrimaryKey: true },
+        { name: "table_name", type: "VARCHAR(50)" },
+        { name: "action", type: "VARCHAR(10)" }, // INSERT, UPDATE, DELETE
+        { name: "performed_by", type: "INTEGER" }, // user_id
+        { name: "metadata", type: "JSONB" },
+        { name: "created_at", type: "TIMESTAMP" }
       ]
     }
   ]
