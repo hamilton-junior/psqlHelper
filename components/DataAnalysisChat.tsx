@@ -3,10 +3,8 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Send, Sparkles, User, Bot, Loader2 } from 'lucide-react';
 import { GoogleGenAI } from "@google/genai";
 
-// Use environment variable in Vite way if needed, but keeping consistent with project pattern
-// @ts-ignore
-const apiKey = process.env.API_KEY;
-const ai = new GoogleGenAI({ apiKey: apiKey });
+// Initialize the AI client using the API key from environment variables.
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 interface DataAnalysisChatProps {
   data: any[];
@@ -64,8 +62,9 @@ const DataAnalysisChat: React.FC<DataAnalysisChatProps> = ({ data, sql }) => {
         Seja perspicaz, aponte curiosidades se houver, e seja conciso. Responda em Português.
       `;
 
+      // Using gemini-3-flash-preview for data analysis and conversation
       const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
+        model: 'gemini-3-flash-preview',
         contents: context,
       });
 

@@ -1,12 +1,9 @@
 
-import { GoogleGenAI, Type, Schema } from "@google/genai";
+import { GoogleGenAI, Type } from "@google/genai";
 import { DatabaseSchema, QueryResult, ValidationResult, BuilderState, AggregateFunction, Operator, JoinType, OptimizationAnalysis, VirtualRelation } from "../types";
 
-// Vite will replace 'process.env.API_KEY' with the actual string from your .env file at build time.
-// @ts-ignore: process is defined via Vite config
-const apiKey = process.env.API_KEY;
-
-const ai = new GoogleGenAI({ apiKey: apiKey });
+// Initialize the AI client using the API key from environment variables.
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 // Helper to clean Markdown code blocks from JSON response
 const cleanJsonString = (str: string): string => {
@@ -31,8 +28,6 @@ const formatSchemaForPrompt = (schema: DatabaseSchema): string => {
   }));
   return JSON.stringify(simplifiedStructure, null, 2);
 };
-
-// ... (Existing functions: generateBuilderStateFromPrompt, validateSqlQuery, analyzeQueryPerformance, etc.) ...
 
 /**
  * Converts a natural language user request into a structured BuilderState object.
@@ -68,8 +63,9 @@ export const generateBuilderStateFromPrompt = async (
   const prompt = `Solicitação do usuário: "${userPrompt}"`;
 
   try {
+    // Using gemini-3-pro-preview for complex reasoning task (NL to JSON transformation)
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-3-pro-preview',
       contents: prompt,
       config: {
         systemInstruction: systemInstruction,
@@ -179,8 +175,9 @@ export const validateSqlQuery = async (sql: string, schema?: DatabaseSchema): Pr
   `;
 
   try {
+    // Using gemini-3-flash-preview for standard validation task
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-3-flash-preview',
       contents: prompt,
       config: {
         responseMimeType: "application/json",
@@ -211,8 +208,9 @@ export const analyzeQueryPerformance = async (schema: DatabaseSchema, sql: strin
    `;
 
    try {
+     // Using gemini-3-pro-preview for deep analysis task
      const response = await ai.models.generateContent({
-       model: 'gemini-2.5-flash',
+       model: 'gemini-3-pro-preview',
        contents: prompt,
        config: { responseMimeType: "application/json" }
      });
@@ -249,8 +247,9 @@ export const analyzeLog = async (schema: DatabaseSchema, logText: string): Promi
    `;
 
    try {
+      // Using gemini-3-flash-preview for technical support analysis
       const response = await ai.models.generateContent({
-         model: 'gemini-2.5-flash',
+         model: 'gemini-3-flash-preview',
          contents: prompt,
          config: {
             responseMimeType: "application/json",
@@ -278,7 +277,8 @@ export const fixSqlError = async (sql: string, errorMessage: string, schema: Dat
    const schemaContext = formatSchemaForPrompt(schema);
    const prompt = `Corrija este SQL Postgres: "${sql}"\nErro: "${errorMessage}"\nSchema: ${schemaContext}`;
    try {
-     const response = await ai.models.generateContent({ model: 'gemini-2.5-flash', contents: prompt });
+     // Using gemini-3-pro-preview for debugging and correction
+     const response = await ai.models.generateContent({ model: 'gemini-3-pro-preview', contents: prompt });
      return response.text?.replace(/```sql|```/g, '').trim() || sql;
    } catch { return sql; }
 };
@@ -294,8 +294,9 @@ export const generateSqlFromBuilderState = async (
   const prompt = `Gere SQL Postgres para: ${JSON.stringify(state)}. Schema: ${schemaDesc}. Retorne JSON {sql, explanation, tips}.`;
   
   try {
+    // Using gemini-3-pro-preview for precise code generation
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-3-pro-preview',
       contents: prompt,
       config: { responseMimeType: "application/json" }
     });
@@ -309,8 +310,9 @@ export const suggestRelationships = async (schema: DatabaseSchema): Promise<Virt
    const schemaContext = formatSchemaForPrompt(schema);
    const prompt = `Sugira relacionamentos (FKs) implícitos para este schema: ${schemaContext}. Retorne JSON {suggestions: [{sourceTable, sourceColumn, targetTable, targetColumn, confidence}]}`;
    try {
+      // Using gemini-3-pro-preview for structural analysis
       const response = await ai.models.generateContent({
-         model: 'gemini-2.5-flash',
+         model: 'gemini-3-pro-preview',
          contents: prompt,
          config: { responseMimeType: "application/json" }
       });
@@ -322,7 +324,8 @@ export const suggestRelationships = async (schema: DatabaseSchema): Promise<Virt
 export const generateSchemaFromTopic = async (topic: string, context: string): Promise<DatabaseSchema> => {
   const prompt = `Crie um schema Postgres JSON para "${topic}". Contexto: ${context}.`;
   try {
-    const response = await ai.models.generateContent({ model: 'gemini-2.5-flash', contents: prompt, config: { responseMimeType: "application/json" } });
+    // Using gemini-3-pro-preview for design and architecture tasks
+    const response = await ai.models.generateContent({ model: 'gemini-3-pro-preview', contents: prompt, config: { responseMimeType: "application/json" } });
     const parsed = JSON.parse(cleanJsonString(response.text || '{}')) as DatabaseSchema;
     parsed.connectionSource = 'simulated';
     parsed.tables = parsed.tables.map(t => ({...t, schema: 'public'}));
@@ -333,7 +336,8 @@ export const generateSchemaFromTopic = async (topic: string, context: string): P
 export const parseSchemaFromDDL = async (ddl: string): Promise<DatabaseSchema> => {
   const prompt = `Parse DDL para JSON Schema: ${ddl}`;
   try {
-    const response = await ai.models.generateContent({ model: 'gemini-2.5-flash', contents: prompt, config: { responseMimeType: "application/json" } });
+    // Using gemini-3-pro-preview for precise parsing
+    const response = await ai.models.generateContent({ model: 'gemini-3-pro-preview', contents: prompt, config: { responseMimeType: "application/json" } });
     const parsed = JSON.parse(cleanJsonString(response.text || '{}')) as DatabaseSchema;
     parsed.connectionSource = 'ddl';
     parsed.tables = parsed.tables.map(t => ({...t, schema: 'public'}));
