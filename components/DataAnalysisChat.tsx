@@ -3,6 +3,9 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Send, Sparkles, User, Bot, Loader2 } from 'lucide-react';
 import { GoogleGenAI } from "@google/genai";
 
+// Initialize the AI client using the API key from environment variables.
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+
 interface DataAnalysisChatProps {
   data: any[];
   sql: string;
@@ -36,9 +39,6 @@ const DataAnalysisChat: React.FC<DataAnalysisChatProps> = ({ data, sql }) => {
     setLoading(true);
 
     try {
-      // Fix: Initialize GoogleGenAI inside the handleSend function to use the most up-to-date API key
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-      
       // Limit context to first 20 rows to avoid token limits
       const dataSample = data.slice(0, 20); 
       const context = `

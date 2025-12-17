@@ -2,6 +2,9 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { DatabaseSchema, QueryResult, ValidationResult, BuilderState, AggregateFunction, Operator, JoinType, OptimizationAnalysis, VirtualRelation } from "../types";
 
+// Initialize the AI client using the API key from environment variables.
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+
 // Helper to clean Markdown code blocks from JSON response
 const cleanJsonString = (str: string): string => {
   if (!str) return "{}";
@@ -33,8 +36,7 @@ export const generateBuilderStateFromPrompt = async (
   schema: DatabaseSchema,
   userPrompt: string
 ): Promise<Partial<BuilderState>> => {
-  // Fix: Initialize GoogleGenAI inside the function to use the most up-to-date API key
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  
   const schemaContext = formatSchemaForPrompt(schema);
 
   const systemInstruction = `
@@ -157,8 +159,6 @@ export const generateBuilderStateFromPrompt = async (
 };
 
 export const validateSqlQuery = async (sql: string, schema?: DatabaseSchema): Promise<ValidationResult> => {
-  // Fix: Initialize GoogleGenAI inside the function to use the most up-to-date API key
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   let schemaContext = "";
   if (schema) {
     schemaContext = `
@@ -200,8 +200,6 @@ export const validateSqlQuery = async (sql: string, schema?: DatabaseSchema): Pr
 };
 
 export const analyzeQueryPerformance = async (schema: DatabaseSchema, sql: string): Promise<OptimizationAnalysis> => {
-   // Fix: Initialize GoogleGenAI inside the function to use the most up-to-date API key
-   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
    const schemaContext = formatSchemaForPrompt(schema);
    const prompt = `
      Analise a performance desta query PostgreSQL: "${sql}"
@@ -223,8 +221,6 @@ export const analyzeQueryPerformance = async (schema: DatabaseSchema, sql: strin
 };
 
 export const analyzeLog = async (schema: DatabaseSchema, logText: string): Promise<{ sql: string, explanation: string }> => {
-   // Fix: Initialize GoogleGenAI inside the function to use the most up-to-date API key
-   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
    const schemaContext = formatSchemaForPrompt(schema);
    const prompt = `
      Você é um Especialista em Suporte Técnico N3.
@@ -278,8 +274,6 @@ export const analyzeLog = async (schema: DatabaseSchema, logText: string): Promi
 };
 
 export const fixSqlError = async (sql: string, errorMessage: string, schema: DatabaseSchema): Promise<string> => {
-   // Fix: Initialize GoogleGenAI inside the function to use the most up-to-date API key
-   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
    const schemaContext = formatSchemaForPrompt(schema);
    const prompt = `Corrija este SQL Postgres: "${sql}"\nErro: "${errorMessage}"\nSchema: ${schemaContext}`;
    try {
@@ -295,8 +289,6 @@ export const generateSqlFromBuilderState = async (
   includeTips: boolean = true,
   onProgress?: (msg: string) => void
 ): Promise<QueryResult> => {
-  // Fix: Initialize GoogleGenAI inside the function to use the most up-to-date API key
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   if (onProgress) onProgress("Gerando SQL...");
   const schemaDesc = formatSchemaForPrompt(schema);
   const prompt = `Gere SQL Postgres para: ${JSON.stringify(state)}. Schema: ${schemaDesc}. Retorne JSON {sql, explanation, tips}.`;
@@ -315,8 +307,6 @@ export const generateSqlFromBuilderState = async (
 };
 
 export const suggestRelationships = async (schema: DatabaseSchema): Promise<VirtualRelation[]> => {
-   // Fix: Initialize GoogleGenAI inside the function to use the most up-to-date API key
-   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
    const schemaContext = formatSchemaForPrompt(schema);
    const prompt = `Sugira relacionamentos (FKs) implícitos para este schema: ${schemaContext}. Retorne JSON {suggestions: [{sourceTable, sourceColumn, targetTable, targetColumn, confidence}]}`;
    try {
@@ -332,8 +322,6 @@ export const suggestRelationships = async (schema: DatabaseSchema): Promise<Virt
 };
 
 export const generateSchemaFromTopic = async (topic: string, context: string): Promise<DatabaseSchema> => {
-  // Fix: Initialize GoogleGenAI inside the function to use the most up-to-date API key
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const prompt = `Crie um schema Postgres JSON para "${topic}". Contexto: ${context}.`;
   try {
     // Using gemini-3-pro-preview for design and architecture tasks
@@ -346,8 +334,6 @@ export const generateSchemaFromTopic = async (topic: string, context: string): P
 };
 
 export const parseSchemaFromDDL = async (ddl: string): Promise<DatabaseSchema> => {
-  // Fix: Initialize GoogleGenAI inside the function to use the most up-to-date API key
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const prompt = `Parse DDL para JSON Schema: ${ddl}`;
   try {
     // Using gemini-3-pro-preview for precise parsing

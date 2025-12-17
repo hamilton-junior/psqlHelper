@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo, useEffect, useCallback, memo, useDeferredValue, useRef } from 'react';
 import { DatabaseSchema, Table, Column } from '../types';
-import { Database, Table as TableIcon, Key, Search, ChevronDown, ChevronRight, Link, ArrowUpRight, ArrowDownLeft, X, ArrowUpDown, ArrowUp, ArrowDown, Pencil, Check, Filter, PlusCircle, Target, CornerDownRight, Loader2, ArrowRight, Folder, FolderOpen, Play, Info, Star, Eye } from 'lucide-react';
+import { Database, Table as TableIcon, Key, Search, ChevronDown, ChevronRight, Link, ArrowUpRight, ArrowDownLeft, X, ArrowUpDown, ArrowUp, ArrowDown, Pencil, Check, Filter, PlusCircle, Target, CornerDownRight, Loader2, ArrowRight, Folder, FolderOpen, Play, Info, Star } from 'lucide-react';
 
 interface SchemaViewerProps {
   schema: DatabaseSchema;
@@ -18,72 +18,138 @@ type SortField = 'name' | 'type' | 'key';
 type SortDirection = 'asc' | 'desc';
 type VisualState = 'normal' | 'focused' | 'dimmed' | 'parent' | 'child' | 'target' | 'source';
 
+// Helper to generate unique ID
 const getTableId = (t: Table) => `${t.schema || 'public'}.${t.name}`;
 
+// Helper to extract table ID from reference string (schema.table.col or table.col)
 const getRefTableId = (ref: string, currentSchema: string) => {
   const parts = ref.split('.');
-  if (parts.length === 3) return `${parts[0]}.${parts[1]}`;
-  else if (parts.length === 2) return `${currentSchema || 'public'}.${parts[0]}`;
+  if (parts.length === 3) {
+    // schema.table.col
+    return `${parts[0]}.${parts[1]}`;
+  } else if (parts.length === 2) {
+    // table.col (legacy/simulated) - assume same schema or public
+    return `${currentSchema || 'public'}.${parts[0]}`;
+  }
   return '';
 };
 
-// --- SchemaColumnItem ---
+// --- Sub-component Memoized: SchemaColumnItem ---
+
 interface SchemaColumnItemProps {
   col: Column;
-  tableId: string; 
-  tableName: string;
+  tableId: string; // Changed from tableName to tableId (schema.table)
+  tableName: string; // Display name
   isHovered: boolean;
-  isSelected: boolean; 
+  isSelected: boolean; // Add selected state
   isRelTarget: boolean;
   isRelSource: boolean;
   debouncedTerm: string;
   onHover: (tableId: string, col: string, ref?: string) => void;
   onHoverOut: () => void;
-  onClick: (tableId: string, col: string, ref?: string) => void;
+  onClick: (tableId: string, col: string, ref?: string) => void; // Add click handler
 }
 
 const SchemaColumnItem = memo(({ 
   col, tableId, tableName, isHovered, isSelected, isRelTarget, isRelSource, debouncedTerm, onHover, onHoverOut, onClick
 }: SchemaColumnItemProps) => {
   const isMatch = debouncedTerm && col.name.toLowerCase().includes(debouncedTerm.toLowerCase());
+  
   let bgClass = '';
   let colBadge = null;
 
-  if (isSelected) bgClass = 'bg-indigo-100 dark:bg-indigo-900/40 ring-2 ring-indigo-500 font-bold';
-  else if (isHovered) bgClass = 'bg-slate-100 dark:bg-slate-700 ring-1 ring-slate-300 dark:ring-slate-500';
-  else if (isRelTarget) {
+  if (isSelected) {
+     bgClass = 'bg-indigo-100 dark:bg-indigo-900/40 ring-2 ring-indigo-500 font-bold';
+  } else if (isHovered) {
+     bgClass = 'bg-slate-100 dark:bg-slate-700 ring-1 ring-slate-300 dark:ring-slate-500';
+  } else if (isRelTarget) {
      bgClass = 'bg-amber-100 dark:bg-amber-900/40 ring-1 ring-amber-400 font-bold';
-     colBadge = <span className="text-[9px] font-extrabold uppercase bg-amber-200 dark:bg-amber-800 text-amber-800 dark:text-amber-200 px-1.5 py-0.5 rounded-full flex items-center gap-0.5 ml-auto shadow-sm"><Target className="w-2.5 h-2.5" /> Alvo</span>;
+     colBadge = (
+       <span className="text-[9px] font-extrabold uppercase bg-amber-200 dark:bg-amber-800 text-amber-800 dark:text-amber-200 px-1.5 py-0.5 rounded-full flex items-center gap-0.5 shadow-sm ml-auto">
+         <Target className="w-2.5 h-2.5" /> Alvo
+       </span>
+     );
   } else if (isRelSource) {
      bgClass = 'bg-emerald-100 dark:bg-emerald-900/40 ring-1 ring-emerald-400 font-bold';
-     colBadge = <span className="text-[9px] font-extrabold uppercase bg-emerald-200 dark:bg-emerald-800 text-emerald-800 dark:text-emerald-200 px-1.5 py-0.5 rounded-full flex items-center gap-0.5 ml-auto shadow-sm"><CornerDownRight className="w-2.5 h-2.5" /> Ref</span>;
+     colBadge = (
+       <span className="text-[9px] font-extrabold uppercase bg-emerald-200 dark:bg-emerald-800 text-emerald-800 dark:text-emerald-200 px-1.5 py-0.5 rounded-full flex items-center gap-0.5 shadow-sm ml-auto">
+         <CornerDownRight className="w-2.5 h-2.5" /> Ref
+       </span>
+     );
   }
 
+  // Enhanced Tooltip Generation
+  const getTooltip = () => {
+    let lines = [`Coluna: ${col.name}`, `Tipo: ${col.type.toUpperCase()}`];
+    
+    if (col.isPrimaryKey) lines.push("Constraint: PRIMARY KEY (PK)");
+    if (col.isForeignKey) {
+       lines.push("Constraint: FOREIGN KEY (FK)");
+       lines.push(`References: ${col.references}`);
+    }
+    
+    // Simulate index info if it's a key
+    if (col.isPrimaryKey || col.isForeignKey) {
+       lines.push(`Index: idx_${tableName}_${col.name}`);
+    }
+
+    return lines.join('\n');
+  };
+  
   return (
     <div 
-       className={`flex items-center text-xs py-1.5 px-2 rounded group transition-all cursor-pointer ${bgClass || `text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700`} ${isMatch && !bgClass ? 'bg-yellow-50 dark:bg-yellow-900/20' : ''}`}
+       className={`flex items-center text-xs py-1.5 px-2 rounded group transition-all duration-75 cursor-pointer
+          ${bgClass || `text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 ${col.isForeignKey ? 'hover:bg-amber-50 dark:hover:bg-amber-900/20' : ''}`}
+          ${isMatch && !bgClass ? 'bg-yellow-50 dark:bg-yellow-900/20' : ''}
+       `}
        onMouseEnter={() => onHover(tableId, col.name, col.references)}
        onMouseLeave={onHoverOut}
        onClick={(e) => { e.stopPropagation(); onClick(tableId, col.name, col.references); }}
+       title={getTooltip()}
     >
       <div className="w-5 mr-1 flex justify-center shrink-0">
-        {col.isPrimaryKey && <Key className="w-3.5 h-3.5 text-amber-500 transform rotate-45" />}
+        {col.isPrimaryKey && (
+          <Key className="w-3.5 h-3.5 text-amber-500 transform rotate-45" />
+        )}
       </div>
+      
       <div className="flex-1 flex items-center min-w-0">
          <div className="flex flex-col truncate flex-1">
             <div className="flex items-center">
-              <span className={`font-mono truncate ${isRelTarget ? 'text-amber-800 dark:text-amber-200' : isRelSource ? 'text-emerald-800 dark:text-emerald-200' : col.isForeignKey ? 'text-blue-700 dark:text-blue-400 font-medium' : 'text-slate-700 dark:text-slate-300'}`}>{col.name}</span>
-              {col.isForeignKey && <Link className={`w-3 h-3 ml-1.5 opacity-70 ${isRelSource ? 'text-emerald-600' : 'text-blue-500'}`} />}
+              <span className={`font-mono truncate ${
+                 isRelTarget ? 'text-amber-800 dark:text-amber-200' :
+                 isRelSource ? 'text-emerald-800 dark:text-emerald-200' :
+                 col.isForeignKey ? 'text-blue-700 dark:text-blue-400 font-medium' : 'text-slate-700 dark:text-slate-300'
+              }`}>
+                {col.name}
+              </span>
+              {col.isForeignKey && (
+                <span className="flex items-center shrink-0">
+                  <Link className={`w-3 h-3 ml-1.5 opacity-70 ${isRelSource ? 'text-emerald-600' : 'text-blue-500'}`} aria-label="Foreign Key" />
+                </span>
+              )}
             </div>
-            {col.isForeignKey && !isRelSource && <span className="text-[9px] flex items-center gap-0.5 mt-0.5 truncate text-blue-400"><ArrowRight className="w-2 h-2" /> {col.references}</span>}
+
+            {col.isForeignKey && !isRelSource && (
+              <span className={`text-[9px] flex items-center gap-0.5 transition-colors mt-0.5 truncate ${
+                 isRelSource ? 'text-emerald-600 dark:text-emerald-400' :
+                 'text-blue-400 group-hover:text-blue-600 dark:group-hover:text-blue-300'
+              }`}>
+                <ArrowRight className="w-2 h-2" /> {col.references}
+              </span>
+            )}
          </div>
-         {colBadge ? colBadge : <span className="text-[10px] text-slate-400 ml-2 font-mono shrink-0">{col.type.toLowerCase()}</span>}
+         
+         {colBadge ? colBadge : (
+            <span className="text-[10px] text-slate-400 ml-2 font-mono shrink-0" title={`Type: ${col.type}`}>{col.type.toLowerCase()}</span>
+         )}
       </div>
     </div>
   );
 });
 
-// --- SchemaTableItem ---
+// --- Sub-component Memoized: SchemaTableItem ---
+
 interface SchemaTableItemProps {
   table: Table;
   visualState: VisualState;
@@ -97,9 +163,10 @@ interface SchemaTableItemProps {
   selectedTypeFilter: string;
   sortField: SortField;
   sortDirection: SortDirection;
-  hoveredColumnKey: string | null; 
-  hoveredColumnRef: string | null; 
-  selectedColumnKey: string | null; 
+  hoveredColumnKey: string | null; // "schema.table.col"
+  hoveredColumnRef: string | null; // "targetTable.targetCol" or "schema.table.col"
+  selectedColumnKey: string | null; // "schema.table.col"
+  
   onToggleExpand: (e: React.MouseEvent, tableId: string) => void;
   onTableClick: (tableId: string) => void;
   onMouseEnter: (tableId: string) => void;
@@ -122,23 +189,48 @@ const SchemaTableItem = memo(({
 }: SchemaTableItemProps) => {
 
   const tableId = getTableId(table);
-  const isView = table.type === 'view';
 
+  // Styling logic based on VisualState
   let containerClass = 'opacity-100 border-l-4 border-l-transparent border-slate-200 dark:border-slate-700 dark:bg-slate-800';
   let label = null;
 
   switch (visualState) {
-    case 'dimmed': containerClass = 'opacity-40 grayscale-[0.5] dark:bg-slate-900 transition-opacity duration-300'; break;
-    case 'focused': containerClass = 'opacity-100 ring-1 ring-indigo-500 bg-indigo-50 dark:bg-indigo-900/20 border-l-4 border-l-indigo-600 shadow-md z-10'; break;
-    case 'target': containerClass = 'opacity-100 ring-2 ring-amber-400 bg-amber-50 dark:bg-amber-900/20 border-l-4 border-l-amber-500 shadow-lg z-10'; break;
-    case 'source': containerClass = 'opacity-100 ring-1 ring-indigo-500 bg-indigo-50 dark:bg-indigo-900/20 border-l-4 border-l-indigo-600 shadow-md z-10'; break;
-    case 'parent': containerClass = 'opacity-100 border-amber-300 dark:border-amber-800 bg-amber-50/50 border-l-4 border-l-amber-400 shadow-sm'; break;
-    case 'child': containerClass = 'opacity-100 border-emerald-300 dark:border-emerald-800 bg-emerald-50/50 border-l-4 border-l-emerald-400 shadow-sm'; break;
+    case 'dimmed':
+      containerClass = 'opacity-40 grayscale-[0.5] border-slate-100 dark:border-slate-800 dark:bg-slate-900 transition-opacity duration-300';
+      break;
+    case 'focused':
+      containerClass = 'opacity-100 ring-1 ring-indigo-500 bg-indigo-50 dark:bg-indigo-900/20 border-indigo-200 dark:border-indigo-800 border-l-4 border-l-indigo-600 shadow-md z-10';
+      label = <span className="absolute top-2 right-2 text-[10px] font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-100 dark:bg-indigo-900/50 px-1.5 py-0.5 rounded shadow-sm">Foco</span>;
+      break;
+    case 'target':
+       containerClass = 'opacity-100 ring-2 ring-amber-400 bg-amber-50 dark:bg-amber-900/20 border-amber-300 dark:border-amber-700 border-l-4 border-l-amber-500 shadow-lg z-10';
+       label = <span className="absolute top-2 right-2 text-[10px] font-bold text-amber-700 dark:text-amber-400 bg-amber-100 dark:bg-amber-900/50 px-1.5 py-0.5 rounded flex items-center gap-1 shadow-sm"><Target className="w-3 h-3" /> Alvo do Link</span>;
+       break;
+    case 'source':
+        containerClass = 'opacity-100 ring-1 ring-indigo-500 bg-indigo-50 dark:bg-indigo-900/20 border-indigo-200 dark:border-indigo-800 border-l-4 border-l-indigo-600 shadow-md z-10';
+        label = <span className="absolute top-2 right-2 text-[10px] font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-100 dark:bg-indigo-900/50 px-1.5 py-0.5 rounded shadow-sm">Origem</span>;
+        break;
+    case 'parent':
+      containerClass = 'opacity-100 border-amber-300 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-900/10 border-l-4 border-l-amber-400 shadow-sm';
+      label = <span className="absolute top-2 right-2 text-[10px] font-bold text-amber-700 dark:text-amber-400 bg-amber-100 dark:bg-amber-900/50 px-1.5 py-0.5 rounded flex items-center gap-1 shadow-sm"><ArrowUpRight className="w-3 h-3" /> Pai (Referenciado)</span>;
+      break;
+    case 'child':
+      containerClass = 'opacity-100 border-emerald-300 dark:border-emerald-800 bg-emerald-50/50 dark:bg-emerald-900/10 border-l-4 border-l-emerald-400 shadow-sm';
+      label = <span className="absolute top-2 right-2 text-[10px] font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-900/50 px-1.5 py-0.5 rounded flex items-center gap-1 shadow-sm"><ArrowDownLeft className="w-3 h-3" /> Filho (Referencia)</span>;
+      break;
+    case 'normal':
+      if (selectionMode && isSelected) {
+        containerClass = 'opacity-100 border-l-4 border-l-indigo-600 border-indigo-300 dark:border-indigo-700 bg-indigo-50 dark:bg-indigo-900/30 shadow-sm ring-1 ring-indigo-200 dark:ring-indigo-800 z-10';
+      }
+      break;
   }
 
+  // Column Filtering & Sorting Logic
   const getColumns = () => {
     let cols = [...table.columns];
     if (selectedTypeFilter) cols = cols.filter(c => c.type.toUpperCase().includes(selectedTypeFilter));
+    
+    // Sort columns if needed, otherwise default order
     if (sortField) {
         cols.sort((a, b) => {
           let valA: any = '', valB: any = '';
@@ -151,18 +243,30 @@ const SchemaTableItem = memo(({
               if (sortDirection === 'asc') return valB - valA;
               else return valA - valB;
           }
-          return valA < valB ? (sortDirection === 'asc' ? -1 : 1) : (sortDirection === 'asc' ? 1 : -1);
+          if (valA < valB) return sortDirection === 'asc' ? -1 : 1;
+          if (valA > valB) return sortDirection === 'asc' ? 1 : -1;
+          return 0;
         });
     }
     return cols;
   };
 
+  const isEditing = editingTable === table.name;
+  const SortIcon = ({ field }: { field: SortField }) => {
+    if (sortField !== field) return <ArrowUpDown className="w-3 h-3 text-slate-300 opacity-50" />;
+    return sortDirection === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600 dark:text-indigo-400" /> : <ArrowDown className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />;
+  };
+
   return (
     <div 
-      className={`border rounded-lg transition-all relative group/table ${containerClass} ${isExpanded ? 'bg-white dark:bg-slate-800 shadow-inner' : ''} ${!isSelected && visualState === 'normal' ? 'bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700' : ''}`}
+      className={`border rounded-lg transition-all duration-200 relative group/table ${containerClass} ${isExpanded ? 'bg-white dark:bg-slate-800' : ''} ${!isSelected && visualState === 'normal' ? 'bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700' : ''}`}
       onMouseEnter={() => onMouseEnter(tableId)}
     >
-      <div className={`flex items-center gap-2 p-3 cursor-pointer`} onClick={() => onTableClick(tableId)}>
+      {label}
+      <div 
+        className={`flex items-center gap-2 p-3 cursor-pointer ${selectionMode && !isSelected ? 'hover:bg-slate-50 dark:hover:bg-slate-700' : ''}`}
+        onClick={() => onTableClick(tableId)}
+      >
         {selectionMode && (
           <div className={`w-4 h-4 rounded border flex items-center justify-center transition-all shrink-0 ${isSelected ? 'bg-indigo-600 border-indigo-600 shadow-sm' : 'border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700'}`}>
              {isSelected && <Check className="w-3 h-3 text-white" strokeWidth={3} />}
@@ -171,148 +275,777 @@ const SchemaTableItem = memo(({
         <div onClick={(e) => onToggleExpand(e, tableId)} className="p-0.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded text-slate-400 shrink-0">
           {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
         </div>
-        {isView ? <Eye className="w-4 h-4 shrink-0 text-cyan-500" title="View SQL" /> : <TableIcon className={`w-4 h-4 shrink-0 ${isSelected || isExpanded ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400'}`} />}
-        <div className="flex-1 min-w-0">
+        <TableIcon className={`w-4 h-4 shrink-0 ${isSelected || isExpanded ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400'}`} />
+        <div className="flex-1 min-w-0 pr-2">
            <div className="flex items-center gap-2">
               <span className={`font-medium text-sm truncate ${isSelected ? 'text-indigo-700 dark:text-indigo-300 font-bold' : 'text-slate-700 dark:text-slate-200'}`}>{table.name}</span>
-              <button onClick={(e) => { e.stopPropagation(); onToggleFavorite(tableId); }} className={`p-1 rounded opacity-0 group-hover/table:opacity-100 transition-opacity ${isFavorite ? 'opacity-100 text-amber-400' : 'text-slate-300'}`}><Star className={`w-3 h-3 ${isFavorite ? 'fill-current' : ''}`} /></button>
-              {onPreview && <button onClick={(e) => { e.stopPropagation(); onPreview(table.name); }} className="p-1 text-slate-400 hover:text-emerald-500 rounded opacity-0 group-hover/table:opacity-100 transition-opacity"><Play className="w-3 h-3 fill-current" /></button>}
+              {/* Star Button */}
+              <button 
+                 onClick={(e) => { e.stopPropagation(); onToggleFavorite(tableId); }}
+                 className={`p-1 rounded opacity-0 group-hover/table:opacity-100 transition-opacity ${isFavorite ? 'opacity-100 text-amber-400 hover:text-amber-500' : 'text-slate-300 hover:text-amber-400'}`}
+                 title={isFavorite ? "Remover dos favoritos" : "Favoritar tabela"}
+              >
+                 <Star className={`w-3 h-3 ${isFavorite ? 'fill-current' : ''}`} />
+              </button>
+              {/* Preview Button Action */}
+              {onPreview && (
+                <button 
+                  onClick={(e) => { e.stopPropagation(); onPreview(table.name); }}
+                  className="p-1 text-slate-400 hover:text-emerald-500 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 rounded opacity-0 group-hover/table:opacity-100 transition-opacity"
+                  title="Visualizar 10 primeiros registros"
+                >
+                  <Play className="w-3 h-3 fill-current" />
+                </button>
+              )}
            </div>
-           {!editingTable && <p className="text-[10px] text-slate-400 truncate max-w-[180px]">{table.description || (selectionMode ? '' : 'Sem descrição')}</p>}
+           <div className="flex items-center gap-2 mt-0.5 min-h-[16px]">
+              {isEditing ? (
+                 <div className="flex items-center gap-1 w-full" onClick={e => e.stopPropagation()}>
+                   <input 
+                     type="text" 
+                     value={tempDesc}
+                     onChange={(e) => onDescChange(e.target.value)}
+                     className="w-full text-xs bg-slate-100 dark:bg-slate-700 border border-indigo-300 dark:border-indigo-500 rounded px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-indigo-500 text-slate-700 dark:text-slate-200"
+                     autoFocus
+                     onKeyDown={(e) => {
+                       if (e.key === 'Enter') onSaveDescription(e, table.name);
+                       if (e.key === 'Escape') onSetEditing(null);
+                     }}
+                   />
+                   <button onClick={(e) => onSaveDescription(e, table.name)} className="p-0.5 bg-indigo-100 dark:bg-indigo-900 text-indigo-700 dark:text-indigo-300 rounded hover:bg-indigo-200"><Check className="w-3 h-3" /></button>
+                 </div>
+              ) : (
+                 <div className="flex items-center gap-2 group/desc max-w-full relative">
+                    <p 
+                      className={`text-[10px] truncate max-w-[180px] cursor-text ${table.description ? 'text-slate-400 dark:text-slate-500' : 'text-indigo-400/70 italic hover:text-indigo-500'}`} 
+                      title={table.description || "Adicionar descrição"}
+                      onClick={(e) => { if (!table.description) onStartEditing(e, table); }}
+                    >
+                      {table.description || (<span className="flex items-center gap-1"><PlusCircle className="w-3 h-3" /> Adicionar descrição...</span>)}
+                    </p>
+                    {table.description && (
+                      <button onClick={(e) => onStartEditing(e, table)} className="opacity-0 group-hover/desc:opacity-100 p-0.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded text-slate-400 hover:text-indigo-600 transition-all absolute right-0 bg-white dark:bg-slate-800 shadow-sm"><Pencil className="w-2.5 h-2.5" /></button>
+                    )}
+                 </div>
+              )}
+           </div>
         </div>
       </div>
 
       {isExpanded && (
-        <div className="px-3 pb-3 border-t border-slate-50 dark:border-slate-700/50">
-          <div className="flex gap-2 py-2 mb-1 justify-end border-b border-slate-50 dark:border-slate-700/50">
-             <button onClick={() => onSortChange('name')} className="text-[9px] font-bold text-slate-400 uppercase tracking-widest hover:text-indigo-600">Nome</button>
-             <button onClick={() => onSortChange('type')} className="text-[9px] font-bold text-slate-400 uppercase tracking-widest hover:text-indigo-600">Tipo</button>
+        <div className="px-3 pb-3 pt-0 border-t border-slate-50 dark:border-slate-700/50">
+          <div className="flex gap-2 py-2 mb-1 border-b border-slate-50 dark:border-slate-700/50 justify-end">
+             <button onClick={() => onSortChange('name')} className="flex items-center gap-1 text-[10px] text-slate-500 dark:text-slate-400 hover:text-indigo-600 px-1.5 py-0.5 rounded hover:bg-slate-100 dark:hover:bg-slate-700">Nome <SortIcon field="name" /></button>
+             <button onClick={() => onSortChange('type')} className="flex items-center gap-1 text-[10px] text-slate-500 dark:text-slate-400 hover:text-indigo-600 px-1.5 py-0.5 rounded hover:bg-slate-100 dark:hover:bg-slate-700">Tipo <SortIcon field="type" /></button>
+             <button onClick={() => onSortChange('key')} className="flex items-center gap-1 text-[10px] text-slate-500 dark:text-slate-400 hover:text-indigo-600 px-1.5 py-0.5 rounded hover:bg-slate-100 dark:hover:bg-slate-700">Chave <SortIcon field="key" /></button>
           </div>
           <div className="space-y-0.5">
-            {getColumns().map((col) => (
-               <SchemaColumnItem 
-                 key={col.name} col={col} tableId={tableId} tableName={table.name} 
-                 isHovered={hoveredColumnKey === `${tableId}.${col.name}`} isSelected={selectedColumnKey === `${tableId}.${col.name}`}
-                 isRelTarget={hoveredColumnRef === `${tableId}.${col.name}`} isRelSource={false} debouncedTerm={debouncedTerm}
-                 onHover={onColumnHover} onHoverOut={onColumnHoverOut} onClick={onColumnClick}
-               />
-            ))}
+            {getColumns().map((col) => {
+               const colKey = `${tableId}.${col.name}`;
+               const isHovered = hoveredColumnKey === colKey;
+               const isSelected = selectedColumnKey === colKey;
+               
+               // Complex Relationship Matching logic (Hover OR Selection)
+               // Priority: Selected > Hovered
+               const activeRef = selectedColumnKey ? (hoveredColumnRef || null) : hoveredColumnRef;
+               const activeKey = selectedColumnKey || hoveredColumnKey;
+
+               // Check if this column is the target of the active relationship
+               let isRelTarget = false;
+               if (activeRef) {
+                 const refParts = activeRef.split('.');
+                 const targetColName = refParts[refParts.length - 1]; // last part is column
+                 
+                 // Check if the table portion matches THIS table
+                 if (refParts.length === 3) {
+                    // schema.table.col
+                    isRelTarget = activeRef === colKey; // Exact match
+                 } else {
+                    // legacy table.col
+                    // Does hoveredColumnRef match table.col? 
+                    // AND table matches
+                    isRelTarget = activeRef === `${table.name}.${col.name}`;
+                 }
+               }
+               
+               // Check if this column is the source of a relationship to the active column
+               let isRelSource = false;
+               if (col.references && activeKey) {
+                  const refParts = col.references.split('.');
+                  if (refParts.length === 3) {
+                     // Reference is schema.table.col
+                     isRelSource = col.references === activeKey;
+                  } else {
+                     // Reference is table.col
+                     const [targetTable, targetCol] = refParts;
+                     // activeKey is schema.table.col
+                     const [hSchema, hTable, hCol] = activeKey.split('.');
+                     isRelSource = (targetTable === hTable && targetCol === hCol);
+                  }
+               } else if (activeRef && activeRef === colKey) {
+                  // Special case: reverse highlight
+                  isRelSource = true;
+               }
+               
+               return (
+                 <SchemaColumnItem 
+                   key={col.name} 
+                   col={col} 
+                   tableId={tableId}
+                   tableName={table.name} 
+                   isHovered={isHovered} 
+                   isSelected={isSelected}
+                   isRelTarget={isRelTarget} 
+                   isRelSource={isRelSource} 
+                   debouncedTerm={debouncedTerm}
+                   onHover={onColumnHover}
+                   onHoverOut={onColumnHoverOut}
+                   onClick={onColumnClick}
+                 />
+               );
+            })}
+            {getColumns().length === 0 && <div className="text-[10px] text-slate-400 py-2 text-center italic">Nenhuma coluna corresponde ao filtro.</div>}
           </div>
         </div>
       )}
     </div>
   );
+}, (prev, next) => {
+  return prev.table.name === next.table.name &&
+         getTableId(prev.table) === getTableId(next.table) &&
+         prev.visualState === next.visualState &&
+         prev.isExpanded === next.isExpanded &&
+         prev.isSelected === next.isSelected &&
+         prev.isFavorite === next.isFavorite &&
+         prev.editingTable === next.editingTable &&
+         prev.tempDesc === next.tempDesc &&
+         prev.hoveredColumnKey === next.hoveredColumnKey &&
+         prev.hoveredColumnRef === next.hoveredColumnRef &&
+         prev.selectedColumnKey === next.selectedColumnKey &&
+         prev.sortField === next.sortField &&
+         prev.sortDirection === next.sortDirection &&
+         prev.debouncedTerm === next.debouncedTerm &&
+         prev.selectedTypeFilter === next.selectedTypeFilter;
 });
 
-// --- Main SchemaViewer ---
+// --- Main Component ---
+
 const SchemaViewer: React.FC<SchemaViewerProps> = ({ 
   schema, onRegenerateClick, loading = false, onDescriptionChange,
   selectionMode = false, selectedTableIds = [], onToggleTable, onPreviewTable
 }) => {
+  // Search State
   const [inputValue, setInputValue] = useState('');
   const [debouncedTerm, setDebouncedTerm] = useState('');
-  const [selectedTypeFilter, setSelectedTypeFilter] = useState('');
-  const [selectedObjType, setSelectedObjType] = useState<'all' | 'table' | 'view'>('all');
+  const inputRef = useRef<HTMLInputElement>(null);
+  
+  // Filtering & Sorting
+  const [selectedTypeFilter, setSelectedTypeFilter] = useState<string>('');
   const [sortField, setSortField] = useState<SortField>('key');
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
-  const [expandedTables, setExpandedTables] = useState<Set<string>>(new Set());
-  const [expandedSchemas, setExpandedSchemas] = useState<Set<string>>(new Set(['public']));
-  const [favoriteTables, setFavoriteTables] = useState<Set<string>>(new Set());
+
+  // UI State - PERSISTED (Uses table names for now, but safer to stick to IDs in future)
+  const [expandedTables, setExpandedTables] = useState<Set<string>>(() => {
+    try {
+      const stored = localStorage.getItem(`psql-buddy-viewer-tables-${schema.name}`);
+      return stored ? new Set(JSON.parse(stored)) : new Set();
+    } catch {
+      return new Set();
+    }
+  });
+
+  const [expandedSchemas, setExpandedSchemas] = useState<Set<string>>(() => {
+    try {
+      const stored = localStorage.getItem(`psql-buddy-viewer-schemas-${schema.name}`);
+      return stored ? new Set(JSON.parse(stored)) : new Set(['public']);
+    } catch {
+      return new Set(['public']);
+    }
+  });
+
+  // Favorite Tables State
+  const [favoriteTables, setFavoriteTables] = useState<Set<string>>(() => {
+     try {
+        const stored = localStorage.getItem(`psql-buddy-favorites-${schema.name}`);
+        return stored ? new Set(JSON.parse(stored)) : new Set();
+     } catch {
+        return new Set();
+     }
+  });
+
+  useEffect(() => {
+    localStorage.setItem(`psql-buddy-viewer-tables-${schema.name}`, JSON.stringify(Array.from(expandedTables)));
+  }, [expandedTables, schema.name]);
+
+  useEffect(() => {
+    localStorage.setItem(`psql-buddy-viewer-schemas-${schema.name}`, JSON.stringify(Array.from(expandedSchemas)));
+  }, [expandedSchemas, schema.name]);
+
+  useEffect(() => {
+     localStorage.setItem(`psql-buddy-favorites-${schema.name}`, JSON.stringify(Array.from(favoriteTables)));
+  }, [favoriteTables, schema.name]);
+
+  // Shortcut Listener (Ctrl+K)
+  useEffect(() => {
+     const handleKeyDown = (e: KeyboardEvent) => {
+        if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+           e.preventDefault();
+           inputRef.current?.focus();
+        }
+     };
+     window.addEventListener('keydown', handleKeyDown);
+     return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
+  const [editingTable, setEditingTable] = useState<string | null>(null);
+  const [tempDesc, setTempDesc] = useState('');
+
+  // Hover & Selection States 
   const [hoveredTableId, setHoveredTableId] = useState<string | null>(null);
-  const [hoveredColumnKey, setHoveredColumnKey] = useState<string | null>(null);
-  const [hoveredColumnRef, setHoveredColumnRef] = useState<string | null>(null);
-  const [selectedColumnKey, setSelectedColumnKey] = useState<string | null>(null);
+  const [hoveredColumnKey, setHoveredColumnKey] = useState<string | null>(null); // "schema.table.col"
+  const [hoveredColumnRef, setHoveredColumnRef] = useState<string | null>(null); // "schema.table.col" (preferred) or "table.col"
+  const [selectedColumnKey, setSelectedColumnKey] = useState<string | null>(null); // "schema.table.col" (for click-to-highlight)
+
+  const deferredHoveredTableId = useDeferredValue(hoveredTableId);
+  const deferredHoveredColumnRef = useDeferredValue(hoveredColumnRef);
+  const deferredHoveredColumnKey = useDeferredValue(hoveredColumnKey);
+  const deferredSelectedColumnKey = useDeferredValue(selectedColumnKey);
+
+  // Lazy Loading
   const [renderLimit, setRenderLimit] = useState(40);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
+  // Relationship Graph
+  const relationshipGraph = useMemo(() => {
+    const parents: Record<string, Set<string>> = {};
+    const children: Record<string, Set<string>> = {};
+
+    schema.tables.forEach(table => {
+      const tableId = getTableId(table);
+      if (!parents[tableId]) parents[tableId] = new Set();
+      if (!children[tableId]) children[tableId] = new Set();
+
+      table.columns.forEach(col => {
+        if (col.isForeignKey && col.references) {
+          // Refs can be 2-part or 3-part. 
+          const refTableId = getRefTableId(col.references, table.schema);
+          
+          if (refTableId && refTableId !== tableId) {
+             // Find matching table in schema to ensure it exists
+             const exists = schema.tables.some(t => getTableId(t) === refTableId);
+             
+             if (exists) {
+                if (!parents[tableId]) parents[tableId] = new Set();
+                parents[tableId].add(refTableId);
+
+                if (!children[refTableId]) children[refTableId] = new Set();
+                children[refTableId].add(tableId);
+             }
+          }
+        }
+      });
+    });
+
+    return { parents, children };
+  }, [schema.name]); 
+
+  // Debounce Search
   useEffect(() => {
     const timer = setTimeout(() => {
        setDebouncedTerm(inputValue);
-       if (inputValue) setExpandedSchemas(new Set(schema.tables.map(t => t.schema || 'public')));
+       setRenderLimit(40); 
+       if (scrollContainerRef.current) scrollContainerRef.current.scrollTop = 0;
+       
+       if (inputValue) {
+         setExpandedSchemas(new Set(schema.tables.map(t => t.schema || 'public')));
+       }
     }, 300);
     return () => clearTimeout(timer);
   }, [inputValue, schema.tables]);
 
+  const handleScroll = useCallback(() => {
+    if (scrollContainerRef.current) {
+      const { scrollTop, scrollHeight, clientHeight } = scrollContainerRef.current;
+      if (scrollTop + clientHeight >= scrollHeight - 300) {
+        setRenderLimit(prev => Math.min(prev + 20, schema.tables.length));
+      }
+    }
+  }, [schema.tables.length]);
+
+  const allColumnTypes = useMemo(() => {
+    const types = new Set<string>();
+    schema.tables.forEach(t => t.columns.forEach(c => {
+      const simpleType = c.type.split('(')[0].toUpperCase();
+      types.add(simpleType);
+    }));
+    return Array.from(types).sort();
+  }, [schema.name]);
+
   const filteredTables = useMemo(() => {
     const term = debouncedTerm.toLowerCase().trim();
     let tables = schema.tables;
-    if (term || selectedTypeFilter || selectedObjType !== 'all') {
-      tables = tables.filter(t => {
-        const matchesSearch = !term || t.name.toLowerCase().includes(term) || t.columns.some(c => c.name.toLowerCase().includes(term));
-        const matchesType = !selectedTypeFilter || t.columns.some(c => c.type.toUpperCase().includes(selectedTypeFilter));
-        const matchesObjType = selectedObjType === 'all' || t.type === selectedObjType;
-        return matchesSearch && matchesType && matchesObjType;
+    
+    if (term || selectedTypeFilter) {
+      tables = tables.filter(table => {
+        const nameMatch = !term || table.name.toLowerCase().includes(term);
+        const descMatch = !term || (table.description && table.description.toLowerCase().includes(term));
+        const colMatch = !term || table.columns.some(col => col.name.toLowerCase().includes(term));
+        const matchesSearch = nameMatch || descMatch || colMatch;
+        let matchesType = true;
+        if (selectedTypeFilter) {
+          matchesType = table.columns.some(col => col.type.toUpperCase().includes(selectedTypeFilter));
+        }
+        return matchesSearch && matchesType;
       });
     }
-    return tables.sort((a, b) => a.name.localeCompare(b.name));
-  }, [schema.tables, debouncedTerm, selectedTypeFilter, selectedObjType]);
+
+    const sorted = [...tables];
+    
+    sorted.sort((a, b) => {
+      if (term) {
+        // ... (existing sort logic)
+        const nameA = a.name.toLowerCase();
+        const nameB = b.name.toLowerCase();
+        if (nameA === term && nameB !== term) return -1;
+        if (nameB === term && nameA !== term) return 1;
+        const startsA = nameA.startsWith(term);
+        const startsB = nameB.startsWith(term);
+        if (startsA && !startsB) return -1;
+        if (!startsA && startsB) return 1;
+        const includesA = nameA.includes(term);
+        const includesB = nameB.includes(term);
+        if (includesA && !includesB) return -1;
+        if (!includesA && includesB) return 1;
+      }
+
+      const idA = getTableId(a);
+      const idB = getTableId(b);
+
+      const isSelA = selectedTableIds.includes(idA);
+      const isSelB = selectedTableIds.includes(idB);
+      
+      if (!term) {
+        if (isSelA && !isSelB) return -1;
+        if (!isSelA && isSelB) return 1;
+      }
+
+      return a.name.localeCompare(b.name);
+    });
+
+    return sorted;
+  }, [schema.tables, debouncedTerm, selectedTypeFilter, selectedTableIds]);
 
   const groupedTables = useMemo(() => {
     const groups: Record<string, Table[]> = {};
     const visible = filteredTables.slice(0, renderLimit);
-    visible.forEach(t => {
-      const s = t.schema || 'public';
-      if (!groups[s]) groups[s] = [];
-      groups[s].push(t);
-    });
-    return groups;
-  }, [filteredTables, renderLimit]);
 
+    // If searching, we just show schemas naturally
+    // If NOT searching, we inject the "Favorites" group
+    const showFavorites = !debouncedTerm && favoriteTables.size > 0;
+
+    if (showFavorites) {
+       groups['__favorites__'] = [];
+    }
+
+    visible.forEach(table => {
+      const s = table.schema || 'public';
+      const tId = getTableId(table);
+      
+      if (showFavorites && favoriteTables.has(tId)) {
+         groups['__favorites__'].push(table);
+      }
+      
+      if (!groups[s]) groups[s] = [];
+      groups[s].push(table);
+    });
+    
+    // If favorite group ended up empty (because of pagination limit), clean it
+    if (showFavorites && groups['__favorites__'].length === 0) {
+       delete groups['__favorites__'];
+    }
+
+    return groups;
+  }, [filteredTables, renderLimit, debouncedTerm, favoriteTables]);
+
+  const sortedSchemas = useMemo(() => {
+     const schemas = Object.keys(groupedTables);
+     if (debouncedTerm) {
+         const schemaRank: Record<string, number> = {};
+         filteredTables.forEach((t, idx) => {
+            const s = t.schema || 'public';
+            if (schemaRank[s] === undefined) {
+               schemaRank[s] = idx;
+            }
+         });
+         
+         return schemas.sort((a, b) => {
+            const rankA = schemaRank[a] ?? Infinity;
+            const rankB = schemaRank[b] ?? Infinity;
+            return rankA - rankB;
+         });
+     }
+     
+     return schemas.sort((a, b) => {
+        if (a === '__favorites__') return -1;
+        if (b === '__favorites__') return 1;
+        return a.localeCompare(b);
+     });
+  }, [groupedTables, filteredTables, debouncedTerm]);
+
+  // Handlers
   const handleToggleExpand = useCallback((e: React.MouseEvent, tableId: string) => {
     e.stopPropagation();
     setExpandedTables(prev => {
-      const next = new Set(prev);
-      if (next.has(tableId)) next.delete(tableId); else next.add(tableId);
-      return next;
+      const newSet = new Set(prev);
+      if (newSet.has(tableId)) newSet.delete(tableId); else newSet.add(tableId);
+      return newSet;
     });
   }, []);
 
+  const handleToggleSchema = useCallback((schemaName: string) => {
+    if (schemaName === '__favorites__') return; // Always open
+    setExpandedSchemas(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(schemaName)) newSet.delete(schemaName); else newSet.add(schemaName);
+      return newSet;
+    });
+  }, []);
+
+  const handleTableClick = useCallback((tableId: string) => {
+    if (selectionMode && onToggleTable) {
+      onToggleTable(tableId);
+    } else {
+      setExpandedTables(prev => {
+        const newSet = new Set(prev);
+        if (newSet.has(tableId)) newSet.delete(tableId); else newSet.add(tableId);
+        return newSet;
+      });
+    }
+  }, [selectionMode, onToggleTable]);
+
+  const handleMouseEnterTable = useCallback((tableId: string) => {
+    setHoveredTableId(tableId);
+  }, []);
+
+  const handleColumnHover = useCallback((tableId: string, col: string, ref?: string) => {
+     setHoveredColumnKey(`${tableId}.${col}`);
+     setHoveredColumnRef(ref || null);
+     if (ref) {
+       // Try to resolve ref to a tableId
+       const refTableId = getRefTableId(ref, tableId.split('.')[0]); // Best effort schema
+       if (refTableId) setHoveredTableId(refTableId);
+     } else {
+       setHoveredTableId(tableId);
+     }
+  }, [schema.tables]);
+
+  const handleColumnHoverOut = useCallback(() => {
+     setHoveredColumnKey(null);
+     setHoveredColumnRef(null);
+  }, []);
+
+  const handleColumnClick = useCallback((tableId: string, col: string, ref?: string) => {
+     const colKey = `${tableId}.${col}`;
+     
+     // Toggle selection
+     if (selectedColumnKey === colKey) {
+        setSelectedColumnKey(null);
+     } else {
+        setSelectedColumnKey(colKey);
+        // Force update the hover states to match the selection immediately
+        setHoveredColumnKey(colKey);
+        setHoveredColumnRef(ref || null);
+     }
+  }, [selectedColumnKey]);
+
+  const handleStartEditing = useCallback((e: React.MouseEvent, table: Table) => {
+    e.stopPropagation();
+    setEditingTable(table.name);
+    setTempDesc(table.description || '');
+  }, []);
+
+  const handleSaveDescription = useCallback((e: React.MouseEvent | React.FormEvent, tableName: string) => {
+    e.stopPropagation(); e.preventDefault();
+    if (onDescriptionChange) onDescriptionChange(tableName, tempDesc);
+    setEditingTable(null);
+  }, [onDescriptionChange, tempDesc]);
+
+  const handleSortChange = useCallback((field: SortField) => {
+    if (sortField === field) setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
+    else { setSortField(field); setSortDirection('asc'); }
+  }, [sortField]);
+
+  const handleDescChange = useCallback((val: string) => setTempDesc(val), []);
+  const handleSetEditing = useCallback((name: string | null) => setEditingTable(name), []);
+  
+  const handleToggleFavorite = useCallback((tableId: string) => {
+     setFavoriteTables(prev => {
+        const newSet = new Set(prev);
+        if (newSet.has(tableId)) newSet.delete(tableId);
+        else newSet.add(tableId);
+        return newSet;
+     });
+  }, []);
+
+  const expandAll = () => {
+     setExpandedTables(new Set(filteredTables.map(t => getTableId(t))));
+     setExpandedSchemas(new Set(schema.tables.map(t => t.schema || 'public')));
+  };
+  const collapseAll = () => {
+     setExpandedTables(new Set());
+     setExpandedSchemas(new Set());
+  };
+
+  const visualStateMap = useMemo(() => {
+    const map = new Map<string, VisualState>();
+    
+    // Determine active column (Selected > Hovered)
+    const activeColumnKey = deferredSelectedColumnKey || deferredHoveredColumnKey;
+    const activeColumnRef = deferredSelectedColumnKey ? 
+        // If selected, we need to find the ref again or rely on state being coherent
+        (deferredSelectedColumnKey === deferredHoveredColumnKey ? deferredHoveredColumnRef : null) 
+        : deferredHoveredColumnRef;
+
+    // Use current hover if selected is not active, otherwise selected dictates
+    const activeTableId = deferredSelectedColumnKey ? (activeColumnKey?.split('.')[0] + '.' + activeColumnKey?.split('.')[1]) : deferredHoveredTableId;
+
+    if (!activeTableId && !activeColumnRef) return map;
+
+    // 1. Column Logic (Detailed FK/PK highlight)
+    // If a column is active (hovered/selected), highlight connections
+    if (activeColumnKey) {
+       const [s, t, c] = activeColumnKey.split('.');
+       const sourceTableId = `${s}.${t}`;
+       
+       // Find relationships
+       schema.tables.forEach(table => {
+          const tId = getTableId(table);
+          
+          // Check if this table is the Target of the active column (if active is FK)
+          if (activeColumnRef) {
+             const parts = activeColumnRef.split('.');
+             let isTarget = false;
+             if (parts.length === 3) {
+                isTarget = activeColumnRef === `${tId}.${parts[2]}`; // imprecise check for table match logic, better to check table name
+                if (parts[0] === table.schema && parts[1] === table.name) isTarget = true;
+             } else {
+                if (parts[0] === table.name) isTarget = true;
+             }
+             if (isTarget) map.set(tId, 'target');
+          }
+
+          // Check if this table has columns referencing the active column (if active is PK)
+          table.columns.forEach(col => {
+             if (col.references) {
+                const parts = col.references.split('.');
+                // Check if reference points to activeColumnKey
+                let pointsToActive = false;
+                if (parts.length === 3) {
+                   if (`${parts[0]}.${parts[1]}.${parts[2]}` === activeColumnKey) pointsToActive = true;
+                } else {
+                   if (`${parts[0]}.${parts[1]}` === `${t}.${c}`) pointsToActive = true;
+                }
+                
+                if (pointsToActive) map.set(tId, 'child'); // This table is a child/source of a ref to active
+             }
+          });
+       });
+       
+       // Mark source table as source if it has the FK
+       if (activeColumnRef) {
+          map.set(sourceTableId, 'source');
+       } else {
+          // If no ref (PK), mark as focused
+          map.set(sourceTableId, 'focused');
+       }
+       
+       return map;
+    }
+
+    // 2. Table Hover Logic (General Parent/Child)
+    if (activeTableId) {
+       map.set(activeTableId, 'focused');
+       
+       const parents = relationshipGraph.parents[activeTableId];
+       if (parents) parents.forEach(p => map.set(p, 'parent'));
+
+       const children = relationshipGraph.children[activeTableId];
+       if (children) children.forEach(c => map.set(c, 'child'));
+    }
+
+    return map;
+  }, [deferredHoveredTableId, deferredHoveredColumnRef, deferredHoveredColumnKey, deferredSelectedColumnKey, relationshipGraph, schema.tables]);
+
+  const getTableState = (tableId: string): VisualState => {
+     if (visualStateMap.size === 0) return 'normal';
+     if (visualStateMap.has(tableId)) return visualStateMap.get(tableId)!;
+     return 'dimmed';
+  };
+
   return (
-    <div className="h-full flex flex-col bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 overflow-hidden select-none">
-      <div className="p-4 border-b border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 flex justify-between items-center shrink-0">
-        <div className="flex items-center gap-2">
-          <Database className="w-5 h-5 text-indigo-600" />
-          <div><h2 className="font-bold text-sm uppercase tracking-wider">{loading ? 'Carregando...' : schema.name}</h2></div>
-        </div>
-        <div className="flex bg-slate-200 dark:bg-slate-800 p-1 rounded-lg">
-           <button onClick={() => setSelectedObjType('all')} className={`p-1 rounded text-[9px] font-bold ${selectedObjType === 'all' ? 'bg-white dark:bg-slate-600 shadow' : 'text-slate-500'}`}>TUDO</button>
-           <button onClick={() => setSelectedObjType('table')} className={`p-1 rounded text-[9px] font-bold ${selectedObjType === 'table' ? 'bg-white dark:bg-slate-600 shadow' : 'text-slate-500'}`}>TAB</button>
-           <button onClick={() => setSelectedObjType('view')} className={`p-1 rounded text-[9px] font-bold ${selectedObjType === 'view' ? 'bg-white dark:bg-slate-600 shadow' : 'text-slate-500'}`}>VIEW</button>
-        </div>
-      </div>
-
-      <div className="p-2 border-b border-slate-100 dark:border-slate-800 space-y-2">
-        <div className="relative">
-          <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
-          <input type="text" placeholder="Buscar tabelas/views..." value={inputValue} onChange={e => setInputValue(e.target.value)} className="w-full pl-9 pr-4 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded text-xs focus:ring-1 focus:ring-indigo-500 outline-none" />
-        </div>
-      </div>
-
-      <div ref={scrollContainerRef} className="flex-1 overflow-y-auto p-2 space-y-4 custom-scrollbar">
-        {Object.entries(groupedTables).map(([schemaName, tables]) => (
-          <div key={schemaName} className="space-y-2">
-            <div className="flex items-center gap-2 px-2 py-1 text-[10px] font-extrabold text-slate-400 uppercase tracking-widest bg-slate-50/50 dark:bg-slate-800/50 rounded-lg sticky top-0 z-10 backdrop-blur">
-              <Folder className="w-3 h-3" /> {schemaName}
-            </div>
-            <div className="space-y-1.5 pl-1 pr-0.5">
-              {/* Fix: Explicitly cast 'tables' to 'Table[]' to resolve TypeScript 'Property map does not exist on type unknown' error */}
-              {(tables as Table[]).map(table => (
-                <SchemaTableItem 
-                  key={table.name} table={table} visualState={hoveredTableId === getTableId(table) ? 'focused' : 'normal'}
-                  isExpanded={expandedTables.has(getTableId(table))} isSelected={selectedTableIds.includes(getTableId(table))}
-                  isFavorite={favoriteTables.has(getTableId(table))} selectionMode={selectionMode} editingTable={null} tempDesc="" debouncedTerm={debouncedTerm}
-                  selectedTypeFilter={selectedTypeFilter} sortField={sortField} sortDirection={sortDirection}
-                  hoveredColumnKey={hoveredColumnKey} hoveredColumnRef={hoveredColumnRef} selectedColumnKey={selectedColumnKey}
-                  onToggleExpand={handleToggleExpand} onTableClick={(id) => onToggleTable && onToggleTable(id)} 
-                  onMouseEnter={setHoveredTableId} onStartEditing={() => {}} onSaveDescription={() => {}} onDescChange={() => {}}
-                  onSetEditing={() => {}} onSortChange={(f) => setSortField(f)} onColumnHover={(tid, col, ref) => { setHoveredColumnKey(`${tid}.${col}`); setHoveredColumnRef(ref || null); }}
-                  onColumnHoverOut={() => { setHoveredColumnKey(null); setHoveredColumnRef(null); }} onColumnClick={setSelectedColumnKey}
-                  onPreview={onPreviewTable} onToggleFavorite={(id) => { const n = new Set(favoriteTables); if(n.has(id)) n.delete(id); else n.add(id); setFavoriteTables(n); }}
-                />
-              ))}
+    <div id="schema-viewer-container" className="h-full flex flex-col bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 overflow-hidden select-none" onClick={() => setSelectedColumnKey(null)}>
+      {/* Header */}
+      {!selectionMode && (
+        <div className="p-4 border-b border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 flex justify-between items-center shrink-0">
+          <div className="flex items-center gap-2 text-slate-700 dark:text-slate-200">
+            <span title="Database Schema" className="flex items-center"><Database className="w-5 h-5 text-indigo-600 dark:text-indigo-400" /></span>
+            <div className="overflow-hidden">
+              <h2 className="font-semibold text-sm uppercase tracking-wider truncate max-w-[120px]" title={schema.name}>{loading ? 'Carregando...' : schema.name}</h2>
+              <p className="text-[10px] text-slate-400">{schema.tables.length} tabelas</p>
             </div>
           </div>
-        ))}
+          {onRegenerateClick && (
+            <button onClick={onRegenerateClick} disabled={loading} className="text-xs text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 hover:underline disabled:opacity-50">Mudar BD</button>
+          )}
+        </div>
+      )}
+
+      {/* Search & Controls */}
+      <div className={`p-2 border-b border-slate-100 dark:border-slate-800 shrink-0 space-y-2 ${selectionMode ? 'bg-slate-50 dark:bg-slate-900' : ''}`}>
+        <div className="flex gap-2">
+           <div className="relative flex-1">
+             <Search className={`absolute left-3 top-2.5 w-4 h-4 ${inputValue !== debouncedTerm ? 'text-indigo-400 animate-pulse' : 'text-slate-400'}`} />
+             <input
+               ref={inputRef}
+               type="text" placeholder="Buscar tabelas... (Ctrl+K)" value={inputValue} onChange={(e) => setInputValue(e.target.value)} disabled={loading}
+               className="w-full pl-9 pr-8 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded text-xs focus:ring-2 focus:ring-indigo-500 outline-none transition-all text-slate-700 dark:text-slate-200 placeholder-slate-400"
+             />
+             {inputValue && <button onClick={() => setInputValue('')} className="absolute right-2 top-2.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"><X className="w-3 h-3" /></button>}
+           </div>
+           <div className="relative">
+             <div className="absolute left-2 top-2 pointer-events-none"><Filter className={`w-4 h-4 ${selectedTypeFilter ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400'}`} /></div>
+             <select value={selectedTypeFilter} onChange={(e) => { setSelectedTypeFilter(e.target.value); setRenderLimit(40); }} className={`w-[100px] h-full pl-8 pr-2 py-2 border rounded text-xs outline-none appearance-none cursor-pointer font-medium ${selectedTypeFilter ? 'bg-indigo-50 dark:bg-indigo-900/20 border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300' : 'bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400'}`}>
+                <option value="">Tipos</option>
+                {allColumnTypes.map(t => <option key={t} value={t}>{t}</option>)}
+             </select>
+           </div>
+        </div>
+        <div className="flex justify-between items-center px-1">
+           <span className="text-[10px] text-slate-400 font-medium">{filteredTables.length} tabelas {filteredTables.length > renderLimit && `(Exibindo ${renderLimit})`}</span>
+           <div className="flex gap-2">
+             <button onClick={expandAll} className="text-[10px] text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400">Expandir</button>
+             <button onClick={collapseAll} className="text-[10px] text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400">Recolher</button>
+           </div>
+        </div>
+      </div>
+      
+      {/* Content Area with Lazy Loading Scroll */}
+      <div 
+         ref={scrollContainerRef}
+         onScroll={handleScroll}
+         className="flex-1 overflow-y-auto p-2 space-y-2 relative scrollbar-thin scrollbar-thumb-slate-200 dark:scrollbar-thumb-slate-700" 
+         onMouseLeave={() => { setHoveredTableId(null); setHoveredColumnKey(null); setHoveredColumnRef(null); }}
+      >
+        {loading ? (
+          <div className="space-y-4 animate-pulse">{[1, 2, 3, 4].map((i) => <div key={i} className="space-y-2 border border-slate-100 dark:border-slate-700 rounded-lg p-3"><div className="flex items-center gap-2"><div className="w-4 h-4 bg-slate-200 dark:bg-slate-700 rounded"></div><div className="h-4 bg-slate-200 dark:bg-slate-700 rounded w-1/2"></div></div></div>)}</div>
+        ) : filteredTables.length === 0 ? (
+          <div className="text-center py-8 text-slate-400 text-xs italic">Nenhuma tabela encontrada.</div>
+        ) : (
+          <>
+            {sortedSchemas.map(schemaName => {
+               const tablesInSchema = groupedTables[schemaName];
+               if (!tablesInSchema || tablesInSchema.length === 0) return null;
+               
+               const isFavoritesGroup = schemaName === '__favorites__';
+               const isSchemaExpanded = isFavoritesGroup ? true : expandedSchemas.has(schemaName);
+
+               return (
+                  <div key={schemaName} className="mb-2">
+                     {/* Schema Header */}
+                     <div 
+                        className={`flex items-center gap-2 px-2 py-1.5 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 rounded select-none group sticky top-0 z-10 bg-white/95 dark:bg-slate-900/95 backdrop-blur border-b border-transparent ${isSchemaExpanded ? 'border-slate-100 dark:border-slate-800' : ''}`}
+                        onClick={() => handleToggleSchema(schemaName)}
+                     >
+                        {isFavoritesGroup ? (
+                           <Star className="w-4 h-4 text-amber-400 fill-amber-400" />
+                        ) : (
+                           isSchemaExpanded ? 
+                              <FolderOpen className="w-4 h-4 text-indigo-500 dark:text-indigo-400 fill-indigo-100 dark:fill-indigo-900/30" /> : 
+                              <Folder className="w-4 h-4 text-slate-400 fill-slate-100 dark:fill-slate-800" />
+                        )}
+                        <span className={`text-xs font-bold ${isFavoritesGroup ? 'text-amber-600 dark:text-amber-400' : isSchemaExpanded ? 'text-indigo-800 dark:text-indigo-200' : 'text-slate-500 dark:text-slate-400 group-hover:text-slate-700 dark:group-hover:text-slate-200'}`}>
+                           {isFavoritesGroup ? '⭐ Favoritas' : schemaName}
+                        </span>
+                        <span className="text-[10px] text-slate-400 ml-auto bg-slate-50 dark:bg-slate-800 px-1.5 rounded-full border border-slate-100 dark:border-slate-700">
+                           {tablesInSchema.length}
+                        </span>
+                     </div>
+                     
+                     {/* Tables in Schema */}
+                     {isSchemaExpanded && (
+                        <div className="pl-3 pr-1 pt-1 space-y-2 border-l border-slate-100 dark:border-slate-800 ml-2">
+                           {tablesInSchema.map((table, index) => {
+                              const tableId = getTableId(table);
+                              const isSelected = selectedTableIds.includes(tableId);
+                              const prevTable = index > 0 ? tablesInSchema[index-1] : null;
+                              const showSeparator = !debouncedTerm && !isFavoritesGroup && prevTable && selectedTableIds.includes(getTableId(prevTable)) && !isSelected;
+
+                              return (
+                                 <React.Fragment key={`${schemaName}-${tableId}`}>
+                                    {showSeparator && (
+                                       <div className="flex items-center gap-3 py-2 px-1 animate-in fade-in duration-300">
+                                          <div className="h-px bg-slate-200 dark:bg-slate-700/50 flex-1"></div>
+                                          <span className="text-[9px] font-bold text-slate-300 dark:text-slate-600 uppercase tracking-wider">Outras</span>
+                                          <div className="h-px bg-slate-200 dark:bg-slate-700/50 flex-1"></div>
+                                       </div>
+                                    )}
+                                    <SchemaTableItem
+                                       table={table}
+                                       visualState={getTableState(tableId)}
+                                       isExpanded={expandedTables.has(tableId)}
+                                       isSelected={isSelected}
+                                       isFavorite={favoriteTables.has(tableId)}
+                                       selectionMode={selectionMode}
+                                       editingTable={editingTable}
+                                       tempDesc={tempDesc}
+                                       debouncedTerm={debouncedTerm}
+                                       selectedTypeFilter={selectedTypeFilter}
+                                       sortField={sortField}
+                                       sortDirection={sortDirection}
+                                       hoveredColumnKey={deferredHoveredColumnKey}
+                                       hoveredColumnRef={deferredHoveredColumnRef}
+                                       selectedColumnKey={deferredSelectedColumnKey}
+                                       onToggleExpand={handleToggleExpand}
+                                       onTableClick={handleTableClick}
+                                       onMouseEnter={handleMouseEnterTable}
+                                       onStartEditing={handleStartEditing}
+                                       onSaveDescription={handleSaveDescription}
+                                       onDescChange={handleDescChange}
+                                       onSetEditing={handleSetEditing}
+                                       onSortChange={handleSortChange}
+                                       onColumnHover={handleColumnHover}
+                                       onColumnHoverOut={handleColumnHoverOut}
+                                       onColumnClick={handleColumnClick}
+                                       onPreview={onPreviewTable}
+                                       onToggleFavorite={handleToggleFavorite}
+                                    />
+                                 </React.Fragment>
+                              );
+                           })}
+                        </div>
+                     )}
+                  </div>
+               );
+            })}
+            
+            {filteredTables.length > renderLimit && (
+              <div className="py-4 text-center text-slate-400 flex items-center justify-center gap-2">
+                 <Loader2 className="w-4 h-4 animate-spin" />
+                 <span className="text-xs">Carregando mais tabelas...</span>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+      
+      {/* Legend */}
+      <div className="p-3 bg-slate-50 dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 text-[10px] text-slate-500 dark:text-slate-400 shrink-0">
+        <p className="flex items-center gap-3">
+          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-indigo-500"></span> Sel</span>
+          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-400"></span> Pai/Alvo</span>
+          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-400"></span> Filho/Ref</span>
+        </p>
+        <p className="text-[9px] text-slate-400 mt-1">Clique nas colunas para fixar o destaque de relacionamento.</p>
       </div>
     </div>
   );
