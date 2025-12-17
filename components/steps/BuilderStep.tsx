@@ -1,9 +1,7 @@
 
-
-
 import React, { useState, useMemo, useEffect, useCallback, memo, useRef } from 'react';
 import { DatabaseSchema, BuilderState, ExplicitJoin, JoinType, Filter, Operator, OrderBy, AppSettings, SavedQuery, AggregateFunction, Column, Table, CalculatedColumn } from '../../types';
-import { Layers, ChevronRight, Settings2, RefreshCw, Search, X, CheckSquare, Square, Plus, Trash2, ArrowRightLeft, Filter as FilterIcon, ArrowDownAZ, List, Link2, ChevronDown, Save, FolderOpen, Calendar, Clock, Key, Combine, ArrowRight, ArrowLeft, FastForward, Target, CornerDownRight, Wand2, Loader2, Undo2, Redo2, Calculator, Sparkles, LayoutTemplate, PlayCircle, Eye, Info, ChevronUp } from 'lucide-react';
+import { Layers, ChevronRight, Settings2, RefreshCw, Search, X, CheckSquare, Square, Plus, Trash2, ArrowRightLeft, Filter as FilterIcon, ArrowDownAZ, List, Link2, ChevronDown, Save, FolderOpen, Calendar, Clock, Key, Combine, ArrowRight, ArrowLeft, FastForward, Target, CornerDownRight, Wand2, Loader2, Undo2, Redo2, Calculator, Sparkles, LayoutTemplate, PlayCircle, Eye, Info, ChevronUp, Link as LinkIcon } from 'lucide-react';
 import SchemaViewer from '../SchemaViewer';
 import { generateBuilderStateFromPrompt } from '../../services/geminiService';
 import { generateLocalSql } from '../../services/localSqlService';
@@ -532,6 +530,9 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
   // State for Hover Highlights
   const [hoveredColumn, setHoveredColumn] = useState<{ tableId: string; col: string; references?: string } | null>(null);
 
+  // Suggested Join State (Interactive Feature)
+  const [suggestedJoin, setSuggestedJoin] = useState<ExplicitJoin | null>(null);
+
   // Show skip button if generating for too long
   const [showSkipButton, setShowSkipButton] = useState(false);
   
@@ -882,19 +883,42 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
     } else {
       newTables = [...currentState.selectedTables, tableId];
       
-      const newJoins = [...currentState.joins];
+      // AUTO JOIN SUGGESTION LOGIC
+      // Check if this new table has relationships with existing selected tables
+      let potentialJoin: ExplicitJoin | null = null;
       for (const existingTableId of currentState.selectedTables) {
+         // Check Forward: Existing -> New
          const joinForward = findBestJoin(schema, existingTableId, tableId);
-         if (joinForward) newJoins.push(joinForward);
-         else {
-            const joinBackward = findBestJoin(schema, tableId, existingTableId);
-            if (joinBackward) newJoins.push(joinBackward);
+         if (joinForward) {
+            potentialJoin = joinForward;
+            break;
+         }
+         // Check Backward: New -> Existing
+         const joinBackward = findBestJoin(schema, tableId, existingTableId);
+         if (joinBackward) {
+            potentialJoin = joinBackward;
+            break;
          }
       }
 
-      updateStateWithHistory({ ...currentState, selectedTables: newTables, joins: newJoins });
+      if (potentialJoin) {
+         setSuggestedJoin(potentialJoin);
+      }
+
+      updateStateWithHistory({ ...currentState, selectedTables: newTables });
     }
   }, [updateStateWithHistory, schema]);
+
+  const acceptSuggestedJoin = () => {
+     if (!suggestedJoin) return;
+     const currentState = stateRef.current;
+     updateStateWithHistory({
+        ...currentState,
+        joins: [...currentState.joins, suggestedJoin]
+     });
+     setSuggestedJoin(null);
+     setActiveTab('joins'); // Switch to Joins tab to show user
+  };
 
   const clearAllTables = useCallback(() => {
      updateStateWithHistory({ ...stateRef.current, selectedTables: [], selectedColumns: [], aggregations: {}, joins: [], filters: [], calculatedColumns: [] });
@@ -1173,6 +1197,27 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
             </div>
           </div>
         </form>
+      )}
+
+      {/* Suggested Join Banner (Toast) */}
+      {suggestedJoin && (
+         <div className="mb-4 p-3 bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800 rounded-lg flex items-center justify-between shadow-sm animate-in slide-in-from-top-2">
+            <div className="flex items-center gap-3">
+               <div className="bg-indigo-100 dark:bg-indigo-900/50 p-1.5 rounded-full text-indigo-600 dark:text-indigo-300">
+                  <LinkIcon className="w-4 h-4" />
+               </div>
+               <div>
+                  <p className="text-xs font-bold text-indigo-900 dark:text-indigo-200">Sugestão de Join</p>
+                  <p className="text-xs text-indigo-700 dark:text-indigo-300">
+                     Detectamos uma conexão entre <strong>{suggestedJoin.fromTable}</strong> e <strong>{suggestedJoin.toTable}</strong>.
+                  </p>
+               </div>
+            </div>
+            <div className="flex gap-2">
+               <button onClick={() => setSuggestedJoin(null)} className="px-3 py-1.5 text-xs text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 font-medium">Ignorar</button>
+               <button onClick={acceptSuggestedJoin} className="px-3 py-1.5 text-xs bg-indigo-600 hover:bg-indigo-700 text-white rounded font-bold shadow-sm transition-colors">Aceitar Join</button>
+            </div>
+         </div>
       )}
 
       {/* SAVED QUERIES MODAL */}

@@ -1,14 +1,16 @@
+
 import React, { useMemo, useState, useEffect } from 'react';
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, AreaChart, Area } from 'recharts';
 import { BarChart3, LineChart as LineChartIcon, AreaChart as AreaChartIcon, AlertCircle, Settings2, CheckSquare, Square } from 'lucide-react';
 
 interface DataVisualizerProps {
   data: any[];
+  onDrillDown?: (col: string, val: any) => void;
 }
 
 type ChartType = 'bar' | 'line' | 'area';
 
-const DataVisualizer: React.FC<DataVisualizerProps> = ({ data }) => {
+const DataVisualizer: React.FC<DataVisualizerProps> = ({ data, onDrillDown }) => {
   const [chartType, setChartType] = useState<ChartType>('bar');
   const [configOpen, setConfigOpen] = useState(false);
 
@@ -91,6 +93,21 @@ const DataVisualizer: React.FC<DataVisualizerProps> = ({ data }) => {
     });
   };
 
+  const handleChartClick = (dataPoint: any) => {
+     if (onDrillDown && dataPoint && selectedXAxis) {
+        // dataPoint usually has `activePayload` or direct properties depending on chart type
+        // Recharts passes the data object for Bar/Line clicks
+        const val = dataPoint[selectedXAxis];
+        // Only drill down if we have a valid value for the X Axis
+        if (val !== undefined && val !== null) {
+           onDrillDown(selectedXAxis, val);
+        } else if (dataPoint.activeLabel) {
+           // Fallback for categorical clicks if dataPoint is an event object
+           onDrillDown(selectedXAxis, dataPoint.activeLabel);
+        }
+     }
+  };
+
   if (!processedData || processedData.length === 0) return (
      <div className="flex flex-col items-center justify-center h-full text-slate-400 p-8">
        <AlertCircle className="w-8 h-8 mb-2 opacity-50" />
@@ -113,7 +130,7 @@ const DataVisualizer: React.FC<DataVisualizerProps> = ({ data }) => {
 
      const commonProps = {
         data: processedData,
-        margin: { top: 10, right: 30, left: 0, bottom: 0 }
+        margin: { top: 10, right: 30, left: 0, bottom: 0 },
      };
 
      switch (chartType) {
@@ -128,7 +145,15 @@ const DataVisualizer: React.FC<DataVisualizerProps> = ({ data }) => {
                  />
                  <Legend />
                  {selectedYKeys.map((key, index) => (
-                    <Line key={key} type="monotone" dataKey={key} stroke={colors[index % colors.length]} strokeWidth={2} dot={{ r: 2 }} activeDot={{ r: 5 }} />
+                    <Line 
+                       key={key} 
+                       type="monotone" 
+                       dataKey={key} 
+                       stroke={colors[index % colors.length]} 
+                       strokeWidth={2} 
+                       dot={{ r: 4, onClick: (p: any) => handleChartClick(p.payload), cursor: 'pointer' }} 
+                       activeDot={{ r: 6, onClick: (p: any) => handleChartClick(p.payload), cursor: 'pointer' }} 
+                    />
                  ))}
               </LineChart>
            );
@@ -141,7 +166,15 @@ const DataVisualizer: React.FC<DataVisualizerProps> = ({ data }) => {
                  <Tooltip contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
                  <Legend />
                  {selectedYKeys.map((key, index) => (
-                    <Area key={key} type="monotone" dataKey={key} stroke={colors[index % colors.length]} fill={colors[index % colors.length]} fillOpacity={0.3} />
+                    <Area 
+                        key={key} 
+                        type="monotone" 
+                        dataKey={key} 
+                        stroke={colors[index % colors.length]} 
+                        fill={colors[index % colors.length]} 
+                        fillOpacity={0.3} 
+                        activeDot={{ r: 6, onClick: (p: any) => handleChartClick(p.payload), cursor: 'pointer' }}
+                    />
                  ))}
               </AreaChart>
            );
@@ -155,7 +188,15 @@ const DataVisualizer: React.FC<DataVisualizerProps> = ({ data }) => {
                  <Tooltip contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} cursor={{fill: 'transparent'}} />
                  <Legend />
                  {selectedYKeys.map((key, index) => (
-                    <Bar key={key} dataKey={key} fill={colors[index % colors.length]} radius={[4, 4, 0, 0]} maxBarSize={60} />
+                    <Bar 
+                        key={key} 
+                        dataKey={key} 
+                        fill={colors[index % colors.length]} 
+                        radius={[4, 4, 0, 0]} 
+                        maxBarSize={60} 
+                        onClick={(data) => handleChartClick(data)}
+                        cursor="pointer"
+                    />
                  ))}
               </BarChart>
            );

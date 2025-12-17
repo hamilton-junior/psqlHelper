@@ -684,6 +684,14 @@ const ResultsStep: React.FC<ResultsStepProps> = ({ data, sql, onBackToBuilder, o
      onShowToast(`UPDATE Gerado: ${updateSql}`, "info");
   };
 
+  // --- Chart Drill Down Handler ---
+  const handleChartDrillDown = (col: string, val: any) => {
+     // Try to determine which table this column likely belongs to or default to main table
+     if (mainTableName) {
+        setDrillDownTarget({ table: mainTableName, col, val });
+     }
+  };
+
   // ... (Export handlers kept same) ...
   const copyAsMarkdown = () => {
      if (filteredData.length === 0) return;
@@ -948,7 +956,10 @@ const ResultsStep: React.FC<ResultsStepProps> = ({ data, sql, onBackToBuilder, o
             )}
             {activeTab === 'chart' && (
                <div className="p-6 h-full w-full relative">
-                  <DataVisualizer data={filteredData} /> 
+                  <DataVisualizer 
+                     data={filteredData} 
+                     onDrillDown={handleChartDrillDown}
+                  /> 
                </div>
             )}
             {activeTab === 'analysis' && <div className="flex-1 h-full"><DataAnalysisChat data={filteredData} sql={sql} /></div>}

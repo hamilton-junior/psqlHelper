@@ -148,7 +148,8 @@ const CanvasMinimap = memo(({
 const DiagramNode = memo(({
   table, pos, lodLevel, isHovered, opacity, isSelected, ringClass, 
   tableColors, columnColors, hasTags, 
-  onMouseDown, onMouseEnter, onMouseLeave, onContextMenu, onDoubleClick, onClearTableColor
+  onMouseDown, onMouseEnter, onMouseLeave, onContextMenu, onDoubleClick, onClearTableColor,
+  onColumnEnter, onColumnLeave, onColumnClick
 }: any) => {
   
   const [isExpanded, setIsExpanded] = useState(false);
@@ -228,11 +229,14 @@ const DiagramNode = memo(({
                            return (
                              <div 
                                 key={col.name} 
-                                className={`px-4 flex items-center justify-between text-xs h-[30px] transition-colors border-b border-transparent hover:border-slate-100 dark:hover:border-slate-700
+                                className={`px-4 flex items-center justify-between text-xs h-[30px] transition-colors border-b border-transparent hover:border-slate-100 dark:hover:border-slate-700 cursor-pointer
                                    ${colStyle ? colStyle.bg : 'hover:bg-slate-50 dark:hover:bg-slate-700/50'}
                                    ${isKey ? 'bg-slate-50/50 dark:bg-slate-800/80' : ''}
                                 `}
                                 onContextMenu={(e) => onContextMenu(e, table.name, col.name)}
+                                onMouseEnter={() => onColumnEnter(table.name, col.name, col.references)}
+                                onMouseLeave={onColumnLeave}
+                                onClick={(e) => { e.stopPropagation(); onColumnClick(table.name, col.name, col.references); }}
                              >
                                 {colColorId && <div className={`absolute left-0 w-1 h-[20px] rounded-r ${colStyle?.bg.replace('50', '400')}`}></div>}
                                 
@@ -302,6 +306,8 @@ const SchemaDiagramModal: React.FC<SchemaDiagramModalProps> = ({ schema, onClose
   const [debouncedTerm, setDebouncedTerm] = useState('');
   
   const [hoveredNode, setHoveredNode] = useState<string | null>(null);
+  const [hoveredColumn, setHoveredColumn] = useState<HoveredColumnState | null>(null);
+  const [selectedColumn, setSelectedColumn] = useState<HoveredColumnState | null>(null); // New State for Locking
   const [selectedRelationship, setSelectedRelationship] = useState<SelectedRelationship | null>(null);
   
   // --- Customization ---
@@ -507,7 +513,11 @@ const SchemaDiagramModal: React.FC<SchemaDiagramModalProps> = ({ schema, onClose
        return;
     }
 
-    if (!tableName) setSelectedRelationship(null);
+    if (!tableName) {
+       setSelectedRelationship(null);
+       setSelectedColumn(null); // Clear locked column on background click
+    }
+    
     lastMousePos.current = { x: e.clientX, y: e.clientY };
     if (tableName) setDraggedNode(tableName);
     else setIsDraggingCanvas(true);
@@ -545,6 +555,25 @@ const SchemaDiagramModal: React.FC<SchemaDiagramModalProps> = ({ schema, onClose
     // Simple zoom to center could be improved to zoom to mouse
     setScale(newScale);
   };
+
+  const handleColumnEnter = useCallback((table: string, col: string, ref?: string) => {
+     if (!isInteracting) {
+        setHoveredColumn({ table, col, isPk: false, ref });
+     }
+  }, [isInteracting]);
+
+  const handleColumnLeave = useCallback(() => {
+     setHoveredColumn(null);
+  }, []);
+
+  const handleColumnClick = useCallback((table: string, col: string, ref?: string) => {
+     // Toggle selection if clicking the same column, otherwise set new
+     if (selectedColumn?.table === table && selectedColumn?.col === col) {
+        setSelectedColumn(null);
+     } else {
+        setSelectedColumn({ table, col, isPk: false, ref });
+     }
+  }, [selectedColumn]);
 
   // --- Dynamic Level of Detail ---
   const lodLevel = useMemo(() => {
@@ -585,22 +614,27 @@ const SchemaDiagramModal: React.FC<SchemaDiagramModalProps> = ({ schema, onClose
 
   // --- SVG Connections Generation (Optimized) ---
   const connections = useMemo(() => {
+    const activeColumn = selectedColumn || hoveredColumn; // Selection Priority
+
     // Aggressive Culling: If interacting or zoomed out, hide connections unless specifically focused
     if ((isInteracting && visibleTables.length > 30) || scale < 0.4) {
-       if (!hoveredNode && !selectedRelationship && !pathMode) return [];
+       if (!hoveredNode && !selectedRelationship && !pathMode && !activeColumn) return [];
     }
 
     const lines: React.ReactElement[] = [];
     const visibleSet = new Set(visibleTables.map(t => t.name));
     
     // Determine which tables we need to draw lines for
-    // Priority: Path > Selection > Hover > Visible Viewport
+    // Priority: Path > Selection > Selected/Hover Column > Hover Table > Visible Viewport
     let sourceTables = visibleTables;
     
     if (pathMode && foundPath.length > 0) {
        sourceTables = schema.tables.filter(t => foundPath.includes(t.name));
     } else if (selectedRelationship) {
        sourceTables = schema.tables.filter(t => t.name === selectedRelationship.source || t.name === selectedRelationship.target);
+    } else if (activeColumn?.ref) {
+       // Only draw connections for the specific column
+       sourceTables = schema.tables.filter(t => t.name === activeColumn.table);
     } else if (hoveredNode) {
        // Only draw connections related to hovered node
        sourceTables = schema.tables.filter(t => t.name === hoveredNode || relationshipGraph[hoveredNode]?.has(t.name));
@@ -616,7 +650,7 @@ const SchemaDiagramModal: React.FC<SchemaDiagramModalProps> = ({ schema, onClose
           const targetTable = parts.length === 3 ? parts[1] : parts[0];
           
           // Visibility Check: Don't draw lines to off-screen nodes unless they are part of active focus
-          if (!visibleSet.has(targetTable) && !hoveredNode && !selectedRelationship && !pathMode) return;
+          if (!visibleSet.has(targetTable) && !hoveredNode && !selectedRelationship && !pathMode && !activeColumn) return;
 
           const endPos = positions[targetTable];
           if (!endPos) return;
@@ -624,7 +658,9 @@ const SchemaDiagramModal: React.FC<SchemaDiagramModalProps> = ({ schema, onClose
           // Path Highlighting Logic
           let isPathLine = false;
           let isHighlighted = false;
-          
+          let isExplicitlySelected = false; // User clicked the line itself
+          const targetColName = parts.length === 3 ? parts[2] : parts[1];
+
           if (pathMode) {
              const srcIdx = foundPath.indexOf(table.name);
              const tgtIdx = foundPath.indexOf(targetTable);
@@ -632,9 +668,18 @@ const SchemaDiagramModal: React.FC<SchemaDiagramModalProps> = ({ schema, onClose
                 isPathLine = true;
              } else return; 
           } else if (selectedRelationship) {
+             // Match: TableA -> TableB via ColumnX
              if (table.name === selectedRelationship.source && col.name === selectedRelationship.colName && targetTable === selectedRelationship.target) {
+                isExplicitlySelected = true;
                 isHighlighted = true;
-             } else return;
+             }
+             // Allow selecting the whole path logic, but here we just check if it matches the state
+          } else if (activeColumn) {
+             if (activeColumn.table === table.name && activeColumn.col === col.name) {
+                isHighlighted = true;
+             } else {
+                return; // Hide other lines when hovering a specific column
+             }
           } else if (hoveredNode) {
              // If hovering a node, only show lines connected to it
              if (table.name !== hoveredNode && targetTable !== hoveredNode) return;
@@ -649,7 +694,6 @@ const SchemaDiagramModal: React.FC<SchemaDiagramModalProps> = ({ schema, onClose
           if (lodLevel === 'high' || isHighlighted || isPathLine) {
              const targetTbl = schema.tables.find(t => t.name === targetTable);
              if (targetTbl) {
-                const targetColName = parts.length === 3 ? parts[2] : parts[1];
                 const tColIdx = targetTbl.columns.findIndex(c => c.name === targetColName);
                 if (tColIdx >= 0) targetY = endPos.y + HEADER_HEIGHT + (tColIdx * ROW_HEIGHT) + (ROW_HEIGHT / 2);
              }
@@ -665,27 +709,49 @@ const SchemaDiagramModal: React.FC<SchemaDiagramModalProps> = ({ schema, onClose
           let stroke = "#94a3b8";
           let width = 1;
           let opacity = 0.4;
+          let markerEnd = hoveredNode === table.name ? "url(#arrowhead)" : undefined;
 
-          if (isPathLine) { stroke = "#06b6d4"; width = 4; opacity = 1; }
-          else if (isHighlighted) { stroke = "#f59e0b"; width = 3; opacity = 1; }
-          else if (hoveredNode) { stroke = "#6366f1"; width = 2; opacity = 0.8; }
+          if (isPathLine) { stroke = "#06b6d4"; width = 4; opacity = 1; markerEnd = "url(#arrowhead-selected)"; }
+          else if (isExplicitlySelected) { stroke = "#f59e0b"; width = 3; opacity = 1; markerEnd = "url(#arrowhead-selected)"; } // Gold for selected line
+          else if (isHighlighted) { stroke = "#f59e0b"; width = 3; opacity = 1; markerEnd = "url(#arrowhead-selected)"; } // Specific column hover
+          else if (hoveredNode === table.name || hoveredNode === targetTable) { stroke = "#6366f1"; width = 2; opacity = 0.8; markerEnd = "url(#arrowhead)"; }
 
           lines.push(
-             <path 
-                key={`${table.name}-${col.name}-${targetTable}`}
-                d={pathD}
-                stroke={stroke}
-                strokeWidth={width}
-                fill="none"
-                opacity={opacity}
-                className="pointer-events-none"
-             />
+             <g key={`${table.name}-${col.name}-${targetTable}`}>
+                {/* Transparent wider path for easier clicking */}
+                <path 
+                   d={pathD}
+                   stroke="transparent"
+                   strokeWidth={15}
+                   fill="none"
+                   className="cursor-pointer pointer-events-auto"
+                   onClick={(e) => {
+                      e.stopPropagation();
+                      setSelectedRelationship({
+                         source: table.name,
+                         target: targetTable,
+                         colName: col.name,
+                         targetColName: targetColName
+                      });
+                   }}
+                />
+                {/* Visible Path */}
+                <path 
+                   d={pathD}
+                   stroke={stroke}
+                   strokeWidth={width}
+                   fill="none"
+                   opacity={opacity}
+                   className="pointer-events-none transition-all duration-300"
+                   markerEnd={markerEnd}
+                />
+             </g>
           );
         }
       });
     });
     return lines;
-  }, [visibleTables, positions, lodLevel, isInteracting, hoveredNode, selectedRelationship, pathMode, foundPath, schema.tables, relationshipGraph]);
+  }, [visibleTables, positions, lodLevel, isInteracting, hoveredNode, hoveredColumn, selectedColumn, selectedRelationship, pathMode, foundPath, schema.tables, relationshipGraph]);
 
   // --- Handlers for Toolbar ---
   const handleSaveLayout = () => {
@@ -779,6 +845,14 @@ const SchemaDiagramModal: React.FC<SchemaDiagramModalProps> = ({ schema, onClose
           >
              {/* Render Lines */}
              <svg className="absolute inset-0 pointer-events-none overflow-visible w-full h-full" style={{ zIndex: 0 }}>
+               <defs>
+                  <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+                    <polygon points="0 0, 10 3.5, 0 7" fill="#64748b" />
+                  </marker>
+                  <marker id="arrowhead-selected" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+                    <polygon points="0 0, 10 3.5, 0 7" fill="#f59e0b" />
+                  </marker>
+               </defs>
                {connections}
              </svg>
 
@@ -802,6 +876,9 @@ const SchemaDiagramModal: React.FC<SchemaDiagramModalProps> = ({ schema, onClose
                    onContextMenu={(e: any, t: string, c?: string) => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, tableName: t, columnName: c }); }}
                    onDoubleClick={(e: any, t: string) => { e.stopPropagation(); setViewingDDL(schema.tables.find(tbl => tbl.name === t) || null); }}
                    onClearTableColor={(t: string) => { const nc = {...tableColors}; delete nc[t]; setTableColors(nc); }}
+                   onColumnEnter={handleColumnEnter}
+                   onColumnLeave={handleColumnLeave}
+                   onColumnClick={handleColumnClick}
                 />
              ))}
           </div>
