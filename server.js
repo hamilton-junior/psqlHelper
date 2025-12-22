@@ -1,3 +1,4 @@
+
 import express from 'express';
 import cors from 'cors';
 import pg from 'pg';
@@ -17,29 +18,11 @@ app.use(express.json());
 
 console.log(`Starting server...`);
 
-// Helper to handle encoding errors automatically
+// Helper simples para execução de queries
 async function queryWithFallback(client, sql, params = []) {
-  try {
-    return await client.query(sql, params);
-  } catch (error) {
-    const errorMsg = error.message ? error.message.toLowerCase() : '';
-    // Error 22021 is character_not_in_repertoire, often due to encoding mismatch
-    const isEncodingError = 
-      error.code === '22021' || 
-      errorMsg.includes('invalid byte sequence') ||
-      errorMsg.includes('encoding');
-
-    if (isEncodingError) {
-      console.warn('Encoding error detected. Attempting fallback to LATIN1...');
-      try {
-        await client.query("SET CLIENT_ENCODING TO 'LATIN1'");
-        return await client.query(sql, params);
-      } catch (retryError) {
-        throw retryError; // If fallback fails, throw original
-      }
-    }
-    throw error;
-  }
+  // Executa a query diretamente. Como a sessão agora é UTF8, 
+  // o driver pg receberá os dados formatados corretamente.
+  return await client.query(sql, params);
 }
 
 app.post('/api/connect', async (req, res) => {
@@ -60,6 +43,10 @@ app.post('/api/connect', async (req, res) => {
 
   try {
     await client.connect();
+    
+    // CRÍTICO: Força o PostgreSQL a enviar dados em UTF8 para o Node.js.
+    // Isso garante que acentos sejam exibidos corretamente no app, mesmo que o banco seja LATIN1 ou WIN1252.
+    await client.query("SET client_encoding TO 'UTF8'");
     
     // 1. Fetch Tables
     const tablesQuery = `
@@ -172,9 +159,9 @@ app.post('/api/execute', async (req, res) => {
   try {
     await client.connect();
     
-    // Check if it is multiple statements or single
-    // pg driver executes multiple statements if passed as one string, but returns array of results
-    // We want to handle single statement mostly for this app
+    // Força UTF8 na sessão de execução de consulta do usuário
+    await client.query("SET client_encoding TO 'UTF8'");
+    
     const result = await queryWithFallback(client, sql);
     
     // Handle case where result might be an array (if multiple statements)

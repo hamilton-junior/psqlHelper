@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { ArrowLeft, Database, ChevronLeft, ChevronRight, FileSpreadsheet, Search, Copy, Check, BarChart2, MessageSquare, Download, Activity, LayoutGrid, FileText, Pin, AlertCircle, Info, MoreHorizontal, FileJson, FileCode, Hash, Type, Filter, Plus, X, Trash2, SlidersHorizontal, Clock, Maximize2, Minimize2, ExternalLink, Braces, PenTool, Save, Eye, Anchor, Link as LinkIcon, Settings2, Loader2, Folder } from 'lucide-react';
+import { ArrowLeft, Database, ChevronLeft, ChevronRight, FileSpreadsheet, Search, Copy, Check, BarChart2, MessageSquare, Download, Activity, LayoutGrid, FileText, Pin, AlertCircle, Info, MoreHorizontal, FileJson, FileCode, Hash, Type, Filter, Plus, X, Trash2, SlidersHorizontal, Clock, Maximize2, Minimize2, ExternalLink, Braces, PenTool, Save, Eye, Anchor, Link as LinkIcon, Settings2, Loader2, Folder, Terminal as TerminalIcon } from 'lucide-react';
 import { AppSettings, DashboardItem, ExplainNode, DatabaseSchema, Table } from '../../types';
 import DataVisualizer from '../DataVisualizer';
 import DataAnalysisChat from '../DataAnalysisChat';
@@ -12,6 +12,42 @@ import { executeQueryReal, explainQueryReal } from '../../services/dbService';
 import { jsPDF } from "jspdf";
 import html2canvas from 'html2canvas';
 import BeginnerTip from '../BeginnerTip';
+
+// --- Sub-componente de Renderização ANSI ---
+const AnsiTerminal: React.FC<{ text: string }> = ({ text }) => {
+  // Parser simples de ANSI para React spans
+  // Fix: explicitly type the split result as string[]
+  const parts: string[] = text.split(/(\x1b\[\d+m)/);
+  let currentColor = "";
+  
+  return (
+    <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 shadow-2xl overflow-auto custom-scrollbar font-mono text-[11px] leading-tight min-h-[400px]">
+      <div className="flex gap-1.5 mb-4 opacity-50 shrink-0">
+        <div className="w-2.5 h-2.5 rounded-full bg-red-500"></div>
+        <div className="w-2.5 h-2.5 rounded-full bg-amber-500"></div>
+        <div className="w-2.5 h-2.5 rounded-full bg-emerald-500"></div>
+        <span className="ml-2 text-[9px] font-bold uppercase tracking-widest text-slate-500">Database Output Console</span>
+      </div>
+      <pre className="inline-block min-w-full">
+        {parts.map((part, i) => {
+          if (part.startsWith("\x1b[")) {
+            const code = part.match(/\d+/)?.[0];
+            switch(code) {
+               case "31": currentColor = "text-rose-500"; break;   // Red
+               case "32": currentColor = "text-emerald-400"; break; // Green
+               case "33": currentColor = "text-amber-400"; break;   // Yellow
+               case "34": currentColor = "text-blue-400"; break;    // Blue
+               case "36": currentColor = "text-cyan-400"; break;    // Cyan
+               case "0": currentColor = ""; break;                  // Reset
+            }
+            return null;
+          }
+          return <span key={i} className={`${currentColor} transition-colors`}>{part}</span>;
+        })}
+      </pre>
+    </div>
+  );
+};
 
 // --- Sub-componente de Preview no Hover ---
 const HoverPreviewTooltip: React.FC<{
@@ -122,21 +158,18 @@ const ManualMappingPopover: React.FC<{
   const [selectedTable, setSelectedTable] = useState(currentValue || '');
   const [previewCol, setPreviewCol] = useState(currentPreviewCol || '');
   
-  // Verifica se existem múltiplos schemas para decidir a formatação da lista
   const schemasPresent = useMemo(() => {
     return Array.from(new Set(schema.tables.map(t => t.schema || 'public'))).sort();
   }, [schema.tables]);
 
   const hasMultipleSchemas = schemasPresent.length > 1;
 
-  // Lista de tabelas filtrada e ORDENADA
   const tablesBySchema = useMemo(() => {
     const list = schema.tables.filter(t => 
       t.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
       (t.schema || 'public').toLowerCase().includes(searchTerm.toLowerCase())
     );
 
-    // Ordena por schema e depois por nome
     list.sort((a, b) => {
        const sA = (a.schema || 'public').toLowerCase();
        const sB = (b.schema || 'public').toLowerCase();
@@ -144,7 +177,6 @@ const ManualMappingPopover: React.FC<{
        return a.name.toLowerCase().localeCompare(b.name.toLowerCase());
     });
 
-    // Agrupa por schema para renderizar "pastas"
     const grouped: Record<string, Table[]> = {};
     list.forEach(t => {
       const s = t.schema || 'public';
@@ -154,7 +186,6 @@ const ManualMappingPopover: React.FC<{
     return grouped;
   }, [schema.tables, searchTerm]);
 
-  // Lista de colunas da tabela selecionada ORDENADA alfabeticamente
   const targetColumns = useMemo(() => {
     if (!selectedTable) return [];
     const parts = selectedTable.split('.');
@@ -175,7 +206,6 @@ const ManualMappingPopover: React.FC<{
        </div>
        
        <div className="p-3 space-y-4">
-          {/* Busca de Tabela */}
           <div className="space-y-1.5">
              <label className="text-[10px] font-bold text-slate-400 uppercase">Tabela de Destino</label>
              <div className="relative">
@@ -205,7 +235,6 @@ const ManualMappingPopover: React.FC<{
                         {tables.map(t => {
                            const fullId = `${t.schema || 'public'}.${t.name}`;
                            const isSelected = selectedTable === fullId;
-                           // Se for schema único public, remove o prefixo public.
                            const displayName = !hasMultipleSchemas && t.schema === 'public' ? t.name : t.name;
 
                            return (
@@ -226,7 +255,6 @@ const ManualMappingPopover: React.FC<{
              </div>
           </div>
 
-          {/* Seleção de Coluna de Preview */}
           {selectedTable && (
             <div className="space-y-1.5 animate-in slide-in-from-top-1">
                <label className="text-[10px] font-bold text-slate-400 uppercase">Mostrar no Hover (Preview)</label>
@@ -339,17 +367,16 @@ interface VirtualTableProps {
    credentials?: any;
 }
 
-const VirtualTable: React.FC<VirtualTableProps> = ({ data, columns, highlightMatch, onRowClick, isAdvancedMode, onUpdateCell, onOpenJson, onDrillDown, schema, defaultTableName, credentials }) => {
+// Fix: Destructure props with explicit type to ensure columns and data are not treated as unknown
+const VirtualTable: React.FC<VirtualTableProps> = ({ data, columns, highlightMatch, onRowClick, isAdvancedMode, onUpdateCell, onOpenJson, onDrillDown, schema, defaultTableName, credentials }: VirtualTableProps) => {
    const [currentPage, setCurrentPage] = useState(1);
    const [rowsPerPage, setRowsPerPage] = useState(25);
    const [activeProfileCol, setActiveProfileCol] = useState<string | null>(null);
    const [activeMappingCol, setActiveMappingCol] = useState<string | null>(null);
    
-   // Preview Hover State
    const [hoverPreview, setHoverPreview] = useState<{table: string, pk: string, val: any, displayCol: string, x: number, y: number} | null>(null);
    const hoverTimeoutRef = useRef<any>(null);
 
-   // Mapeamentos Manuais Locais (Links de tabelas e colunas de preview)
    const [manualMappings, setManualMappings] = useState<Record<string, { table: string, previewCol?: string }>>(() => {
       try {
          const stored = localStorage.getItem('psql-buddy-manual-drilldown-links');
@@ -370,11 +397,10 @@ const VirtualTable: React.FC<VirtualTableProps> = ({ data, columns, highlightMat
    const totalRows = data.length;
    const totalPages = Math.ceil(totalRows / Math.max(rowsPerPage, 1));
    const startIndex = (currentPage - 1) * rowsPerPage;
-   const currentData = data.slice(startIndex, startIndex + rowsPerPage);
+   // Fix: Explicitly type currentData as any[]
+   const currentData: any[] = data.slice(startIndex, startIndex + rowsPerPage);
 
-   // Função centralizada para detectar o alvo de um link (manual ou automático)
    const getLinkTarget = (colName: string): { table: string, pk: string, previewCol?: string } | null => {
-      // 1. Prioridade: Mapeamento Manual do Usuário
       if (manualMappings[colName]) {
          return { table: manualMappings[colName].table, pk: 'grid', previewCol: manualMappings[colName].previewCol };
       }
@@ -383,7 +409,6 @@ const VirtualTable: React.FC<VirtualTableProps> = ({ data, columns, highlightMat
       const lowerCol = colName.toLowerCase();
       const leafName = lowerCol.split('.').pop() || '';
 
-      // Heurística de colunas globais (grid/mlid)
       if (leafName === 'grid' || leafName === 'mlid') {
          const parts = lowerCol.split('.');
          let targetTableObj = null;
@@ -398,7 +423,6 @@ const VirtualTable: React.FC<VirtualTableProps> = ({ data, columns, highlightMat
          if (targetTableObj) return { table: `${targetTableObj.schema || 'public'}.${targetTableObj.name}`, pk: leafName };
       }
 
-      // Detecção via Schema (Foreign Keys Reais)
       for (const t of schema.tables) {
          const col = t.columns.find(c => c.name === colName);
          if (col && col.isForeignKey && col.references) {
@@ -408,7 +432,6 @@ const VirtualTable: React.FC<VirtualTableProps> = ({ data, columns, highlightMat
          }
       }
 
-      // Heurística por Sufixo (_id, _grid, etc)
       const suffixes = ['_id', '_grid', '_mlid'];
       for (const suffix of suffixes) {
          if (lowerCol.endsWith(suffix) && lowerCol !== suffix) {
@@ -422,12 +445,10 @@ const VirtualTable: React.FC<VirtualTableProps> = ({ data, columns, highlightMat
    };
 
    const formatValue = (col: string, val: any) => {
-      // Caso Nulo
       if (val === null || val === undefined) {
          return <span className="text-[10px] bg-slate-100 dark:bg-slate-800 text-slate-400 px-1.5 py-0.5 rounded font-mono font-bold tracking-tight border border-slate-200 dark:border-slate-700">NULL</span>;
       }
 
-      // Caso Booleano
       if (typeof val === 'boolean') {
          return (
             <span className={`text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded border ${
@@ -439,12 +460,10 @@ const VirtualTable: React.FC<VirtualTableProps> = ({ data, columns, highlightMat
          );
       }
 
-      // Caso Objeto JSON
       if (typeof val === 'object') {
          return <button onClick={(e) => { e.stopPropagation(); onOpenJson(val); }} className="text-xs text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded flex items-center gap-1 hover:bg-indigo-100 transition-colors"><Braces className="w-3 h-3" /> JSON</button>;
       }
       
-      // Caso Link (Drilldown)
       const target = getLinkTarget(col);
       if (target && val !== '') {
          return (
@@ -475,7 +494,6 @@ const VirtualTable: React.FC<VirtualTableProps> = ({ data, columns, highlightMat
 
    return (
       <div className="flex flex-col h-full relative">
-         {/* Hover Preview Dynamic Component */}
          {hoverPreview && credentials && schema && (
             <HoverPreviewTooltip 
                {...hoverPreview}
@@ -492,7 +510,8 @@ const VirtualTable: React.FC<VirtualTableProps> = ({ data, columns, highlightMat
             <table className="w-full text-left border-collapse table-fixed">
                <thead className="bg-slate-50/90 dark:bg-slate-900/90 backdrop-blur-sm sticky top-0 z-10 shadow-sm">
                   <tr>
-                     {columns.map((col, idx) => {
+                     {/* Fix: Explicitly type columns as string[] to avoid unknown map error */}
+                     {(columns as string[]).map((col, idx) => {
                         const mapping = manualMappings[col];
                         const hasManualMapping = !!mapping;
                         const autoTarget = getLinkTarget(col);
@@ -515,12 +534,10 @@ const VirtualTable: React.FC<VirtualTableProps> = ({ data, columns, highlightMat
                                  </div>
                               </div>
 
-                              {/* Popover de Mapeamento Manual */}
                               {activeMappingCol === col && schema && (
                                  <ManualMappingPopover 
                                     column={col} 
                                     schema={schema} 
-                                    // Pré-seleciona a tabela caso já tenha sido detectada automaticamente (heurística/fk)
                                     currentValue={mapping?.table || autoTarget?.table}
                                     currentPreviewCol={mapping?.previewCol}
                                     onSave={(tbl, previewCol) => handleSaveManualMapping(col, tbl, previewCol)} 
@@ -537,7 +554,8 @@ const VirtualTable: React.FC<VirtualTableProps> = ({ data, columns, highlightMat
                <tbody className="divide-y divide-slate-100 dark:divide-slate-700/50">
                   {currentData.map((row, idx) => (
                      <tr key={idx} onClick={() => onRowClick(row)} className="group hover:bg-indigo-50/50 dark:hover:bg-indigo-900/20 transition-colors h-[40px] cursor-pointer">
-                        {columns.map((col, cIdx) => (
+                        {/* Fix: Explicitly type columns as string[] */}
+                        {(columns as string[]).map((col, cIdx) => (
                            <td key={col} className={`px-4 py-2 text-sm text-slate-600 dark:text-slate-300 truncate ${cIdx === 0 ? 'pl-6 font-medium' : ''}`}>
                               {formatValue(col, row[col])}
                            </td>
@@ -605,7 +623,8 @@ const ExplainVisualizer: React.FC<{ plan: ExplainNode | null, loading: boolean, 
             {node.relation && <div className="text-[11px] text-slate-600 dark:text-slate-300 mt-1 font-mono font-bold">{node.relation}</div>}
             <div className="text-[10px] text-slate-500 mt-2 flex gap-4 pt-2 border-t border-slate-100 dark:border-slate-700"><span className="flex items-center gap-1"><Hash className="w-3 h-3" /> Rows: {node.rows}</span><span className="flex items-center gap-1"><Database className="w-3 h-3" /> Width: {node.width}</span></div>
          </div>
-         {node.children && node.children.map(child => renderNode(child, depth + 1))}
+         {/* Fix: Explicitly type children as ExplainNode[] */}
+         {node.children && (node.children as ExplainNode[]).map(child => renderNode(child, depth + 1))}
       </div>
    );
    return <div className="p-6 overflow-auto bg-slate-50 dark:bg-slate-900 h-full">{renderNode(plan)}</div>;
@@ -640,7 +659,7 @@ interface ResultsStepProps {
   schema?: DatabaseSchema;
 }
 
-type ResultTab = 'table' | 'chart' | 'analysis' | 'explain';
+type ResultTab = 'table' | 'chart' | 'terminal' | 'analysis' | 'explain';
 
 const ResultsStep: React.FC<ResultsStepProps> = ({ data, sql, onBackToBuilder, onNewConnection, settings, onAddToDashboard, onShowToast, credentials, executionDuration, schema }) => {
   const [activeTab, setActiveTab] = useState<ResultTab>('table');
@@ -690,6 +709,52 @@ const ResultsStep: React.FC<ResultsStepProps> = ({ data, sql, onBackToBuilder, o
      return res;
   }, [localData, filters, localSearch]);
 
+  // Gera a tabela em formato ANSI String
+  const ansiTableString = useMemo(() => {
+    if (filteredData.length === 0) return "Nenhum dado retornado para os filtros atuais.";
+    
+    const cols = Object.keys(filteredData[0]);
+    const colWidths = cols.map(col => {
+      return Math.max(col.length, ...filteredData.map(row => {
+        const v = row[col];
+        return v === null ? 4 : String(v).length;
+      }));
+    });
+
+    const reset = "\x1b[0m";
+    const green = "\x1b[32m";
+    const blue = "\x1b[34m";
+    const yellow = "\x1b[33m";
+    const red = "\x1b[31m";
+    const cyan = "\x1b[36m";
+
+    let out = "";
+    // Borda Superior
+    out += "┌" + colWidths.map(w => "─".repeat(w + 2)).join("┬") + "┐\n";
+    // Cabeçalho
+    out += "│ " + cols.map((col, i) => `${blue}${col.padEnd(colWidths[i])}${reset}`).join(" │ ") + " │\n";
+    // Borda Intermediária
+    out += "├" + colWidths.map(w => "─".repeat(w + 2)).join("┼") + "┤\n";
+    // Linhas
+    filteredData.forEach(row => {
+      out += "│ " + cols.map((col, i) => {
+        const val = row[col];
+        let str = val === null ? 'NULL' : String(val);
+        let color = "";
+        
+        if (val === null) color = red;
+        else if (typeof val === 'boolean') color = val ? green : red;
+        else if (typeof val === 'number') color = yellow;
+        else if (col.toLowerCase().includes('id') || col.toLowerCase() === 'grid') color = cyan;
+        
+        return `${color}${str.padEnd(colWidths[i])}${reset}`;
+      }).join(" │ ") + " │\n";
+    });
+    // Borda Inferior
+    out += "└" + colWidths.map(w => "─".repeat(w + 2)).join("┴") + "┘";
+    return out;
+  }, [filteredData]);
+
   const highlightMatch = (text: string) => {
     const term = localSearch || filters.find(f => f.operator === 'contains')?.value || '';
     if (!term) return text;
@@ -738,13 +803,27 @@ const ResultsStep: React.FC<ResultsStepProps> = ({ data, sql, onBackToBuilder, o
            {isFullscreen && <button onClick={toggleFullscreen} className="p-2 bg-slate-100 dark:bg-slate-800 rounded-lg hover:bg-slate-200 transition-colors"><Minimize2 className="w-5 h-5 text-slate-600 dark:text-slate-300" /></button>}
            <div><h2 className="text-xl font-bold text-slate-800 dark:text-white flex items-center gap-3">Resultados<span className="text-xs font-normal text-slate-500 bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded-full border border-slate-200 dark:border-slate-700 shadow-sm">{filteredData.length} registros</span>{settings?.advancedMode && <span className="text-[10px] bg-orange-100 text-orange-700 px-2 py-0.5 rounded font-bold border border-orange-200 flex items-center gap-1"><PenTool className="w-3 h-3" /> Modo Edição</span>}</h2></div>
         </div>
-        <div className="flex bg-white dark:bg-slate-800 p-1 rounded-lg border border-slate-200 dark:border-slate-700 shadow-sm">
-           {[{ id: 'table', icon: <FileSpreadsheet className="w-4 h-4" />, label: 'Tabela' },{ id: 'chart', icon: <BarChart2 className="w-4 h-4" />, label: 'Gráficos' },{ id: 'analysis', icon: <MessageSquare className="w-4 h-4" />, label: 'AI Analyst' },{ id: 'explain', icon: <Activity className="w-4 h-4" />, label: 'Performance' }].map(tab => (
-              <button key={tab.id} onClick={() => { setActiveTab(tab.id as ResultTab); if(tab.id === 'explain') handleExplain(); }} className={`flex items-center gap-2 px-4 py-1.5 rounded-md text-sm font-medium transition-all ${activeTab === tab.id ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/50 dark:text-indigo-300' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}>{tab.icon} {tab.label}</button>
+        <div className="flex bg-white dark:bg-slate-800 p-1 rounded-lg border border-slate-200 dark:border-slate-700 shadow-sm overflow-x-auto">
+           {[
+             { id: 'table', icon: <FileSpreadsheet className="w-4 h-4" />, label: 'Tabela' },
+             { id: 'terminal', icon: <TerminalIcon className="w-4 h-4" />, label: 'Terminal (ANSI)' },
+             { id: 'chart', icon: <BarChart2 className="w-4 h-4" />, label: 'Gráficos' },
+             { id: 'analysis', icon: <MessageSquare className="w-4 h-4" />, label: 'AI Analyst' },
+             { id: 'explain', icon: <Activity className="w-4 h-4" />, label: 'Performance' }
+           ].map(tab => (
+              <button key={tab.id} onClick={() => { setActiveTab(tab.id as ResultTab); if(tab.id === 'explain') handleExplain(); }} className={`flex items-center gap-2 px-4 py-1.5 rounded-md text-sm font-medium transition-all whitespace-nowrap ${activeTab === tab.id ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/50 dark:text-indigo-300' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}>{tab.icon} {tab.label}</button>
            ))}
         </div>
         <div className="flex items-center gap-2">
            {activeTab === 'table' && (<div className="flex items-center gap-2"><SmartFilterBar columns={columns} filters={filters} onChange={setFilters} onClear={() => setFilters([])} />{filters.length === 0 && (<div className="relative group"><Search className="absolute left-3 top-2.5 w-3.5 h-3.5 text-slate-400 group-focus-within:text-indigo-500 transition-colors" /><input type="text" placeholder="Busca rápida..." value={localSearch} onChange={(e) => setLocalSearch(e.target.value)} className="pl-8 pr-4 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none w-48" /></div>)}</div>)}
+           {activeTab === 'terminal' && (
+              <button 
+                onClick={() => { navigator.clipboard.writeText(ansiTableString.replace(/\x1b\[\d+m/g, '')); onShowToast("Tabela (sem cores) copiada!", "success"); }}
+                className="flex items-center gap-2 px-3 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-medium hover:bg-slate-50 transition-colors text-slate-700 dark:text-slate-300"
+              >
+                <Copy className="w-4 h-4" /> Copiar Texto
+              </button>
+           )}
            <div className="relative">
               <button onClick={() => setShowExportMenu(!showExportMenu)} className={`flex items-center gap-2 px-3 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-medium hover:bg-slate-50 dark:hover:bg-slate-700 shadow-sm transition-colors text-slate-700 dark:text-slate-300 ${showExportMenu ? 'ring-2 ring-indigo-500' : ''}`}><Download className="w-4 h-4" /> Exportar</button>
               {showExportMenu && (<div className="absolute right-0 top-full mt-2 w-56 bg-white dark:bg-slate-800 rounded-xl shadow-xl border border-slate-200 dark:border-slate-700 z-[90] overflow-hidden animate-in fade-in zoom-in-95" onClick={() => setShowExportMenu(false)}><div className="p-2 border-b border-slate-100 dark:border-slate-700"><button onClick={() => { setShowCodeModal(true); setShowExportMenu(false); }} className="w-full text-left px-2 py-1.5 text-xs hover:bg-slate-50 dark:hover:bg-slate-700 rounded flex items-center gap-2 text-indigo-600 font-medium"><FileCode className="w-3.5 h-3.5" /> Exportar Código</button><button onClick={handleExportInsert} className="w-full text-left px-2 py-1.5 text-xs hover:bg-slate-50 dark:hover:bg-slate-700 rounded flex items-center gap-2"><Database className="w-3.5 h-3.5" /> Copy as SQL INSERT</button></div><div className="p-2"><button onClick={() => { navigator.clipboard.writeText(JSON.stringify(filteredData)); onShowToast("JSON copiado!", "success"); }} className="w-full text-left px-2 py-1.5 text-xs hover:bg-slate-50 dark:hover:bg-slate-700 rounded flex items-center gap-2"><FileJson className="w-3.5 h-3.5" /> Copy JSON Raw</button></div></div>)}
@@ -761,6 +840,7 @@ const ResultsStep: React.FC<ResultsStepProps> = ({ data, sql, onBackToBuilder, o
         ) : (
           <>
             {activeTab === 'table' && <VirtualTable data={filteredData} columns={columns} highlightMatch={highlightMatch} onRowClick={(row) => !settings?.advancedMode && setSelectedRow(row)} isAdvancedMode={settings?.advancedMode} onUpdateCell={handleUpdateCell} onOpenJson={setViewJson} onDrillDown={(table, col, val) => setDrillDownTarget({ table, col, val })} schema={schema} defaultTableName={mainTableName} credentials={credentials} />}
+            {activeTab === 'terminal' && <AnsiTerminal text={ansiTableString} />}
             {activeTab === 'chart' && <div className="p-6 h-full w-full relative"><DataVisualizer data={filteredData} onDrillDown={handleChartDrillDown} /> </div>}
             {activeTab === 'analysis' && <div className="flex-1 h-full"><DataAnalysisChat data={filteredData} sql={sql} /></div>}
             {activeTab === 'explain' && <ExplainVisualizer plan={explainPlan} loading={loadingExplain} error={explainError} />}
