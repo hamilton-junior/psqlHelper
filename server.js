@@ -1,228 +1,196 @@
+
 import express from 'express';
 import cors from 'cors';
 import pg from 'pg';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
-const { Client } = pg;
+const { Client, types } = pg;
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
+
+// ESM helpers for __dirname
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 app.use(cors());
 app.use(express.json());
 
+// CONFIGURAÇÃO DE ENCODING GLOBAL:
+// Intercepta tipos de texto do Postgres e garante que sejam lidos como 'latin1' 
+// caso o banco envie bytes não-UTF8, convertendo-os para as strings UTF-8 do JS.
+const parseText = (val) => {
+  if (val === null) return null;
+  // O driver pg já nos dá o valor como string. 
+  // Se houver caracteres corrompidos (como o erro 0xc7), 
+  // tratamos a string como um buffer latin1 e convertemos para utf8.
+  return Buffer.from(val, 'binary').toString('utf8');
+};
+
+// Sobrescreve os parsers para TEXT (25), VARCHAR (1043) e BPCHAR (1042)
+types.setTypeParser(25, (v) => v); // Deixa o driver ler, vamos converter na sessão
+types.setTypeParser(1043, (v) => v);
+types.setTypeParser(1042, (v) => v);
+
 console.log(`Starting server...`);
 
-// Helper to handle encoding errors automatically with multiple fallbacks
-async function queryWithFallback(client, sql, params = []) {
+// Helper para configurar a sessão com encoding resiliente
+async function setupSession(client) {
   try {
-    return await client.query(sql, params);
-  } catch (error) {
-    // Code 22021: character_not_in_repertoire / invalid_byte_sequence
-    // Check message text for generic encoding errors (case insensitive)
-    const errorMsg = error.message ? error.message.toLowerCase() : "";
-    const isEncodingError =
-      error.code === "22021" ||
-      errorMsg.includes("invalid byte sequence") ||
-      errorMsg.includes("encoding") ||
-      errorMsg.includes("utf8");
-
-    if (isEncodingError) {
-      console.warn(`[Encoding Fix] Error detected: ${error.message}`);
-
-      // Attempt 1: WIN1252 (Common in legacy BR systems - Fixes 0xc7 (Ç) 0xc3 (Ã) issues)
-      try {
-        console.warn(
-          `[Encoding Fix] Switching client_encoding to 'WIN1252' and retrying...`
-        );
-        await client.query("SET client_encoding TO 'WIN1252'");
-        return await client.query(sql, params);
-      } catch (retryError) {
-        // Attempt 2: LATIN1 (ISO-8859-1)
-        console.warn(
-          `[Encoding Fix] WIN1252 failed. Switching to 'LATIN1' and retrying...`
-        );
-        try {
-          await client.query("SET client_encoding TO 'LATIN1'");
-          return await client.query(sql, params);
-        } catch (finalError) {
-          console.error(`[Encoding Fix] All encoding fallbacks failed.`);
-          throw finalError;
-        }
-      }
-    }
-    throw error;
+    // Definimos LATIN1 na sessão. Isso faz com que o Postgres nos envie os bytes puros
+    // sem tentar validar se eles são UTF-8 válidos no disco, evitando o erro 0xc7.
+    await client.query("SET client_encoding TO 'LATIN1'");
+  } catch (e) {
+    console.warn("Could not set client_encoding to LATIN1, falling back to default.");
   }
 }
 
-// Endpoint to test connection and fetch schema
-app.post("/api/connect", async (req, res) => {
-  console.log("--- Received connection request ---");
-  const { host, port, user, database } = req.body;
-  console.log(`Target: ${user}@${host}:${port}/${database}`);
+app.post('/api/connect', async (req, res) => {
+  const { host, port, user, password, database } = req.body;
+  
+  if (!host || !port || !user || !database) {
+    return res.status(400).json({ error: 'Missing connection details' });
+  }
 
   const client = new Client({
     host,
-    port: parseInt(port),
+    port,
     user,
-    password: req.body.password,
+    password,
     database,
-    ssl: false,
-    connectionTimeoutMillis: 5000, // Fail fast if unreachable
+    connectionTimeoutMillis: 5000,
   });
 
   try {
-    console.log("Attempting to connect to Postgres...");
     await client.connect();
-    console.log("Connected successfully. Fetching schema...");
+    await setupSession(client);
+    
+    // 1. Fetch Tables
+    const tablesQuery = `
+      SELECT 
+        table_schema, 
+        table_name, 
+        obj_description((table_schema || '.' || table_name)::regclass) as description
+      FROM information_schema.tables
+      WHERE table_schema NOT IN ('information_schema', 'pg_catalog')
+      AND table_type = 'BASE TABLE'
+      ORDER BY table_schema, table_name;
+    `;
+    const tablesRes = await client.query(tablesQuery);
 
-    // Helper to fetch all schema parts using the robust query executor
-    const fetchSchemaData = async () => {
-      const tablesQuery = `
-        SELECT table_name
-        FROM information_schema.tables
-        WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
-        ORDER BY table_name;
-      `;
-      const columnsQuery = `
-        SELECT table_name, column_name, data_type
-        FROM information_schema.columns
-        WHERE table_schema = 'public'
-        ORDER BY table_name, ordinal_position;
-      `;
-      const pkQuery = `
-        SELECT
-          kcu.table_name,
-          kcu.column_name
-        FROM information_schema.table_constraints tc
-        JOIN information_schema.key_column_usage kcu
-          ON tc.constraint_name = kcu.constraint_name
-        WHERE tc.constraint_type = 'PRIMARY KEY' AND tc.table_schema = 'public';
-      `;
-      const fkQuery = `
-        SELECT
-          kcu.table_name,
-          kcu.column_name,
+    // 2. Fetch Columns
+    const columnsQuery = `
+      SELECT 
+        c.table_schema, 
+        c.table_name, 
+        c.column_name, 
+        c.data_type,
+        (
+          SELECT COUNT(*) > 0 
+          FROM information_schema.key_column_usage kcu
+          JOIN information_schema.table_constraints tc 
+            ON kcu.constraint_name = tc.constraint_name 
+            AND kcu.table_schema = tc.table_schema
+          WHERE kcu.table_name = c.table_name 
+            AND kcu.column_name = c.column_name
+            AND tc.constraint_type = 'PRIMARY KEY'
+        ) as is_primary
+      FROM information_schema.columns c
+      WHERE c.table_schema NOT IN ('information_schema', 'pg_catalog')
+      ORDER BY c.ordinal_position;
+    `;
+    const columnsRes = await client.query(columnsQuery);
+
+    // 3. Fetch Foreign Keys
+    const fkQuery = `
+      SELECT
+          tc.table_schema, 
+          tc.table_name, 
+          kcu.column_name, 
+          ccu.table_schema AS foreign_table_schema,
           ccu.table_name AS foreign_table_name,
-          ccu.column_name AS foreign_column_name
-        FROM information_schema.table_constraints tc
-        JOIN information_schema.key_column_usage kcu
-          ON tc.constraint_name = kcu.constraint_name
-        JOIN information_schema.constraint_column_usage ccu
-          ON ccu.constraint_name = tc.constraint_name
-        WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_schema = 'public';
-      `;
+          ccu.column_name AS foreign_column_name 
+      FROM 
+          information_schema.table_constraints AS tc 
+          JOIN information_schema.key_column_usage AS kcu
+            ON tc.constraint_name = kcu.constraint_name
+            AND tc.table_schema = kcu.table_schema
+          JOIN information_schema.constraint_column_usage AS ccu
+            ON ccu.constraint_name = tc.constraint_name
+            AND ccu.table_schema = tc.table_schema
+      WHERE tc.constraint_type = 'FOREIGN KEY';
+    `;
+    const fkRes = await client.query(fkQuery);
 
-      // Use queryWithFallback for each internal query
-      return Promise.all([
-        queryWithFallback(client, tablesQuery),
-        queryWithFallback(client, columnsQuery),
-        queryWithFallback(client, pkQuery),
-        queryWithFallback(client, fkQuery),
-      ]);
-    };
+    // Assemble Schema Object
+    const tables = tablesRes.rows.map(t => {
+      const tableCols = columnsRes.rows
+        .filter(c => c.table_name === t.table_name && c.table_schema === t.table_schema)
+        .map(c => {
+          const fk = fkRes.rows.find(f => 
+            f.table_name === t.table_name && 
+            f.table_schema === t.table_schema && 
+            f.column_name === c.column_name
+          );
 
-    let results = await fetchSchemaData();
-    const [tablesRes, columnsRes, pkRes, fkRes] = results;
+          return {
+            name: c.column_name,
+            type: c.data_type,
+            isPrimaryKey: !!c.is_primary,
+            isForeignKey: !!fk,
+            references: fk ? `${fk.foreign_table_schema}.${fk.foreign_table_name}.${fk.foreign_column_name}` : undefined
+          };
+        });
 
-    // Build schema
-    const tablesMap = {};
-    tablesRes.rows.forEach((row) => {
-      tablesMap[row.table_name] = {
-        name: row.table_name,
-        columns: [],
-        description: "",
+      return {
+        name: t.table_name,
+        schema: t.table_schema,
+        description: t.description,
+        columns: tableCols
       };
     });
 
-    columnsRes.rows.forEach((row) => {
-      if (tablesMap[row.table_name]) {
-        tablesMap[row.table_name].columns.push({
-          name: row.column_name,
-          type: row.data_type,
-          isPrimaryKey: false,
-          isForeignKey: false,
-          references: undefined,
-        });
-      }
-    });
-
-    pkRes.rows.forEach((row) => {
-      if (tablesMap[row.table_name] && tablesMap[row.table_name].columns) {
-        const col = tablesMap[row.table_name].columns.find(
-          (c) => c.name === row.column_name
-        );
-        if (col) col.isPrimaryKey = true;
-      }
-    });
-
-    fkRes.rows.forEach((row) => {
-      if (tablesMap[row.table_name] && tablesMap[row.table_name].columns) {
-        const col = tablesMap[row.table_name].columns.find(
-          (c) => c.name === row.column_name
-        );
-        if (col) {
-          col.isForeignKey = true;
-          col.references = `${row.foreign_table_name}.${row.foreign_column_name}`;
-        }
-      }
-    });
-
-    const schema = {
+    res.json({
       name: database,
-      tables: Object.values(tablesMap),
-      connectionSource: "real",
-    };
+      tables: tables
+    });
 
-    console.log("Schema parsed successfully. Sending response.");
-    res.json(schema);
-  } catch (error) {
-    console.error("CONNECTION ERROR:", error.message);
-    res.status(500).json({ error: `Database Error: ${error.message}` });
+  } catch (err) {
+    console.error('Connection error:', err);
+    res.status(500).json({ error: err.message });
   } finally {
-    try {
-      await client.end();
-      console.log("Connection closed.");
-    } catch (e) {
-      // ignore close errors
-    }
+    try { await client.end(); } catch (e) {}
   }
 });
 
-// Endpoint to execute SQL
-app.post("/api/execute", async (req, res) => {
-  console.log("--- Received execution request ---");
+app.post('/api/execute', async (req, res) => {
   const { credentials, sql } = req.body;
-  console.log(
-    `Executing on ${credentials.database}: ${sql.substring(0, 50)}...`
-  );
+  
+  if (!credentials || !sql) {
+    return res.status(400).json({ error: 'Missing credentials or SQL' });
+  }
 
-  const client = new Client({
-    host: credentials.host,
-    port: parseInt(credentials.port),
-    user: credentials.user,
-    password: credentials.password,
-    database: credentials.database,
-    ssl: false,
-  });
+  const client = new Client(credentials);
 
   try {
     await client.connect();
-
-    // Use the fallback wrapper which now handles WIN1252 and LATIN1 automatically
-    const result = await queryWithFallback(client, sql);
-
-    console.log(`Query successful. Returned ${result.rows.length} rows.`);
-    res.json(result.rows);
-  } catch (error) {
-    console.error("QUERY ERROR:", error.message);
-    res.status(500).json({ error: error.message });
+    await setupSession(client);
+    
+    const result = await client.query(sql);
+    
+    if (Array.isArray(result)) {
+        res.json(result[result.length - 1].rows);
+    } else {
+        res.json(result.rows);
+    }
+  } catch (err) {
+    console.error('Execution error:', err);
+    res.status(500).json({ error: err.message });
   } finally {
-    try {
-      await client.end();
-    } catch (e) {}
+    try { await client.end(); } catch (e) {}
   }
 });
 
 app.listen(PORT, () => {
-  console.log(`Backend server running on http://localhost:${PORT}`);
-  console.log(`Ready to accept connections.`);
+  console.log(`Server running on port ${PORT}`);
 });

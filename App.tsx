@@ -1,167 +1,303 @@
 
-import React, { useState, useEffect } from 'react';
-import { DatabaseSchema, AppStep, BuilderState, QueryResult, DbCredentials, AppSettings, DEFAULT_SETTINGS } from './types';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { 
+  DatabaseSchema, AppStep, BuilderState, QueryResult, DbCredentials, 
+  AppSettings, DEFAULT_SETTINGS, DashboardItem, VirtualRelation,
+  DiffRow
+} from './types';
 import Sidebar from './components/Sidebar';
 import ConnectionStep from './components/steps/ConnectionStep';
 import BuilderStep from './components/steps/BuilderStep';
 import PreviewStep from './components/steps/PreviewStep';
 import ResultsStep from './components/steps/ResultsStep';
+import DashboardStep from './components/steps/DashboardStep';
+import DataDiffStep from './components/steps/DataDiffStep';
 import SettingsModal from './components/SettingsModal';
-import { generateSqlFromBuilderState, validateSqlQuery } from './services/geminiService';
+import SchemaDiagramModal from './components/SchemaDiagramModal';
+import ShortcutsModal from './components/ShortcutsModal';
+import SqlCheatSheetModal from './components/SqlCheatSheetModal';
+import VirtualRelationsModal from './components/VirtualRelationsModal';
+import TablePreviewModal from './components/TablePreviewModal';
+import AiPreferenceModal from './components/AiPreferenceModal';
+import LogAnalyzerModal from './components/LogAnalyzerModal'; // New
+import TemplateModal from './components/TemplateModal'; // New
+import HistoryModal from './components/HistoryModal'; // New
+import TourGuide, { TourStep } from './components/TourGuide';
+import { generateSqlFromBuilderState } from './services/geminiService';
+import { generateLocalSql } from './services/localSqlService';
 import { executeQueryReal } from './services/dbService';
-import { AlertTriangle, X } from 'lucide-react';
+import { executeOfflineQuery, initializeSimulation, SimulationData } from './services/simulationService';
+import { Toaster, toast } from 'react-hot-toast';
+import { AlertCircle, CheckCircle2, Info, X } from 'lucide-react';
 
-function App() {
-  // Settings State
-  const [settings, setSettings] = useState<AppSettings>(() => {
-    const saved = localStorage.getItem('psql-buddy-settings');
-    return saved ? JSON.parse(saved) : DEFAULT_SETTINGS;
-  });
-  const [showSettings, setShowSettings] = useState(false);
+const TOUR_STEPS: TourStep[] = [
+  { targetId: 'schema-viewer-panel', title: 'Navegador de Schema', content: 'Aqui você vê todas as tabelas e colunas do seu banco. Selecione tabelas para começar.', position: 'right' },
+  { targetId: 'magic-fill-bar', title: 'Magic Fill (IA)', content: 'Digite o que você precisa em linguagem natural e a IA preencherá o construtor para você.', position: 'bottom' },
+  { targetId: 'builder-main-panel', title: 'Área de Construção', content: 'Configure colunas, filtros e ordenação manualmente aqui.', position: 'left' },
+  { targetId: 'builder-footer-actions', title: 'Gerar SQL', content: 'Quando terminar, clique aqui para gerar o SQL e visualizar os resultados.', position: 'top' },
+];
 
-  // Global State for Quota Limits
-  const [quotaExhausted, setQuotaExhausted] = useState(false);
+const INITIAL_BUILDER_STATE: BuilderState = {
+  selectedTables: [],
+  selectedColumns: [],
+  aggregations: {},
+  joins: [],
+  filters: [],
+  groupBy: [],
+  orderBy: [],
+  limit: 100
+};
 
-  // Apply Theme - STRICT MODE for Tailwind
-  useEffect(() => {
-    const root = window.document.documentElement;
-    root.classList.remove('dark'); // Clean slate first
-    if (settings.theme === 'dark') {
-      root.classList.add('dark');
-    }
-    localStorage.setItem('psql-buddy-settings', JSON.stringify(settings));
-  }, [settings.theme]); // Depend strictly on the theme string value
-
-  // Navigation State
+const App: React.FC = () => {
+  // Application State
   const [currentStep, setCurrentStep] = useState<AppStep>('connection');
-  
-  // App Data State
   const [schema, setSchema] = useState<DatabaseSchema | null>(null);
   const [credentials, setCredentials] = useState<DbCredentials | null>(null);
-
-  const [builderState, setBuilderState] = useState<BuilderState>({
-    selectedTables: [],
-    selectedColumns: [],
-    joins: [],
-    filters: [],
-    groupBy: [],
-    orderBy: [],
-    limit: settings.defaultLimit
-  });
+  const [simulationData, setSimulationData] = useState<SimulationData>({});
   
+  // Builder State
+  const [builderState, setBuilderState] = useState<BuilderState>(INITIAL_BUILDER_STATE);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [progressMessage, setProgressMessage] = useState('');
+  
+  // Query & Execution State
   const [queryResult, setQueryResult] = useState<QueryResult | null>(null);
-  const [dbResults, setDbResults] = useState<any[]>([]);
-  
-  const [isProcessing, setIsProcessing] = useState(false); // For SQL Gen & Execution
-  const [isValidating, setIsValidating] = useState(false); // For Background Validation
-  const [error, setError] = useState<string | null>(null);
+  const [executionResult, setExecutionResult] = useState<any[]>([]);
+  const [isExecuting, setIsExecuting] = useState(false);
+  const [isValidating, setIsValidating] = useState(false);
+  const [executionDuration, setExecutionDuration] = useState(0);
+
+  // Dashboard & Diff
+  const [dashboardItems, setDashboardItems] = useState<DashboardItem[]>(() => {
+    try {
+      const stored = localStorage.getItem('psql-buddy-dashboard');
+      return stored ? JSON.parse(stored) : [];
+    } catch { return []; }
+  });
+
+  // Settings
+  const [settings, setSettings] = useState<AppSettings>(() => {
+    try {
+      const stored = localStorage.getItem('psql-buddy-settings');
+      return stored ? { ...DEFAULT_SETTINGS, ...JSON.parse(stored) } : DEFAULT_SETTINGS;
+    } catch { return DEFAULT_SETTINGS; }
+  });
+
+  // UI Toggles & Modals
+  const [showSettings, setShowSettings] = useState(false);
+  const [showShortcuts, setShowShortcuts] = useState(false);
+  const [showCheatSheet, setShowCheatSheet] = useState(false);
+  const [showDiagram, setShowDiagram] = useState(false);
+  const [showVirtualRelations, setShowVirtualRelations] = useState(false);
+  const [showAiPreference, setShowAiPreference] = useState(false);
+  const [showLogAnalyzer, setShowLogAnalyzer] = useState(false);
+  const [showTemplates, setShowTemplates] = useState(false);
+  const [showTour, setShowTour] = useState(false);
+  const [tablePreview, setTablePreview] = useState<{name: string, data: any[], loading: boolean, error: string | null} | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false); 
+
+  // Virtual Relations
+  const [virtualRelations, setVirtualRelations] = useState<VirtualRelation[]>([]);
+
+  // --- Effects ---
+
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', settings.theme === 'dark');
+    localStorage.setItem('psql-buddy-settings', JSON.stringify(settings));
+  }, [settings]);
+
+  useEffect(() => {
+    localStorage.setItem('psql-buddy-dashboard', JSON.stringify(dashboardItems));
+  }, [dashboardItems]);
 
   // --- Handlers ---
 
-  const handleSchemaLoaded = (newSchema: DatabaseSchema, creds: DbCredentials) => {
-    setError(null);
-    setSchema(newSchema);
+  const handleSchemaLoaded = (loadedSchema: DatabaseSchema, creds: DbCredentials) => {
+    setSchema(loadedSchema);
     setCredentials(creds);
-    // Reset downstream state
-    setBuilderState({ 
-      selectedTables: [], 
-      selectedColumns: [], 
-      joins: [],
-      filters: [],
-      groupBy: [],
-      orderBy: [],
-      limit: settings.defaultLimit
-    });
-    setQueryResult(null);
-    setDbResults([]);
-    setCurrentStep('builder');
-  };
-
-  const handleBuilderChange = (newState: BuilderState) => {
-    setBuilderState(newState);
-  };
-
-  const handleGeneratePreview = async () => {
-    if (!schema) return;
-    setError(null);
-    setIsProcessing(true);
     
-    // NOTE: Removed quota blocker here to allow generation attempt even if previous validation failed.
-    // If generation itself fails due to quota, it will be caught in the catch block.
+    if (loadedSchema.connectionSource === 'simulated') {
+       const simData = initializeSimulation(loadedSchema);
+       setSimulationData(simData);
+    }
+    
+    setCurrentStep('builder');
+    
+    const hasSeenTour = localStorage.getItem('psql-buddy-tour-seen');
+    if (!hasSeenTour) {
+       setShowAiPreference(true);
+    }
+  };
 
+  const handleAiPreferenceSelect = (enableAi: boolean) => {
+     setSettings(prev => ({ ...prev, enableAiGeneration: enableAi }));
+     setShowAiPreference(false);
+     setShowTour(true);
+     localStorage.setItem('psql-buddy-tour-seen', 'true');
+  };
+
+  const handleGenerateSql = async () => {
+    if (!schema) return;
+    setIsGenerating(true);
+    setProgressMessage("Analisando solicitação...");
+    
     try {
-      // 1. Generate SQL from visual state
-      const result = await generateSqlFromBuilderState(schema, builderState, settings.enableAiTips);
-
-      // Check for NO_RELATIONSHIP signal
-      if (result.sql === 'NO_RELATIONSHIP') {
-        setError("A IA não encontrou relacionamento entre estas tabelas. Vá para a aba 'Joins' e defina a conexão manualmente.");
-        setIsProcessing(false);
-        return;
+      let result: QueryResult;
+      
+      if (settings.enableAiGeneration) {
+         result = await generateSqlFromBuilderState(schema, builderState, settings.enableAiTips, (msg) => setProgressMessage(msg));
+      } else {
+         await new Promise(r => setTimeout(r, 500));
+         result = generateLocalSql(schema, builderState);
+         if (settings.enableAiValidation) {
+             result.validation = { isValid: true }; 
+         }
       }
       
       // 2. Update UI Immediately (Don't wait for validation)
       setQueryResult(result);
       setCurrentStep('preview');
-      setIsProcessing(false);
-
-      // 3. Run Validation in Background (if enabled and quota ok)
-      if (settings.enableAiValidation && !quotaExhausted) {
-        setIsValidating(true);
-        // PASS THE SCHEMA HERE so validation can check column existence
-        validateSqlQuery(result.sql, schema)
-          .then(validation => {
-            setQueryResult(prev => prev ? { ...prev, validation } : null);
-          })
-          .catch(err => {
-             console.error("Validação em segundo plano falhou:", err);
-             // If validation fails due to quota, just silently fail validation but don't break flow
-             if (err.message === "QUOTA_ERROR") {
-                setQuotaExhausted(true);
-                // Don't show global error, just disable validation silently in background
-             }
-          })
-          .finally(() => {
-            setIsValidating(false);
-          });
-      }
-
-    } catch (e: any) {
-      console.error(e);
-      if (e.message === "QUOTA_ERROR") {
-        setQuotaExhausted(true);
-        setError("Você atingiu o limite gratuito da IA. Aguarde um momento.");
-      } else {
-        setError(e.message || "Falha ao gerar SQL a partir da seleção.");
-      }
-      setIsProcessing(false);
-    }
-  };
-
-  const handleExecuteQuery = async () => {
-    if (!schema || !queryResult || !credentials) return;
-    setError(null);
-    setIsProcessing(true);
-    try {
-      // Execute on real DB via backend
-      const data = await executeQueryReal(credentials, queryResult.sql);
-      setDbResults(data);
-      setCurrentStep('results');
-    } catch (e: any) {
-      console.error(e);
-      setError("Falha na execução: " + e.message);
+    } catch (error: any) {
+      console.error(error);
+      handleShowToast(error.message || "Erro ao gerar SQL", 'error');
     } finally {
-      setIsProcessing(false);
+      setIsGenerating(false);
+      setProgressMessage("");
     }
   };
 
-  const handleReset = () => {
-    setError(null);
-    setCurrentStep('connection');
-    setSchema(null);
-    setCredentials(null);
-    setQueryResult(null);
-    setDbResults([]);
+  const handleSkipAi = () => {
+     if (!schema) return;
+     try {
+        const result = generateLocalSql(schema, builderState);
+        result.explanation = "Geração fallback (local) utilizada pois a IA estava demorando.";
+        setQueryResult(result);
+        setCurrentStep('preview');
+        setIsGenerating(false);
+     } catch (e: any) {
+        handleShowToast("Erro ao gerar SQL localmente: " + e.message, 'error');
+     }
+  };
+
+  const handleExecuteQuery = async (sqlOverride?: string) => {
+    if (!credentials || !schema) return;
+    
+    const sqlToRun = sqlOverride || queryResult?.sql;
+    if (!sqlToRun) return;
+
+    setIsExecuting(true);
+    setExecutionResult([]);
+    const start = performance.now();
+
+    try {
+       let data: any[] = [];
+       if (credentials.host === 'simulated') {
+          if (sqlOverride && sqlOverride !== queryResult?.sql) {
+             handleShowToast("Nota: Em modo simulação, edições manuais no SQL podem não refletir nos dados fictícios complexos. Usando lógica do construtor.", 'info');
+          }
+          data = executeOfflineQuery(schema, simulationData, builderState);
+          await new Promise(r => setTimeout(r, 600));
+       } else {
+          data = await executeQueryReal(credentials, sqlToRun);
+       }
+       
+       setExecutionResult(data);
+       setExecutionDuration(performance.now() - start);
+       
+       if (sqlOverride && queryResult) {
+          setQueryResult({ ...queryResult, sql: sqlOverride });
+       }
+       
+       setCurrentStep('results');
+    } catch (error: any) {
+       console.error(error);
+       handleShowToast(error.message || "Erro na execução da query", 'error');
+    } finally {
+       setIsExecuting(false);
+    }
+  };
+
+  const handleAddVirtualRelation = (rel: VirtualRelation) => {
+     setVirtualRelations(prev => [...prev, rel]);
+     if (schema) {
+        const newSchema = { ...schema };
+        const sourceTbl = newSchema.tables.find(t => `${t.schema || 'public'}.${t.name}` === rel.sourceTable);
+        if (sourceTbl) {
+           const col = sourceTbl.columns.find(c => c.name === rel.sourceColumn);
+           if (col) {
+              col.isForeignKey = true;
+              col.references = `${rel.targetTable}.${rel.targetColumn}`; 
+           }
+        }
+        setSchema(newSchema);
+     }
+     handleShowToast("Relacionamento virtual criado com sucesso!", 'success');
+  };
+
+  const handleRemoveVirtualRelation = (id: string) => {
+     const rel = virtualRelations.find(r => r.id === id);
+     setVirtualRelations(prev => prev.filter(r => r.id !== id));
+     if (schema && rel) {
+        const newSchema = { ...schema };
+        const sourceTbl = newSchema.tables.find(t => `${t.schema || 'public'}.${t.name}` === rel.sourceTable);
+        if (sourceTbl) {
+           const col = sourceTbl.columns.find(c => c.name === rel.sourceColumn);
+           if (col) {
+              col.isForeignKey = false;
+              col.references = undefined;
+           }
+        }
+        setSchema(newSchema);
+     }
+  };
+
+  const handleCheckOverlap = async (tA: string, cA: string, tB: string, cB: string): Promise<number> => {
+     if (!credentials) return 0;
+     if (credentials.host === 'simulated') return 10; 
+     const sql = `SELECT COUNT(*) as count FROM ${tA} A JOIN ${tB} B ON A.${cA} = B.${cB}`;
+     const res = await executeQueryReal(credentials, sql);
+     return parseInt(res[0].count);
+  };
+
+  const handleAddToDashboard = (item: Omit<DashboardItem, 'id' | 'createdAt'>) => {
+     const newItem: DashboardItem = {
+        ...item,
+        id: crypto.randomUUID(),
+        createdAt: Date.now()
+     };
+     setDashboardItems(prev => [newItem, ...prev]);
+  };
+
+  const handlePreviewTable = async (tableName: string) => {
+     setTablePreview({ name: tableName, data: [], loading: true, error: null });
+     try {
+        let data = [];
+        if (credentials?.host === 'simulated' && schema) {
+           const fakeState: BuilderState = { ...INITIAL_BUILDER_STATE, selectedTables: [`public.${tableName}`], limit: 10 };
+           data = executeOfflineQuery(schema, simulationData, fakeState);
+        } else if (credentials) {
+           data = await executeQueryReal(credentials, `SELECT * FROM ${tableName} LIMIT 10`);
+        }
+        setTablePreview(prev => prev ? { ...prev, data, loading: false } : null);
+     } catch (e: any) {
+        setTablePreview(prev => prev ? { ...prev, loading: false, error: e.message } : null);
+     }
+  };
+
+  const handleShowToast = (msg: string, type: 'success' | 'error' | 'info' = 'info') => {
+     if (type === 'success') toast.success(msg);
+     else if (type === 'error') toast.error(msg);
+     else toast(msg, { icon: <Info className="w-4 h-4 text-blue-500" /> });
+  };
+
+  // Run SQL from External Components (Templates, Analyzer)
+  const handleRunExternalSql = (sql: string) => {
+     setQueryResult({
+        sql: sql,
+        explanation: 'Gerada via ferramenta externa.',
+        tips: []
+     });
+     setCurrentStep('preview');
   };
 
   const handleNavigate = (step: AppStep) => {
@@ -170,98 +306,169 @@ function App() {
   };
 
   return (
-    <div className="flex h-screen bg-slate-900 text-slate-100 overflow-hidden font-sans">
-      {/* Left Navigation Sidebar */}
+    <div className="flex h-screen w-screen bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 overflow-hidden font-sans">
+      <Toaster position="top-right" toastOptions={{ className: 'text-sm font-medium', style: { background: '#1e293b', color: '#fff' } }} />
+      
       <Sidebar 
-        currentStep={currentStep} 
-        onNavigate={handleNavigate} 
-        hasSchema={!!schema}
+        currentStep={currentStep}
+        onNavigate={setCurrentStep}
+        schema={schema}
         onOpenSettings={() => setShowSettings(true)}
+        onOpenDiagram={() => setShowDiagram(true)}
+        onOpenHistory={() => setHistoryOpen(true)}
+        onRegenerateClick={() => { setSchema(null); setCurrentStep('connection'); }}
+        onDescriptionChange={(tableName, newDesc) => {
+           if (schema) {
+              const updatedTables = schema.tables.map(t => t.name === tableName ? { ...t, description: newDesc } : t);
+              setSchema({ ...schema, tables: updatedTables });
+           }
+        }}
+        onOpenShortcuts={() => setShowShortcuts(true)}
+        onOpenCheatSheet={() => setShowCheatSheet(true)}
+        onOpenVirtualRelations={() => setShowVirtualRelations(true)}
+        onOpenLogAnalyzer={() => setShowLogAnalyzer(true)}
+        onOpenTemplates={() => setShowTemplates(true)}
       />
 
-      {/* Main Content Area */}
-      <main className="flex-1 flex flex-col min-w-0 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 overflow-hidden rounded-tl-3xl shadow-2xl my-2 mr-2 relative">
-        
-        {/* Progress Bar (Visual Top) */}
-        <div className="h-1.5 bg-slate-200 dark:bg-slate-800 w-full shrink-0">
-          <div 
-            className="h-full bg-indigo-600 transition-all duration-500 ease-out"
-            style={{ 
-              width: currentStep === 'connection' ? '25%' : 
-                     currentStep === 'builder' ? '50%' : 
-                     currentStep === 'preview' ? '75%' : '100%' 
-            }}
-          />
-        </div>
+      <main className="flex-1 overflow-hidden relative flex flex-col">
+        <div className="flex-1 p-6 overflow-hidden h-full">
+           {currentStep === 'connection' && (
+              <ConnectionStep onSchemaLoaded={handleSchemaLoaded} settings={settings} />
+           )}
+           
+           {currentStep === 'builder' && schema && (
+              <BuilderStep 
+                 schema={schema} 
+                 state={builderState} 
+                 onStateChange={setBuilderState}
+                 onGenerate={handleGenerateSql}
+                 onSkipAi={handleSkipAi}
+                 isGenerating={isGenerating}
+                 progressMessage={progressMessage}
+                 settings={settings}
+                 onDescriptionChange={(tableName, newDesc) => {
+                    const updatedTables = schema.tables.map(t => t.name === tableName ? { ...t, description: newDesc } : t);
+                    setSchema({ ...schema, tables: updatedTables });
+                 }}
+                 onPreviewTable={handlePreviewTable}
+              />
+           )}
 
-        {/* Global Error Banner */}
-        {error && (
-          <div className="bg-red-50 dark:bg-red-900/30 border-b border-red-200 dark:border-red-800 p-4 flex items-center justify-between animate-in slide-in-from-top-2">
-            <div className="flex items-center gap-3">
-              <AlertTriangle className="w-5 h-5 text-red-600 dark:text-red-400" />
-              <span className="text-sm font-medium text-red-800 dark:text-red-200">{error}</span>
-            </div>
-            <button 
-              onClick={() => setError(null)}
-              className="text-red-400 hover:text-red-600 p-1 rounded-full hover:bg-red-100 dark:hover:bg-red-900/50"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-        )}
+           {currentStep === 'preview' && queryResult && (
+              <PreviewStep 
+                 queryResult={queryResult}
+                 onExecute={handleExecuteQuery}
+                 onBack={() => setCurrentStep('builder')}
+                 isExecuting={isExecuting}
+                 isValidating={isValidating}
+                 validationDisabled={!settings.enableAiValidation}
+                 schema={schema || undefined}
+              />
+           )}
 
-        <div className="flex-1 overflow-y-auto p-6 sm:p-8">
-          {currentStep === 'connection' && (
-            <ConnectionStep 
-              onSchemaLoaded={handleSchemaLoaded}
-              settings={settings}
-            />
-          )}
+           {currentStep === 'results' && (
+              <ResultsStep 
+                 data={executionResult}
+                 sql={queryResult?.sql || ''}
+                 onBackToBuilder={() => setCurrentStep('builder')}
+                 onNewConnection={() => { setSchema(null); setCurrentStep('connection'); }}
+                 settings={settings}
+                 onAddToDashboard={handleAddToDashboard}
+                 onShowToast={handleShowToast}
+                 credentials={credentials}
+                 executionDuration={executionDuration}
+                 schema={schema || undefined}
+              />
+           )}
 
-          {currentStep === 'builder' && schema && (
-            <BuilderStep 
-              schema={schema}
-              state={builderState}
-              onStateChange={handleBuilderChange}
-              onGenerate={handleGeneratePreview}
-              isGenerating={isProcessing}
-              settings={settings}
-            />
-          )}
+           {currentStep === 'dashboard' && (
+              <DashboardStep 
+                 items={dashboardItems} 
+                 onRemoveItem={(id) => setDashboardItems(prev => prev.filter(i => i.id !== id))}
+                 onClearAll={() => setDashboardItems([])}
+              />
+           )}
 
-          {currentStep === 'preview' && queryResult && (
-            <PreviewStep 
-              queryResult={queryResult}
-              onExecute={handleExecuteQuery}
-              onBack={() => handleNavigate('builder')}
-              isExecuting={isProcessing}
-              isValidating={isValidating}
-              validationDisabled={!settings.enableAiValidation || quotaExhausted}
-            />
-          )}
-
-          {currentStep === 'results' && (
-            <ResultsStep 
-              data={dbResults}
-              sql={queryResult?.sql || ''}
-              onBackToBuilder={() => handleNavigate('builder')}
-              onNewConnection={handleReset}
-            />
-          )}
+           {currentStep === 'datadiff' && schema && (
+              <DataDiffStep 
+                 schema={schema} 
+                 credentials={credentials}
+                 simulationData={simulationData}
+              />
+           )}
         </div>
       </main>
 
-      {/* Settings Modal */}
+      {/* Modals */}
       {showSettings && (
-        <SettingsModal 
-          settings={settings}
-          onClose={() => setShowSettings(false)}
-          onSave={(newSettings) => setSettings(newSettings)}
-          quotaExhausted={quotaExhausted}
-        />
+         <SettingsModal settings={settings} onSave={setSettings} onClose={() => setShowSettings(false)} />
       )}
+
+      {showDiagram && schema && (
+         <SchemaDiagramModal schema={schema} onClose={() => setShowDiagram(false)} />
+      )}
+
+      {showShortcuts && <ShortcutsModal onClose={() => setShowShortcuts(false)} />}
+      
+      {showCheatSheet && <SqlCheatSheetModal onClose={() => setShowCheatSheet(false)} />}
+
+      {showVirtualRelations && schema && (
+         <VirtualRelationsModal
+            schema={schema}
+            existingRelations={virtualRelations}
+            onAddRelation={handleAddVirtualRelation}
+            onRemoveRelation={handleRemoveVirtualRelation}
+            onClose={() => setShowVirtualRelations(false)}
+            onCheckOverlap={handleCheckOverlap}
+            credentials={credentials}
+         />
+      )}
+
+      {showLogAnalyzer && schema && (
+         <LogAnalyzerModal 
+            schema={schema}
+            onClose={() => setShowLogAnalyzer(false)}
+            onRunSql={handleRunExternalSql}
+         />
+      )}
+
+      {showTemplates && (
+         <TemplateModal 
+            onClose={() => setShowTemplates(false)}
+            onRunTemplate={handleRunExternalSql}
+         />
+      )}
+
+      {historyOpen && (
+         <HistoryModal 
+            onClose={() => setHistoryOpen(false)}
+            onLoadQuery={handleRunExternalSql}
+         />
+      )}
+
+      {tablePreview && (
+         <TablePreviewModal 
+            tableName={tablePreview.name}
+            data={tablePreview.data}
+            isLoading={tablePreview.loading}
+            error={tablePreview.error}
+            onClose={() => setTablePreview(null)}
+         />
+      )}
+
+      {showAiPreference && (
+         <AiPreferenceModal onSelect={handleAiPreferenceSelect} />
+      )}
+
+      <TourGuide 
+         steps={TOUR_STEPS}
+         isOpen={showTour}
+         onClose={() => setShowTour(false)}
+         onComplete={() => setShowTour(false)}
+      />
+
     </div>
   );
-}
+};
 
 export default App;
