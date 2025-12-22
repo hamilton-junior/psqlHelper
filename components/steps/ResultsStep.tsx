@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { ArrowLeft, Database, ChevronLeft, ChevronRight, FileSpreadsheet, Search, Copy, Check, BarChart2, MessageSquare, Download, Activity, LayoutGrid, FileText, Pin, AlertCircle, Info, MoreHorizontal, FileJson, FileCode, Hash, Type, Filter, Plus, X, Trash2, SlidersHorizontal, Clock, Maximize2, Minimize2, ExternalLink, Braces, PenTool, Save, Eye, Anchor, Link as LinkIcon, Settings2, Loader2, Folder, Terminal as TerminalIcon } from 'lucide-react';
 import { AppSettings, DashboardItem, ExplainNode, DatabaseSchema, Table } from '../../types';
@@ -9,14 +8,11 @@ import JsonViewerModal from '../JsonViewerModal';
 import DrillDownModal from '../DrillDownModal'; 
 import { addToHistory } from '../../services/historyService';
 import { executeQueryReal, explainQueryReal } from '../../services/dbService';
-import { jsPDF } from "jspdf";
-import html2canvas from 'html2canvas';
 import BeginnerTip from '../BeginnerTip';
 
 // --- Sub-componente de Renderização ANSI ---
 const AnsiTerminal: React.FC<{ text: string }> = ({ text }) => {
   // Parser simples de ANSI para React spans
-  // Fix: explicitly type the split result as string[]
   const parts: string[] = text.split(/(\x1b\[\d+m)/);
   let currentColor = "";
   
@@ -367,8 +363,20 @@ interface VirtualTableProps {
    credentials?: any;
 }
 
-// Fix: Destructure props with explicit type to ensure columns and data are not treated as unknown
-const VirtualTable: React.FC<VirtualTableProps> = ({ data, columns, highlightMatch, onRowClick, isAdvancedMode, onUpdateCell, onOpenJson, onDrillDown, schema, defaultTableName, credentials }: VirtualTableProps) => {
+// Fix: Remove redundant React.FC and use explicit props type in parameter for better inference
+const VirtualTable = ({ 
+  data, 
+  columns, 
+  highlightMatch, 
+  onRowClick, 
+  isAdvancedMode, 
+  onUpdateCell, 
+  onOpenJson, 
+  onDrillDown, 
+  schema, 
+  defaultTableName, 
+  credentials 
+}: VirtualTableProps) => {
    const [currentPage, setCurrentPage] = useState(1);
    const [rowsPerPage, setRowsPerPage] = useState(25);
    const [activeProfileCol, setActiveProfileCol] = useState<string | null>(null);
@@ -397,8 +405,7 @@ const VirtualTable: React.FC<VirtualTableProps> = ({ data, columns, highlightMat
    const totalRows = data.length;
    const totalPages = Math.ceil(totalRows / Math.max(rowsPerPage, 1));
    const startIndex = (currentPage - 1) * rowsPerPage;
-   // Fix: Explicitly type currentData as any[]
-   const currentData: any[] = data.slice(startIndex, startIndex + rowsPerPage);
+   const currentData = data.slice(startIndex, startIndex + rowsPerPage);
 
    const getLinkTarget = (colName: string): { table: string, pk: string, previewCol?: string } | null => {
       if (manualMappings[colName]) {
@@ -510,8 +517,7 @@ const VirtualTable: React.FC<VirtualTableProps> = ({ data, columns, highlightMat
             <table className="w-full text-left border-collapse table-fixed">
                <thead className="bg-slate-50/90 dark:bg-slate-900/90 backdrop-blur-sm sticky top-0 z-10 shadow-sm">
                   <tr>
-                     {/* Fix: Explicitly type columns as string[] to avoid unknown map error */}
-                     {(columns as string[]).map((col, idx) => {
+                     {columns.map((col, idx) => {
                         const mapping = manualMappings[col];
                         const hasManualMapping = !!mapping;
                         const autoTarget = getLinkTarget(col);
@@ -554,8 +560,7 @@ const VirtualTable: React.FC<VirtualTableProps> = ({ data, columns, highlightMat
                <tbody className="divide-y divide-slate-100 dark:divide-slate-700/50">
                   {currentData.map((row, idx) => (
                      <tr key={idx} onClick={() => onRowClick(row)} className="group hover:bg-indigo-50/50 dark:hover:bg-indigo-900/20 transition-colors h-[40px] cursor-pointer">
-                        {/* Fix: Explicitly type columns as string[] */}
-                        {(columns as string[]).map((col, cIdx) => (
+                        {columns.map((col, cIdx) => (
                            <td key={col} className={`px-4 py-2 text-sm text-slate-600 dark:text-slate-300 truncate ${cIdx === 0 ? 'pl-6 font-medium' : ''}`}>
                               {formatValue(col, row[col])}
                            </td>
@@ -612,19 +617,20 @@ const ColumnProfiler: React.FC<{ data: any[], column: string, onClose: () => voi
    );
 };
 
-const ExplainVisualizer: React.FC<{ plan: ExplainNode | null, loading: boolean, error: string | null }> = ({ plan, loading, error }) => {
+// Fix: Remove redundant React.FC and use explicit props type in parameter for better inference
+const ExplainVisualizer = ({ plan, loading, error }: { plan: ExplainNode | null, loading: boolean, error: string | null }) => {
    if (loading) return <div className="p-10 text-center"><div className="animate-spin w-8 h-8 border-4 border-indigo-500 border-t-transparent rounded-full mx-auto mb-2"></div><p className="text-slate-500">Analisando performance...</p></div>;
    if (error) return <div className="p-10 text-center flex flex-col items-center justify-center text-slate-400"><div className="w-16 h-16 bg-red-50 dark:bg-red-900/20 rounded-full flex items-center justify-center mb-4"><AlertCircle className="w-8 h-8 text-red-500" /></div><h3 className="text-slate-700 dark:text-slate-200 font-bold mb-1">Falha na Análise</h3><p className="text-sm max-w-md">{error}</p></div>;
    if (!plan) return <div className="p-10 text-center text-slate-400">Nenhum plano disponível.</div>;
+   
    const renderNode = (node: ExplainNode, depth: number = 0) => (
       <div key={Math.random()} style={{ marginLeft: depth * 20 }} className="mb-2 group">
          <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded p-3 shadow-sm inline-block min-w-[300px] hover:border-indigo-400 transition-colors">
-            <div className="flex justify-between font-bold text-xs text-slate-700 dark:text-slate-200"><span className="text-indigo-600 dark:text-indigo-400">{node.type}</span><span className="text-slate-400 bg-slate-100 dark:bg-slate-900 px-2 rounded-full">{(node.cost?.total || 0).toFixed(2)} cost</span></div>
+            <div className="flex justify-between font-bold text-xs text-slate-700 dark:text-slate-200"><span className="text-indigo-600 dark:text-indigo-400">{node.type}</span><span className="text-slate-400 bg-slate-100 dark:bg-slate-900 px-2 rounded-full">{(node.cost.total || 0).toFixed(2)} cost</span></div>
             {node.relation && <div className="text-[11px] text-slate-600 dark:text-slate-300 mt-1 font-mono font-bold">{node.relation}</div>}
             <div className="text-[10px] text-slate-500 mt-2 flex gap-4 pt-2 border-t border-slate-100 dark:border-slate-700"><span className="flex items-center gap-1"><Hash className="w-3 h-3" /> Rows: {node.rows}</span><span className="flex items-center gap-1"><Database className="w-3 h-3" /> Width: {node.width}</span></div>
          </div>
-         {/* Fix: Explicitly type children as ExplainNode[] */}
-         {node.children && (node.children as ExplainNode[]).map(child => renderNode(child, depth + 1))}
+         {node.children && node.children.map(child => renderNode(child, depth + 1))}
       </div>
    );
    return <div className="p-6 overflow-auto bg-slate-50 dark:bg-slate-900 h-full">{renderNode(plan)}</div>;
@@ -667,7 +673,6 @@ const ResultsStep: React.FC<ResultsStepProps> = ({ data, sql, onBackToBuilder, o
   const columns = localData.length > 0 ? Object.keys(localData[0]) : [];
   const [filters, setFilters] = useState<FilterRule[]>([]);
   const [localSearch, setLocalSearch] = useState(''); 
-  const [sqlCopied, setSqlCopied] = useState(false);
   const [explainPlan, setExplainPlan] = useState<ExplainNode | null>(null);
   const [loadingExplain, setLoadingExplain] = useState(false);
   const [explainError, setExplainError] = useState<string | null>(null);

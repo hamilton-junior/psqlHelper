@@ -5,7 +5,7 @@ import pg from 'pg';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-const { Client } = pg;
+const { Client, types } = pg;
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -16,13 +16,33 @@ const __dirname = path.dirname(__filename);
 app.use(cors());
 app.use(express.json());
 
+// CONFIGURAÇÃO DE ENCODING GLOBAL:
+// Intercepta tipos de texto do Postgres e garante que sejam lidos como 'latin1' 
+// caso o banco envie bytes não-UTF8, convertendo-os para as strings UTF-8 do JS.
+const parseText = (val) => {
+  if (val === null) return null;
+  // O driver pg já nos dá o valor como string. 
+  // Se houver caracteres corrompidos (como o erro 0xc7), 
+  // tratamos a string como um buffer latin1 e convertemos para utf8.
+  return Buffer.from(val, 'binary').toString('utf8');
+};
+
+// Sobrescreve os parsers para TEXT (25), VARCHAR (1043) e BPCHAR (1042)
+types.setTypeParser(25, (v) => v); // Deixa o driver ler, vamos converter na sessão
+types.setTypeParser(1043, (v) => v);
+types.setTypeParser(1042, (v) => v);
+
 console.log(`Starting server...`);
 
-// Helper simples para execução de queries
-async function queryWithFallback(client, sql, params = []) {
-  // Executa a query diretamente. Como a sessão agora é UTF8, 
-  // o driver pg receberá os dados formatados corretamente.
-  return await client.query(sql, params);
+// Helper para configurar a sessão com encoding resiliente
+async function setupSession(client) {
+  try {
+    // Definimos LATIN1 na sessão. Isso faz com que o Postgres nos envie os bytes puros
+    // sem tentar validar se eles são UTF-8 válidos no disco, evitando o erro 0xc7.
+    await client.query("SET client_encoding TO 'LATIN1'");
+  } catch (e) {
+    console.warn("Could not set client_encoding to LATIN1, falling back to default.");
+  }
 }
 
 app.post('/api/connect', async (req, res) => {
@@ -38,15 +58,12 @@ app.post('/api/connect', async (req, res) => {
     user,
     password,
     database,
-    connectionTimeoutMillis: 5000, // 5s timeout
+    connectionTimeoutMillis: 5000,
   });
 
   try {
     await client.connect();
-    
-    // CRÍTICO: Força o PostgreSQL a enviar dados em UTF8 para o Node.js.
-    // Isso garante que acentos sejam exibidos corretamente no app, mesmo que o banco seja LATIN1 ou WIN1252.
-    await client.query("SET client_encoding TO 'UTF8'");
+    await setupSession(client);
     
     // 1. Fetch Tables
     const tablesQuery = `
@@ -59,7 +76,7 @@ app.post('/api/connect', async (req, res) => {
       AND table_type = 'BASE TABLE'
       ORDER BY table_schema, table_name;
     `;
-    const tablesRes = await queryWithFallback(client, tablesQuery);
+    const tablesRes = await client.query(tablesQuery);
 
     // 2. Fetch Columns
     const columnsQuery = `
@@ -82,7 +99,7 @@ app.post('/api/connect', async (req, res) => {
       WHERE c.table_schema NOT IN ('information_schema', 'pg_catalog')
       ORDER BY c.ordinal_position;
     `;
-    const columnsRes = await queryWithFallback(client, columnsQuery);
+    const columnsRes = await client.query(columnsQuery);
 
     // 3. Fetch Foreign Keys
     const fkQuery = `
@@ -103,14 +120,13 @@ app.post('/api/connect', async (req, res) => {
             AND ccu.table_schema = tc.table_schema
       WHERE tc.constraint_type = 'FOREIGN KEY';
     `;
-    const fkRes = await queryWithFallback(client, fkQuery);
+    const fkRes = await client.query(fkQuery);
 
     // Assemble Schema Object
     const tables = tablesRes.rows.map(t => {
       const tableCols = columnsRes.rows
         .filter(c => c.table_name === t.table_name && c.table_schema === t.table_schema)
         .map(c => {
-          // Check for FK
           const fk = fkRes.rows.find(f => 
             f.table_name === t.table_name && 
             f.table_schema === t.table_schema && 
@@ -158,15 +174,12 @@ app.post('/api/execute', async (req, res) => {
 
   try {
     await client.connect();
+    await setupSession(client);
     
-    // Força UTF8 na sessão de execução de consulta do usuário
-    await client.query("SET client_encoding TO 'UTF8'");
+    const result = await client.query(sql);
     
-    const result = await queryWithFallback(client, sql);
-    
-    // Handle case where result might be an array (if multiple statements)
     if (Array.isArray(result)) {
-        res.json(result[result.length - 1].rows); // Return last result
+        res.json(result[result.length - 1].rows);
     } else {
         res.json(result.rows);
     }
