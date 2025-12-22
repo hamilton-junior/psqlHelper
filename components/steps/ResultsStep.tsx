@@ -33,19 +33,24 @@ const HoverPreviewTooltip: React.FC<{
       if (!credentials || !targetTable || !displayColumn) return;
       setLoading(true);
       try {
-        const safeValue = typeof value === 'string' ? `'${value.replace(/'/g, "''")}'` : value;
+        // Sanitização e formatação da tabela (schema.table -> "schema"."table")
+        const tableParts = targetTable.split('.');
+        const formattedTable = tableParts.map(p => `"${p.replace(/"/g, '')}"`).join('.');
         
-        // Busca robusta: Tenta a PK sugerida, mas aceita fallback para colunas identificadoras comuns
-        // Isso resolve o problema de não encontrar resultados quando não é exatamente a coluna "grid"
-        const idCols = Array.from(new Set([pkColumn, 'grid', 'id', 'codigo', 'cod', 'mlid']));
-        const conditions = idCols.map(col => `"${col}"::text = ${safeValue}::text`).join(' OR ');
+        // Formata o valor para busca textual idêntica ao modal de drilldown
+        const valStr = String(value).replace(/'/g, "''");
         
-        const sql = `SELECT "${displayColumn}" FROM ${targetTable} WHERE ${conditions} LIMIT 1;`;
+        // Lista de colunas para tentativa de match
+        const idCols = Array.from(new Set([pkColumn, 'grid', 'id', 'codigo', 'cod', 'mlid'].filter(Boolean)));
+        const conditions = idCols.map(col => `"${col}"::text = '${valStr}'`).join(' OR ');
+        
+        const sql = `SELECT "${displayColumn.replace(/"/g, '')}" FROM ${formattedTable} WHERE ${conditions} LIMIT 1;`;
         
         const results = await executeQueryReal(credentials, sql);
         if (isMounted) {
           if (results && results.length > 0) {
-            setData(String(results[0][displayColumn]));
+            const val = results[0][displayColumn];
+            setData(val === null ? 'NULL' : String(val));
           } else {
             setData("Não encontrado");
           }
@@ -63,13 +68,13 @@ const HoverPreviewTooltip: React.FC<{
 
   return (
     <div 
-      className="fixed z-[100] pointer-events-none bg-slate-900 text-white p-2.5 rounded-lg shadow-2xl border border-slate-700 animate-in fade-in zoom-in-95 duration-150"
-      style={{ left: Math.min(x + 15, window.innerWidth - 200), top: Math.max(10, y - 10) }}
+      className="fixed z-[110] pointer-events-none bg-slate-900 text-white p-2.5 rounded-lg shadow-2xl border border-slate-700 animate-in fade-in zoom-in-95 duration-150"
+      style={{ left: Math.min(x + 15, window.innerWidth - 250), top: Math.max(10, y - 10) }}
     >
-      <div className="flex flex-col gap-1">
+      <div className="flex flex-col gap-1 min-w-[120px]">
         <div className="flex items-center gap-2 border-b border-slate-700 pb-1.5 mb-1">
           <Database className="w-3 h-3 text-indigo-400" />
-          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{displayColumn}</span>
+          <span className="text-[9px] font-extrabold uppercase tracking-widest text-slate-400">{displayColumn}</span>
         </div>
         {loading ? (
           <div className="flex items-center gap-2 text-xs opacity-70">
@@ -77,12 +82,11 @@ const HoverPreviewTooltip: React.FC<{
             <span>Buscando...</span>
           </div>
         ) : error ? (
-          <span className="text-xs text-red-400">Erro ao carregar</span>
+          <span className="text-xs text-red-400">Erro na consulta</span>
         ) : (
-          <span className="text-sm font-semibold text-indigo-100">{data}</span>
+          <span className="text-sm font-bold text-indigo-100 whitespace-pre-wrap">{data}</span>
         )}
       </div>
-      {/* Seta do Tooltip */}
       <div className="absolute top-3 -left-1 w-2 h-2 bg-slate-900 border-l border-b border-slate-700 transform rotate-45"></div>
     </div>
   );
@@ -351,9 +355,29 @@ const VirtualTable: React.FC<VirtualTableProps> = ({ data, columns, highlightMat
    };
 
    const formatValue = (col: string, val: any) => {
-      if (val === null || val === undefined) return <span className="text-slate-300 text-xs italic">null</span>;
-      if (typeof val === 'object') return <button onClick={(e) => { e.stopPropagation(); onOpenJson(val); }} className="text-xs text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded flex items-center gap-1"><Braces className="w-3 h-3" /> JSON</button>;
+      // Caso Nulo
+      if (val === null || val === undefined) {
+         return <span className="text-[10px] bg-slate-100 dark:bg-slate-800 text-slate-400 px-1.5 py-0.5 rounded font-mono font-bold tracking-tight border border-slate-200 dark:border-slate-700">NULL</span>;
+      }
+
+      // Caso Booleano
+      if (typeof val === 'boolean') {
+         return (
+            <span className={`text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded border ${
+               val ? 'bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400 dark:border-emerald-800' 
+                   : 'bg-rose-100 text-rose-700 border-rose-200 dark:bg-rose-900/30 dark:text-rose-400 dark:border-rose-800'
+            }`}>
+               {String(val)}
+            </span>
+         );
+      }
+
+      // Caso Objeto JSON
+      if (typeof val === 'object') {
+         return <button onClick={(e) => { e.stopPropagation(); onOpenJson(val); }} className="text-xs text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded flex items-center gap-1 hover:bg-indigo-100 transition-colors"><Braces className="w-3 h-3" /> JSON</button>;
+      }
       
+      // Caso Link (Drilldown)
       const target = getLinkTarget(col);
       if (target && val !== '') {
          return (
@@ -365,7 +389,7 @@ const VirtualTable: React.FC<VirtualTableProps> = ({ data, columns, highlightMat
                   if (target.previewCol) {
                      hoverTimeoutRef.current = setTimeout(() => {
                         setHoverPreview({ table: target.table, pk: target.pk, val: val, displayCol: target.previewCol!, x, y });
-                     }, 400); // Delay para não poluir
+                     }, 350); 
                   }
                }}
                onMouseLeave={() => {
@@ -403,7 +427,6 @@ const VirtualTable: React.FC<VirtualTableProps> = ({ data, columns, highlightMat
                      {columns.map((col, idx) => {
                         const mapping = manualMappings[col];
                         const hasManualMapping = !!mapping;
-                        // Busca se já existe um link automático detectado pelo sistema
                         const autoTarget = getLinkTarget(col);
 
                         return (
@@ -411,7 +434,6 @@ const VirtualTable: React.FC<VirtualTableProps> = ({ data, columns, highlightMat
                               <div className="flex items-center justify-between">
                                  <span className="truncate" title={col}>{col.replace(/_/g, ' ')}</span>
                                  <div className="flex items-center gap-1 shrink-0">
-                                    {/* Botão de Vínculo Manual */}
                                     {schema && (
                                        <button 
                                           onClick={(e) => { e.stopPropagation(); setActiveMappingCol(activeMappingCol === col ? null : col); setActiveProfileCol(null); }} 
@@ -430,7 +452,6 @@ const VirtualTable: React.FC<VirtualTableProps> = ({ data, columns, highlightMat
                                  <ManualMappingPopover 
                                     column={col} 
                                     schema={schema} 
-                                    // Pré-seleciona a tabela caso já tenha sido detectada automaticamente (heurística/fk)
                                     currentValue={mapping?.table || autoTarget?.table}
                                     currentPreviewCol={mapping?.previewCol}
                                     onSave={(tbl, previewCol) => handleSaveManualMapping(col, tbl, previewCol)} 
