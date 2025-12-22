@@ -1148,6 +1148,43 @@ const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange,
     );
   };
 
+  const renderTableListItem = (table: typeof schema.tables[0], isPinned: boolean) => (
+    <div 
+      key={table.name}
+      onClick={() => toggleTable(table.name)}
+      className={`p-2.5 rounded-lg cursor-pointer transition-all border relative group flex items-start justify-between gap-2 ${
+        isPinned
+          ? 'bg-indigo-50 dark:bg-indigo-900/20 border-indigo-400 shadow-sm' 
+          : 'hover:bg-slate-50 dark:hover:bg-slate-800 border-transparent hover:border-slate-200 dark:hover:border-slate-700'
+      }`}
+    >
+      <div className="min-w-0">
+        <span className={`font-bold text-sm block truncate ${isPinned ? 'text-indigo-700 dark:text-indigo-300' : 'text-slate-700 dark:text-slate-300'}`}>
+            {table.name}
+        </span>
+        {table.description && (
+          <p className="text-[10px] text-slate-400 line-clamp-1 mt-0.5">
+            {table.description}
+          </p>
+        )}
+      </div>
+      
+      {isPinned ? (
+        <button 
+          onClick={(e) => { e.stopPropagation(); toggleTable(table.name); }}
+          className="mt-0.5 text-indigo-600 dark:text-indigo-400 bg-white dark:bg-slate-700 rounded-full p-0.5 shadow-sm hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20"
+          title="Unselect Table"
+        >
+          <X className="w-3 h-3" strokeWidth={3} />
+        </button>
+      ) : (
+        <div className="mt-0.5 opacity-0 group-hover:opacity-50 text-slate-400">
+           <Plus className="w-3 h-3" />
+        </div>
+      )}
+    </div>
+  );
+
   return (
     <div className="w-full h-full flex flex-col relative">
       

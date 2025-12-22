@@ -154,6 +154,7 @@ const App: React.FC = () => {
          }
       }
       
+      // 2. Update UI Immediately (Don't wait for validation)
       setQueryResult(result);
       setCurrentStep('preview');
     } catch (error: any) {
@@ -297,6 +298,11 @@ const App: React.FC = () => {
         tips: []
      });
      setCurrentStep('preview');
+  };
+
+  const handleNavigate = (step: AppStep) => {
+    setError(null);
+    setCurrentStep(step);
   };
 
   return (

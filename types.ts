@@ -100,6 +100,36 @@ export interface BuilderState {
   limit: number;
 }
 
+export interface SavedQuery {
+  id: string;
+  name: string;
+  createdAt: number;
+  schemaName: string; // To ensure we only load queries for the correct DB
+  state: BuilderState;
+}
+
+export interface AppSettings {
+  theme: 'light' | 'dark';
+  defaultDbHost: string;
+  defaultDbPort: string;
+  defaultDbUser: string;
+  defaultDbName: string;
+  defaultLimit: number;
+  enableAiValidation: boolean;
+  enableAiTips: boolean;
+}
+
+export const DEFAULT_SETTINGS: AppSettings = {
+  theme: 'light',
+  defaultDbHost: 'localhost',
+  defaultDbPort: '5432',
+  defaultDbUser: 'postgres',
+  defaultDbName: '',
+  defaultLimit: 100,
+  enableAiValidation: true,
+  enableAiTips: true
+};
+
 export enum MessageRole {
   USER = 'user',
   ASSISTANT = 'assistant'
