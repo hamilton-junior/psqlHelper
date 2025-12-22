@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { ArrowLeft, Database, ChevronLeft, ChevronRight, FileSpreadsheet, Search, Copy, Check, BarChart2, MessageSquare, Download, Activity, LayoutGrid, FileText, Pin, AlertCircle, Info, MoreHorizontal, FileJson, FileCode, Hash, Type, Filter, Plus, X, Trash2, SlidersHorizontal, Clock, Maximize2, Minimize2, ExternalLink, Braces, PenTool, Save, Eye, Anchor, Link as LinkIcon, Settings2, Loader2 } from 'lucide-react';
+import { ArrowLeft, Database, ChevronLeft, ChevronRight, FileSpreadsheet, Search, Copy, Check, BarChart2, MessageSquare, Download, Activity, LayoutGrid, FileText, Pin, AlertCircle, Info, MoreHorizontal, FileJson, FileCode, Hash, Type, Filter, Plus, X, Trash2, SlidersHorizontal, Clock, Maximize2, Minimize2, ExternalLink, Braces, PenTool, Save, Eye, Anchor, Link as LinkIcon, Settings2, Loader2, Folder } from 'lucide-react';
 import { AppSettings, DashboardItem, ExplainNode, DatabaseSchema, Table } from '../../types';
 import DataVisualizer from '../DataVisualizer';
 import DataAnalysisChat from '../DataAnalysisChat';
@@ -34,7 +34,6 @@ const HoverPreviewTooltip: React.FC<{
       if (!credentials || !targetTable || !displayColumn || !schema) return;
       setLoading(true);
       try {
-        // 1. Identificar a tabela real no schema para validar colunas existentes
         const tableParts = targetTable.split('.');
         const sName = tableParts.length > 1 ? tableParts[0] : 'public';
         const tName = tableParts.length > 1 ? tableParts[1] : tableParts[0];
@@ -50,13 +49,11 @@ const HoverPreviewTooltip: React.FC<{
            return;
         }
 
-        // 2. Filtrar apenas as colunas que REALMENTE existem na tabela para evitar erro "column does not exist"
         const existingColNames = new Set(tableObj.columns.map(c => c.name.toLowerCase()));
         const candidates = [pkColumn, 'grid', 'id', 'codigo', 'cod', 'mlid'].filter(Boolean);
         const validIdCols = candidates.filter(c => existingColNames.has(c.toLowerCase()));
 
         if (validIdCols.length === 0) {
-           // Fallback extremo: tenta usar a primeira coluna encontrada se nada bater
            validIdCols.push(tableObj.columns[0].name);
         }
 
@@ -125,18 +122,36 @@ const ManualMappingPopover: React.FC<{
   const [selectedTable, setSelectedTable] = useState(currentValue || '');
   const [previewCol, setPreviewCol] = useState(currentPreviewCol || '');
   
-  // Lista de tabelas filtrada e ORDENADA alfabeticamente por Schema e Nome
-  const filteredTables = useMemo(() => {
+  // Verifica se existem múltiplos schemas para decidir a formatação da lista
+  const schemasPresent = useMemo(() => {
+    return Array.from(new Set(schema.tables.map(t => t.schema || 'public'))).sort();
+  }, [schema.tables]);
+
+  const hasMultipleSchemas = schemasPresent.length > 1;
+
+  // Lista de tabelas filtrada e ORDENADA
+  const tablesBySchema = useMemo(() => {
     const list = schema.tables.filter(t => 
       t.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-      t.schema.toLowerCase().includes(searchTerm.toLowerCase())
+      (t.schema || 'public').toLowerCase().includes(searchTerm.toLowerCase())
     );
-    return list.sort((a, b) => {
+
+    // Ordena por schema e depois por nome
+    list.sort((a, b) => {
        const sA = (a.schema || 'public').toLowerCase();
        const sB = (b.schema || 'public').toLowerCase();
        if (sA !== sB) return sA.localeCompare(sB);
        return a.name.toLowerCase().localeCompare(b.name.toLowerCase());
     });
+
+    // Agrupa por schema para renderizar "pastas"
+    const grouped: Record<string, Table[]> = {};
+    list.forEach(t => {
+      const s = t.schema || 'public';
+      if (!grouped[s]) grouped[s] = [];
+      grouped[s].push(t);
+    });
+    return grouped;
   }, [schema.tables, searchTerm]);
 
   // Lista de colunas da tabela selecionada ORDENADA alfabeticamente
@@ -153,7 +168,7 @@ const ManualMappingPopover: React.FC<{
   }, [selectedTable, schema]);
 
   return (
-    <div className="absolute z-[70] top-full mt-2 right-0 w-72 bg-white dark:bg-slate-800 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-700 overflow-hidden animate-in fade-in zoom-in-95 origin-top-right" onClick={e => e.stopPropagation()}>
+    <div className="absolute z-[70] top-full mt-2 right-0 w-80 bg-white dark:bg-slate-800 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-700 overflow-hidden animate-in fade-in zoom-in-95 origin-top-right" onClick={e => e.stopPropagation()}>
        <div className="p-3 border-b border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50 flex justify-between items-center">
           <span className="text-[10px] font-bold uppercase text-slate-500 truncate mr-2">Vínculo: {column}</span>
           <button onClick={onClose} className="p-1 hover:bg-slate-200 rounded shrink-0"><X className="w-3 h-3" /></button>
@@ -174,21 +189,40 @@ const ManualMappingPopover: React.FC<{
                    className="w-full pl-7 pr-2 py-2 text-xs bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg outline-none focus:ring-1 focus:ring-indigo-500"
                 />
              </div>
-             <div className="max-h-32 overflow-y-auto border border-slate-100 dark:border-slate-700 rounded-lg mt-1 custom-scrollbar">
-                {filteredTables.map(t => {
-                   const fullId = `${t.schema || 'public'}.${t.name}`;
-                   const isSelected = selectedTable === fullId;
-                   return (
-                      <button 
-                        key={fullId}
-                        onClick={() => { setSelectedTable(fullId); setPreviewCol(''); }}
-                        className={`w-full text-left px-3 py-1.5 text-xs flex items-center justify-between hover:bg-indigo-50 dark:hover:bg-indigo-900/30 transition-colors ${isSelected ? 'bg-indigo-50 text-indigo-700 font-bold' : 'text-slate-600 dark:text-slate-300'}`}
-                      >
-                         <span className="truncate">{fullId}</span>
-                         {isSelected && <Check className="w-3 h-3" />}
-                      </button>
-                   );
-                })}
+             <div className="max-h-48 overflow-y-auto border border-slate-100 dark:border-slate-700 rounded-lg mt-1 custom-scrollbar bg-white dark:bg-slate-900">
+                {Object.entries(tablesBySchema).length === 0 ? (
+                  <div className="p-4 text-center text-slate-400 text-[10px]">Nenhuma tabela encontrada.</div>
+                ) : (
+                  Object.entries(tablesBySchema).map(([schemaName, tables]) => (
+                    <div key={schemaName} className="mb-1">
+                      {hasMultipleSchemas && (
+                        <div className="px-2 py-1 bg-slate-50 dark:bg-slate-800/50 border-y border-slate-100 dark:border-slate-700 flex items-center gap-1.5">
+                           <Folder className="w-3 h-3 text-indigo-400 fill-indigo-400/20" />
+                           <span className="text-[9px] font-bold text-slate-400 uppercase tracking-tighter">{schemaName}</span>
+                        </div>
+                      )}
+                      <div className="py-0.5">
+                        {tables.map(t => {
+                           const fullId = `${t.schema || 'public'}.${t.name}`;
+                           const isSelected = selectedTable === fullId;
+                           // Se for schema único public, remove o prefixo public.
+                           const displayName = !hasMultipleSchemas && t.schema === 'public' ? t.name : t.name;
+
+                           return (
+                              <button 
+                                key={fullId}
+                                onClick={() => { setSelectedTable(fullId); setPreviewCol(''); }}
+                                className={`w-full text-left px-3 py-1.5 text-xs flex items-center justify-between hover:bg-indigo-50 dark:hover:bg-indigo-900/30 transition-colors ${isSelected ? 'bg-indigo-50 text-indigo-700 font-bold dark:bg-indigo-900/40' : 'text-slate-600 dark:text-slate-300'}`}
+                              >
+                                 <span className="truncate">{displayName}</span>
+                                 {isSelected && <Check className="w-3 h-3" />}
+                              </button>
+                           );
+                        })}
+                      </div>
+                    </div>
+                  ))
+                )}
              </div>
           </div>
 
@@ -213,7 +247,7 @@ const ManualMappingPopover: React.FC<{
           <button 
              onClick={() => onSave(selectedTable, previewCol)}
              disabled={!selectedTable}
-             className="flex-1 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition-all disabled:opacity-50"
+             className="flex-1 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition-all disabled:opacity-50 shadow-sm"
           >
              Salvar Vínculo
           </button>
