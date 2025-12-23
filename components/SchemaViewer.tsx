@@ -106,6 +106,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
 
   const [expandedTables, setExpandedTables] = useState<Set<string>>(new Set());
   const [expandedSchemas, setExpandedSchemas] = useState<Set<string>>(new Set(['public', '__favorites__']));
+  
   const [favoriteTables, setFavoriteTables] = useState<Set<string>>(() => {
      try {
         const stored = localStorage.getItem(`psql-buddy-favorites-${schema.name}`);
@@ -149,7 +150,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
   const handleScroll = useCallback(() => {
     if (!scrollContainerRef.current) return;
     const { scrollTop, scrollHeight, clientHeight } = scrollContainerRef.current;
-    if (scrollTop + clientHeight >= scrollHeight - 200) {
+    if (scrollTop + clientHeight >= scrollHeight - 300) {
       setRenderLimit(prev => Math.min(prev + 40, schema.tables.length));
     }
   }, [schema.tables.length]);
@@ -174,7 +175,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
     let tables = schema.tables;
     if (term || selectedTypeFilter) {
       tables = tables.filter(table => {
-        const matchesSearch = !term || table.name.toLowerCase().includes(term) || table.columns.some(col => col.name.toLowerCase().includes(term));
+        const matchesSearch = !term || table.name.toLowerCase().includes(term) || (table.description && table.description.toLowerCase().includes(term)) || table.columns.some(col => col.name.toLowerCase().includes(term));
         const matchesType = !selectedTypeFilter || table.columns.some(col => col.type.toUpperCase().includes(selectedTypeFilter));
         return matchesSearch && matchesType;
       });
@@ -184,19 +185,25 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
 
   const groupedTables = useMemo(() => {
     const groups: Record<string, Table[]> = {};
-    const visible = filteredTables.slice(0, renderLimit);
     
-    visible.forEach(table => {
-      const tId = getTableId(table);
-      if (favoriteTables.has(tId)) {
-         if (!groups['__favorites__']) groups['__favorites__'] = [];
-         groups['__favorites__'].push(table);
-      } else {
-         const s = table.schema || 'public';
-         if (!groups[s]) groups[s] = [];
-         groups[s].push(table);
-      }
+    // Filtramos os favoritos PRIMEIRO para que eles sempre apareçam, independente do renderLimit
+    const favoritedFiltered = filteredTables.filter(t => favoriteTables.has(getTableId(t)));
+    const remainingFiltered = filteredTables.filter(t => !favoriteTables.has(getTableId(t)));
+    
+    // Se houver favoritos, eles formam o primeiro grupo
+    if (favoritedFiltered.length > 0) {
+       groups['__favorites__'] = favoritedFiltered;
+    }
+
+    // O renderLimit agora se aplica apenas aos "outros"
+    const visibleOthers = remainingFiltered.slice(0, renderLimit);
+    
+    visibleOthers.forEach(table => {
+       const s = table.schema || 'public';
+       if (!groups[s]) groups[s] = [];
+       groups[s].push(table);
     });
+    
     return groups;
   }, [filteredTables, renderLimit, favoriteTables]);
 
@@ -256,16 +263,16 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
               <p className="text-[10px] text-slate-500">{schema.tables.length} tabelas</p>
             </div>
           </div>
-          {onRegenerateClick && <button onClick={onRegenerateClick} disabled={loading} className="text-xs text-indigo-400 hover:underline">Mudar BD</button>}
+          {onRegenerateClick && <button onClick={onRegenerateClick} disabled={loading} className="text-xs text-indigo-400 hover:text-indigo-300 hover:underline">Mudar BD</button>}
         </div>
       )}
       <div className="p-2 border-b border-slate-800 shrink-0 space-y-2 bg-slate-900">
         <div className="flex gap-2">
            <div className="relative flex-1">
              <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-500" />
-             <input type="text" placeholder="Buscar tabelas..." value={inputValue} onChange={e => setInputValue(e.target.value)} disabled={loading} className="w-full pl-9 pr-8 py-2 bg-slate-800 border border-slate-700 rounded text-xs outline-none text-slate-200" />
+             <input type="text" placeholder="Buscar tabelas... (Ctrl+K)" value={inputValue} onChange={e => setInputValue(e.target.value)} disabled={loading} className="w-full pl-9 pr-8 py-2 bg-slate-800 border border-slate-700 rounded text-xs outline-none focus:ring-2 focus:ring-indigo-500 transition-all text-slate-200 placeholder-slate-600" />
            </div>
-           <select value={selectedTypeFilter} onChange={e => { setSelectedTypeFilter(e.target.value); setRenderLimit(40); }} className="w-[100px] h-full p-2 bg-slate-800 border border-slate-700 rounded text-xs outline-none text-slate-400">
+           <select value={selectedTypeFilter} onChange={e => { setSelectedTypeFilter(e.target.value); setRenderLimit(40); }} className="w-[100px] h-full p-2 bg-slate-800 border border-slate-700 rounded text-xs outline-none text-slate-400 cursor-pointer">
               <option value="">Tipos</option>
               {allColumnTypes.map(t => <option key={t} value={t}>{t}</option>)}
            </select>
@@ -276,23 +283,23 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
            const tablesInSchema = groupedTables[schemaName];
            if (!tablesInSchema || tablesInSchema.length === 0) return null;
            const isFavoritesGroup = schemaName === '__favorites__';
-           const isSchemaExpanded = expandedSchemas.has(schemaName);
+           const isExpanded = expandedSchemas.has(schemaName);
            return (
               <div key={schemaName} className="mb-2">
-                 <div className={`flex items-center gap-2 px-2 py-1.5 cursor-pointer hover:bg-slate-800 rounded select-none group sticky top-0 z-10 bg-slate-900/95 backdrop-blur ${isSchemaExpanded ? 'border-b border-slate-800' : ''}`} onClick={() => setExpandedSchemas(prev => { const n = new Set(prev); if (n.has(schemaName)) n.delete(schemaName); else n.add(schemaName); return n; })}>
-                    {isFavoritesGroup ? <Star className="w-4 h-4 text-amber-400 fill-amber-400" /> : isSchemaExpanded ? <FolderOpen className="w-4 h-4 text-indigo-400 fill-indigo-900/30" /> : <Folder className="w-4 h-4 text-slate-600" />}
+                 <div className={`flex items-center gap-2 px-2 py-1.5 cursor-pointer hover:bg-slate-800 rounded select-none group sticky top-0 z-10 bg-slate-900/95 backdrop-blur ${isExpanded ? 'border-b border-slate-800' : ''}`} onClick={() => setExpandedSchemas(prev => { const n = new Set(prev); if (n.has(schemaName)) n.delete(schemaName); else n.add(schemaName); return n; })}>
+                    {isFavoritesGroup ? <Star className="w-4 h-4 text-amber-400 fill-amber-400" /> : isExpanded ? <FolderOpen className="w-4 h-4 text-indigo-400 fill-indigo-900/30" /> : <Folder className="w-4 h-4 text-slate-600" />}
                     <span className={`text-xs font-bold ${isFavoritesGroup ? 'text-amber-400' : 'text-slate-400'}`}>{isFavoritesGroup ? 'Favoritos' : schemaName}</span>
-                    <span className="text-[10px] text-slate-500 ml-auto">{tablesInSchema.length}</span>
+                    <span className="text-[10px] text-slate-500 ml-auto bg-slate-800 px-1.5 rounded-full border border-slate-700">{tablesInSchema.length}</span>
                  </div>
-                 {isSchemaExpanded && (
+                 {isExpanded && (
                     <div className="pl-3 pt-1 space-y-2 border-l border-slate-800 ml-2">
                        {tablesInSchema.map((table) => (
                           <SchemaTableItem
                              key={getTableId(table)} table={table} visualState={visualStateMap.has(getTableId(table)) ? visualStateMap.get(getTableId(table)) : (visualStateMap.size > 0 ? 'dimmed' : 'normal')}
                              isExpanded={expandedTables.has(getTableId(table))} isSelected={selectedTableIds.includes(getTableId(table))} isFavorite={favoriteTables.has(getTableId(table))}
                              selectionMode={selectionMode} editingTable={editingTable} tempDesc={tempDesc} debouncedTerm={debouncedTerm} 
-                             onToggleExpand={(e: any, id: string) => { setExpandedTables(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; }); }}
-                             onTableClick={id => selectionMode && onToggleTable?.(id)} onMouseEnter={setHoveredTableId} onStartEditing={(e: any, t: any) => { setEditingTable(t.name); setTempDesc(t.description || ''); }}
+                             onToggleExpand={(e: any, id: string) => { e.stopPropagation(); setExpandedTables(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; }); }}
+                             onTableClick={id => selectionMode ? onToggleTable?.(id) : setExpandedTables(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; })} onMouseEnter={setHoveredTableId} onStartEditing={(e: any, t: any) => { e.stopPropagation(); setEditingTable(t.name); setTempDesc(t.description || ''); }}
                              onSaveDescription={(e: any, name: string) => { onDescriptionChange?.(name, tempDesc); setEditingTable(null); }} onDescChange={setTempDesc}
                              onColumnHover={(tid: string, col: string, ref?: string) => { setHoveredColumnKey(`${tid}.${col}`); setHoveredColumnRef(ref || null); }}
                              onColumnHoverOut={() => { setHoveredColumnKey(null); setHoveredColumnRef(null); }} onColumnClick={(tid: string, col: string) => setSelectedColumnKey(`${tid}.${col}`)}
@@ -304,7 +311,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
               </div>
            );
         })}
-        {filteredTables.length > renderLimit && <div className="py-4 text-center text-slate-600 text-xs italic">Carregando mais tabelas...</div>}
+        {filteredTables.length > renderLimit && <div className="py-4 text-center text-slate-600 text-xs italic flex items-center justify-center gap-2"><Loader2 className="w-3 h-3 animate-spin" /> Carregando mais tabelas...</div>}
       </div>
       <div className="p-3 bg-slate-900 border-t border-slate-800 text-[10px] text-slate-500 shrink-0">
         <p className="flex items-center gap-3">

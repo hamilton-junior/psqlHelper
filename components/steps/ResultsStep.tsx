@@ -8,7 +8,7 @@ import CodeSnippetModal from '../CodeSnippetModal';
 import JsonViewerModal from '../JsonViewerModal'; 
 import DrillDownModal from '../DrillDownModal'; 
 import { addToHistory } from '../../services/historyService';
-import { executeQueryReal, explainQueryReal } from '../../services/dbService';
+import { executeQueryReal } from '../../services/dbService';
 
 interface ManualLink {
   id: string;
