@@ -1,12 +1,11 @@
+
 import React, { useState, useMemo, useEffect, useCallback, memo, useRef } from 'react';
 import { DatabaseSchema, BuilderState, ExplicitJoin, JoinType, Filter, Operator, OrderBy, AppSettings, SavedQuery, AggregateFunction, Column, Table, CalculatedColumn, WildcardPosition } from '../../types';
 import { Layers, ChevronRight, Settings2, RefreshCw, Search, X, Plus, Trash2, ArrowRightLeft, Filter as FilterIcon, ArrowDownAZ, List, Link2, ChevronDown, Save, FolderOpen, Calendar, Clock, Key, Combine, ArrowRight, ArrowLeft, FastForward, Target, CornerDownRight, Wand2, Loader2, Undo2, Redo2, Calculator, Sparkles, LayoutTemplate, PlayCircle, Eye, Info, ChevronUp, Link as LinkIcon, AlignLeft, AlignCenter, AlignRight } from 'lucide-react';
 import SchemaViewer from '../SchemaViewer';
 import { generateBuilderStateFromPrompt } from '../../services/geminiService';
 import { generateLocalSql } from '../../services/localSqlService';
-import BeginnerTip from '../BeginnerTip';
 import FormulaModal from '../FormulaModal';
-import TieredColumnSelector from '../TieredColumnSelector';
 
 interface BuilderStepProps {
   schema: DatabaseSchema;
@@ -102,7 +101,7 @@ const TableCard = memo(({ table, selectedColumns, aggregations, isCollapsed, col
   );
 });
 
-const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange, onGenerate, onSkipAi, isGenerating, progressMessage, settings, onDescriptionChange, onPreviewTable }) => {
+const BuilderStep: React.FC<BuilderStepProps> = ({ schema, state, onStateChange, onGenerate, onSkipAi, isGenerating, settings, onDescriptionChange, onPreviewTable }) => {
   const [activeTab, setActiveTab] = useState<TabType>('columns');
   const [columnSearchTerms, setColumnSearchTerms] = useState<Record<string, string>>({});
   const [collapsedTables, setCollapsedTables] = useState<Set<string>>(new Set());
