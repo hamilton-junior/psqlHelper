@@ -20,10 +20,6 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ queryResult, onExecute, onBac
   const [editedSql, setEditedSql] = useState(queryResult.sql || '');
   const [viewMode, setViewMode] = useState<'edit' | 'diff'>('edit');
   
-  // Safe Mode
-  const [safeMode, setSafeMode] = useState(false);
-  const [simulationResult, setSimulationResult] = useState<any[] | null>(null);
-  
   // Optimization State
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisResult, setAnalysisResult] = useState<OptimizationAnalysis | null>(null);
@@ -31,19 +27,13 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ queryResult, onExecute, onBac
   
   const monaco = useMonaco();
 
-  // Determine if it's a DML
-  const isDml = useMemo(() => {
-     const upper = editedSql.trim().toUpperCase();
-     return upper.startsWith('INSERT') || upper.startsWith('UPDATE') || upper.startsWith('DELETE');
-  }, [editedSql]);
-
   // Shortcut Listener
   useEffect(() => {
      const handleKeyDown = (e: KeyboardEvent) => {
         if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
            e.preventDefault();
            if (!isExecuting && editedSql.trim()) {
-              handleExecution();
+              onExecute(editedSql);
            }
         }
      };
@@ -108,7 +98,6 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ queryResult, onExecute, onBac
         setAnalysisResult(result);
      } catch (e) {
         console.error("Analysis failed", e);
-        // Simple mock fallback if quota fails to show UI
         setAnalysisResult({
            rating: 50,
            summary: "Erro na análise",
@@ -126,17 +115,6 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ queryResult, onExecute, onBac
      if (analysisResult?.optimizedSql) {
         setEditedSql(analysisResult.optimizedSql);
         setShowAnalysis(false);
-     }
-  };
-
-  const handleExecution = () => {
-     if (safeMode && isDml) {
-        // Generate Safe wrapper
-        // Assumes single statement. 
-        const safeSql = `BEGIN;\n${editedSql} RETURNING *;\nROLLBACK;`;
-        onExecute(safeSql);
-     } else {
-        onExecute(editedSql);
      }
   };
 
@@ -259,16 +237,6 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ queryResult, onExecute, onBac
         </div>
         
         <div className="flex gap-2 items-center">
-           {/* Safe Mode Toggle */}
-           <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border transition-all ${safeMode ? 'bg-amber-50 border-amber-200 dark:bg-amber-900/20 dark:border-amber-800' : 'bg-white border-slate-200 dark:bg-slate-800 dark:border-slate-700'}`}>
-              <Shield className={`w-3.5 h-3.5 ${safeMode ? 'text-amber-500' : 'text-slate-400'}`} />
-              <span className={`text-xs font-bold ${safeMode ? 'text-amber-700 dark:text-amber-300' : 'text-slate-500'}`}>Safe Mode</span>
-              <label className="relative inline-flex items-center cursor-pointer ml-1">
-                 <input type="checkbox" checked={safeMode} onChange={e => setSafeMode(e.target.checked)} className="sr-only peer" />
-                 <div className="w-8 h-4 bg-slate-300 peer-focus:outline-none rounded-full peer dark:bg-slate-600 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-amber-500"></div>
-              </label>
-           </div>
-
            <button onClick={handleAnalyzePerformance} disabled={!schema} className="flex items-center gap-2 px-4 py-2 bg-amber-100 dark:bg-amber-900/30 text-amber-800 dark:text-amber-200 hover:bg-amber-200 dark:hover:bg-amber-900/50 rounded-lg text-xs font-bold transition-all border border-amber-200 dark:border-amber-800">
               <Zap className="w-3.5 h-3.5 fill-current" /> Otimizar (IA)
            </button>
@@ -387,8 +355,8 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ queryResult, onExecute, onBac
 
         <div className="flex items-center justify-between pt-4 pb-10 shrink-0">
            <button onClick={onBack} className="px-6 py-3 text-slate-600 dark:text-slate-400 font-semibold hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors flex items-center gap-2"><ArrowLeft className="w-4 h-4" /> Voltar ao Construtor</button>
-           <button onClick={handleExecution} disabled={(!isValid && !validationDisabled && editedSql === queryResult.sql) || isExecuting || isValidating || !editedSql.trim()} className={`${safeMode && isDml ? 'bg-amber-500 hover:bg-amber-600' : 'bg-indigo-600 hover:bg-indigo-500'} text-white px-8 py-3 rounded-xl font-bold shadow-lg shadow-indigo-900/20 dark:shadow-none transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2`}>
-              {isExecuting ? 'Executando...' : safeMode && isDml ? 'Simular Alteração' : 'Executar Query'} <Play className="w-4 h-4 fill-current" />
+           <button onClick={() => onExecute(editedSql)} disabled={(!isValid && !validationDisabled && editedSql === queryResult.sql) || isExecuting || isValidating || !editedSql.trim()} className="bg-indigo-600 hover:bg-indigo-500 text-white px-8 py-3 rounded-xl font-bold shadow-lg shadow-indigo-900/20 dark:shadow-none transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2">
+              {isExecuting ? 'Executando...' : 'Executar Query'} <Play className="w-4 h-4 fill-current" />
            </button>
         </div>
       </div>

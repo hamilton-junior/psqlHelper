@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { ArrowLeft, ArrowRight, Database, ChevronLeft, ChevronRight, FileSpreadsheet, Search, Copy, Check, BarChart2, MessageSquare, Download, Activity, LayoutGrid, FileText, Pin, AlertCircle, Info, MoreHorizontal, FileJson, FileCode, Hash, Type, Filter, Plus, X, Trash2, SlidersHorizontal, Clock, Maximize2, Minimize2, ExternalLink, Braces, PenTool, Save, Eye, Anchor, Link as LinkIcon, Settings2, Loader2, Folder, Terminal as TerminalIcon, ChevronDown, ChevronUp, Layers, Target, CornerDownRight } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Database, ChevronLeft, ChevronRight, FileSpreadsheet, Search, Copy, Check, BarChart2, MessageSquare, Download, Activity, LayoutGrid, FileText, Pin, AlertCircle, Info, MoreHorizontal, FileJson, FileCode, Hash, Type, Filter, Plus, X, Trash2, SlidersHorizontal, Clock, Maximize2, Minimize2, ExternalLink, Braces, PenTool, Save, Eye, Anchor, Link as LinkIcon, Settings2, Loader2, Folder, Terminal as TerminalIcon, ChevronDown, ChevronUp, Layers, Target, CornerDownRight, AlertTriangle, Undo2 } from 'lucide-react';
 import { AppSettings, DashboardItem, ExplainNode, DatabaseSchema, Table } from '../../types';
 import DataVisualizer from '../DataVisualizer';
 import DataAnalysisChat from '../DataAnalysisChat';
@@ -269,6 +269,7 @@ const ManualMappingPopover: React.FC<{
        </div>
        
        <div className="p-3 space-y-4 max-h-[70vh] overflow-y-auto custom-scrollbar">
+          {/* Lista de Vínculos Atuais */}
           {currentLinks.length > 0 && (
              <div className="space-y-2">
                 <label className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">Vínculos Ativos ({currentLinks.length})</label>
@@ -422,6 +423,7 @@ interface VirtualTableProps {
    schema?: DatabaseSchema;
    defaultTableName?: string | null;
    credentials?: any;
+   pendingEdits?: Record<string, string>; // rowIdx-colKey -> newValue
 }
 
 const VirtualTable = ({ 
@@ -435,12 +437,15 @@ const VirtualTable = ({
   onDrillDown, 
   schema, 
   defaultTableName, 
-  credentials 
+  credentials,
+  pendingEdits = {}
 }: VirtualTableProps) => {
    const [currentPage, setCurrentPage] = useState(1);
    const [rowsPerPage, setRowsPerPage] = useState(25);
    const [activeProfileCol, setActiveProfileCol] = useState<string | null>(null);
    const [activeMappingCol, setActiveMappingCol] = useState<string | null>(null);
+   const [editingCell, setEditingCell] = useState<{rowIdx: number, col: string} | null>(null);
+   const editInputRef = useRef<HTMLInputElement>(null);
    
    const [hoverPreview, setHoverPreview] = useState<{links: ManualLink[], val: any, x: number, y: number, persistent: boolean} | null>(null);
    const hoverTimeoutRef = useRef<any>(null);
@@ -451,6 +456,13 @@ const VirtualTable = ({
          return stored ? JSON.parse(stored) : {};
       } catch { return {}; }
    });
+
+   useEffect(() => {
+      if (editingCell && editInputRef.current) {
+         editInputRef.current.focus();
+         editInputRef.current.select();
+      }
+   }, [editingCell]);
 
    const handleSaveManualLinks = (colName: string, links: ManualLink[]) => {
       const newMappings = { ...manualMappings };
@@ -492,40 +504,64 @@ const VirtualTable = ({
    };
 
    const formatValue = (col: string, val: any, rowIdx: number) => {
-      if (val === null || val === undefined) {
-         return <span className="text-[10px] bg-slate-100 dark:bg-slate-800 text-slate-400 px-1.5 py-0.5 rounded font-mono font-bold tracking-tight border border-slate-200 dark:border-slate-700">NULL</span>;
+      const absoluteRowIdx = startIndex + rowIdx;
+      const editKey = `${absoluteRowIdx}-${col}`;
+      const isPending = pendingEdits[editKey] !== undefined;
+      const displayVal = isPending ? pendingEdits[editKey] : val;
+
+      if (isAdvancedMode && editingCell?.rowIdx === absoluteRowIdx && editingCell?.col === col) {
+         return (
+            <input 
+               ref={editInputRef}
+               type="text"
+               defaultValue={String(displayVal ?? '')}
+               className="w-full bg-white dark:bg-slate-700 border-2 border-orange-500 rounded px-1 py-0.5 outline-none font-mono text-sm"
+               onBlur={(e) => {
+                  if (onUpdateCell && e.target.value !== String(val ?? '')) {
+                     onUpdateCell(absoluteRowIdx, col, e.target.value);
+                  }
+                  setEditingCell(null);
+               }}
+               onKeyDown={(e) => {
+                  if (e.key === 'Enter') e.currentTarget.blur();
+                  if (e.key === 'Escape') setEditingCell(null);
+               }}
+            />
+         );
       }
 
-      if (typeof val === 'boolean') {
+      if (displayVal === null || displayVal === undefined) {
+         return <span className={`text-[10px] bg-slate-100 dark:bg-slate-800 text-slate-400 px-1.5 py-0.5 rounded font-mono font-bold tracking-tight border ${isPending ? 'border-orange-500 bg-orange-50 dark:bg-orange-900/20' : 'border-slate-200 dark:border-slate-700'}`}>NULL</span>;
+      }
+
+      if (typeof displayVal === 'boolean') {
          return (
             <span className={`text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded border ${
-               val ? 'bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400 dark:border-emerald-800' 
+               displayVal ? 'bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400 dark:border-emerald-800' 
                    : 'bg-rose-100 text-rose-700 border-rose-200 dark:bg-rose-900/30 dark:text-rose-400 dark:border-rose-800'
-            }`}>
-               {String(val)}
+            } ${isPending ? 'ring-1 ring-orange-500' : ''}`}>
+               {String(displayVal)}
             </span>
          );
       }
 
-      if (typeof val === 'object') {
-         return <button onClick={(e) => { e.stopPropagation(); onOpenJson(val); }} className="text-xs text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded flex items-center gap-1 hover:bg-indigo-100 transition-colors"><Braces className="w-3 h-3" /> JSON</button>;
+      if (typeof displayVal === 'object') {
+         return <button onClick={(e) => { e.stopPropagation(); onOpenJson(displayVal); }} className="text-xs text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded flex items-center gap-1 hover:bg-indigo-100 transition-colors"><Braces className="w-3 h-3" /> JSON</button>;
       }
       
       const links = getLinksForColumn(col);
-      if (links.length > 0 && val !== '') {
+      if (links.length > 0 && displayVal !== '') {
          return (
             <button 
                onClick={(e) => { 
                   e.stopPropagation(); 
-                  // Fechar tooltip transient e limpar timeout
                   if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
 
                   if (links.length === 1) {
                      setHoverPreview(null);
-                     onDrillDown(links[0].table, links[0].keyCol, val, links);
+                     onDrillDown(links[0].table, links[0].keyCol, displayVal, links);
                   } else {
-                     // FIXAR o menu de hover para seleção direta
-                     setHoverPreview({ links, val, x: e.clientX, y: e.clientY, persistent: true });
+                     setHoverPreview({ links, val: displayVal, x: e.clientX, y: e.clientY, persistent: true });
                   }
                }} 
                onMouseEnter={(e) => {
@@ -533,7 +569,7 @@ const VirtualTable = ({
                   const y = e.clientY;
                   if (!hoverPreview?.persistent && links.some(l => l.previewCol)) {
                      hoverTimeoutRef.current = setTimeout(() => {
-                        setHoverPreview({ links, val, x, y, persistent: false });
+                        setHoverPreview({ links, val: displayVal, x, y, persistent: false });
                      }, 350); 
                   }
                }}
@@ -543,14 +579,14 @@ const VirtualTable = ({
                      setHoverPreview(null);
                   }
                }}
-               className={`hover:underline flex items-center gap-1 group/link text-left min-w-0 ${links.length > 1 ? 'text-purple-600 dark:text-purple-400' : 'text-indigo-600 dark:text-indigo-400'}`}
+               className={`hover:underline flex items-center gap-1 group/link text-left min-w-0 ${links.length > 1 ? 'text-purple-600 dark:text-purple-400' : 'text-indigo-600 dark:text-indigo-400'} ${isPending ? 'bg-orange-50 dark:bg-orange-900/20 px-1 rounded border border-orange-200' : ''}`}
             >
-               <span className="truncate">{highlightMatch(String(val))}</span>
+               <span className="truncate">{highlightMatch(String(displayVal))}</span>
                {links.length > 1 ? <Layers className="w-3 h-3 shrink-0" /> : <ExternalLink className="w-3 h-3 opacity-0 group-hover/link:opacity-100 shrink-0" />}
             </button>
          );
       }
-      return <span className="truncate block">{highlightMatch(String(val))}</span>;
+      return <span className={`truncate block ${isPending ? 'text-orange-600 dark:text-orange-400 font-bold' : ''}`}>{highlightMatch(String(displayVal))}</span>;
    };
 
    return (
@@ -615,15 +651,27 @@ const VirtualTable = ({
                   </tr>
                </thead>
                <tbody className="divide-y divide-slate-100 dark:divide-slate-700/50">
-                  {currentData.map((row, rowIdx) => (
-                     <tr key={rowIdx} onClick={() => onRowClick(row)} className="group hover:bg-indigo-50/30 dark:hover:bg-indigo-900/10 transition-colors h-[40px] cursor-pointer">
-                        {columns.map((col, cIdx) => (
-                           <td key={col} className={`px-4 py-2 text-sm text-slate-600 dark:text-slate-300 truncate ${cIdx === 0 ? 'pl-6 font-medium' : ''}`}>
-                              {formatValue(col, row[col], rowIdx)}
-                           </td>
-                        ))}
-                     </tr>
-                  ))}
+                  {currentData.map((row, rowIdx) => {
+                     const absRowIdx = startIndex + rowIdx;
+                     return (
+                        <tr key={rowIdx} onClick={() => !isAdvancedMode && onRowClick(row)} className={`group hover:bg-indigo-50/30 dark:hover:bg-indigo-900/10 transition-colors h-[40px] ${isAdvancedMode ? '' : 'cursor-pointer'}`}>
+                           {columns.map((col, cIdx) => (
+                              <td 
+                                 key={col} 
+                                 className={`px-4 py-2 text-sm text-slate-600 dark:text-slate-300 truncate ${cIdx === 0 ? 'pl-6 font-medium' : ''} ${isAdvancedMode ? 'hover:bg-slate-100 dark:hover:bg-slate-800' : ''}`}
+                                 onClick={(e) => {
+                                    if (isAdvancedMode) {
+                                       e.stopPropagation();
+                                       setEditingCell({rowIdx: absRowIdx, col});
+                                    }
+                                 }}
+                              >
+                                 {formatValue(col, row[col], rowIdx)}
+                              </td>
+                           ))}
+                        </tr>
+                     );
+                  })}
                </tbody>
             </table>
          </div>
@@ -738,6 +786,11 @@ const ResultsStep: React.FC<ResultsStepProps> = ({ data, sql, onBackToBuilder, o
   const [selectedRow, setSelectedRow] = useState<any | null>(null);
   const [viewJson, setViewJson] = useState<any | null>(null);
   const [drillDownTarget, setDrillDownTarget] = useState<{table: string, col: string, val: any, allLinks?: ManualLink[]} | null>(null);
+  
+  // Pending Edits State (Advanced Mode)
+  const [pendingEdits, setPendingEdits] = useState<Record<string, string>>({});
+  const [showConfirmation, setShowConfirmation] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
   const mainTableName = useMemo(() => {
      const fromMatch = sql.match(/FROM\s+([a-zA-Z0-9_."]+)/i);
@@ -820,32 +873,90 @@ const ResultsStep: React.FC<ResultsStepProps> = ({ data, sql, onBackToBuilder, o
 
   const handleUpdateCell = (rowIdx: number, colKey: string, newValue: string) => {
      if (!settings?.advancedMode) return;
-     const tableName = mainTableName || "table_name";
-     const row = localData[rowIdx];
-     let pkCol = 'id';
-     let pkVal = row['id'];
-     if (!pkVal) {
-        if (row['grid']) { pkCol = 'grid'; pkVal = row['grid']; }
-        else if (schema) {
-           const t = schema.tables.find(tbl => tableName.includes(tbl.name));
-           if (t) {
-              const pk = t.columns.find(c => c.isPrimaryKey);
-              if (pk) { pkCol = pk.name; pkVal = row[pkCol]; }
-           }
-        }
-     }
-     if (!pkVal) { onShowToast("Não foi possível identificar a Chave Primária (ID) para atualizar esta linha.", "error"); return; }
-     const updateSql = `UPDATE ${tableName} SET ${colKey} = '${newValue.replace(/'/g, "''")}' WHERE ${pkCol} = ${pkVal};`;
-     const newData = [...localData];
-     newData[rowIdx] = { ...newData[rowIdx], [colKey]: newValue };
-     setLocalData(newData);
-     onShowToast(`UPDATE Gerado: ${updateSql}`, "info");
+     const editKey = `${rowIdx}-${colKey}`;
+     setPendingEdits(prev => ({ ...prev, [editKey]: newValue }));
+  };
+
+  const handleSaveChanges = async () => {
+    if (!credentials || Object.keys(pendingEdits).length === 0) return;
+    
+    setIsSaving(true);
+    const tableName = mainTableName || "table_name";
+    
+    let sqlStatements = ["BEGIN;"];
+    
+    // Group edits by row to create efficient UPDATE statements
+    const editsByRow: Record<number, Record<string, string>> = {};
+    Object.entries(pendingEdits).forEach(([key, val]) => {
+       const [rowIdx] = key.split('-').map(Number);
+       const col = key.split('-').slice(1).join('-');
+       if (!editsByRow[rowIdx]) editsByRow[rowIdx] = {};
+       editsByRow[rowIdx][col] = val;
+    });
+
+    for (const [rowIdxStr, cols] of Object.entries(editsByRow)) {
+       const rowIdx = Number(rowIdxStr);
+       const row = localData[rowIdx];
+       
+       let pkCol = 'id';
+       let pkVal = row['id'];
+       if (!pkVal) {
+          if (row['grid']) { pkCol = 'grid'; pkVal = row['grid']; }
+          else if (schema) {
+             const t = schema.tables.find(tbl => tableName.includes(tbl.name));
+             if (t) {
+                const pk = t.columns.find(c => c.isPrimaryKey);
+                if (pk) { pkCol = pk.name; pkVal = row[pkCol]; }
+             }
+          }
+       }
+
+       if (pkVal === undefined || pkVal === null) {
+          onShowToast(`Impossível salvar linha ${rowIdx + 1}: Chave primária não encontrada.`, "error");
+          setIsSaving(false);
+          setShowConfirmation(false);
+          return;
+       }
+
+       const setClause = Object.entries(cols).map(([col, val]) => {
+          const safeVal = val === null || val === 'NULL' ? 'NULL' : `'${val.replace(/'/g, "''")}'`;
+          return `"${col}" = ${safeVal}`;
+       }).join(', ');
+
+       sqlStatements.push(`UPDATE ${tableName} SET ${setClause} WHERE "${pkCol}" = ${pkVal};`);
+    }
+
+    sqlStatements.push("COMMIT;");
+    const fullSql = sqlStatements.join('\n');
+
+    try {
+       await executeQueryReal(credentials, fullSql);
+       
+       // Update local data
+       const newData = [...localData];
+       Object.entries(pendingEdits).forEach(([key, val]) => {
+          const [rowIdx] = key.split('-').map(Number);
+          const col = key.split('-').slice(1).join('-');
+          newData[rowIdx] = { ...newData[rowIdx], [col]: val };
+       });
+       
+       setLocalData(newData);
+       setPendingEdits({});
+       onShowToast("Alterações salvas com sucesso (Transação concluída).", "success");
+    } catch (e: any) {
+       onShowToast(`Falha ao salvar: ${e.message}`, "error");
+    } finally {
+       setIsSaving(false);
+       setShowConfirmation(false);
+    }
   };
 
   const handleChartDrillDown = (col: string, val: any) => { if (mainTableName) setDrillDownTarget({ table: mainTableName, col, val }); };
   const handleExportInsert = () => { if (filteredData.length === 0) return; const tableName = "exported_data"; const cols = columns.join(', '); const statements = filteredData.map(row => { const values = columns.map(col => { const val = row[col]; if (val === null) return 'NULL'; if (typeof val === 'string') return `'${val.replace(/'/g, "''")}'`; return val; }).join(', '); return `INSERT INTO ${tableName} (${cols}) VALUES (${values});`; }).join('\n'); navigator.clipboard.writeText(statements); setShowExportMenu(false); onShowToast("SQL INSERTs copiados!", "success"); };
   const handleExplain = async () => { setActiveTab('explain'); setExplainError(null); if (!explainPlan && credentials) { setLoadingExplain(true); try { const plan = await explainQueryReal(credentials, sql); setExplainPlan(plan); } catch (e: any) { setExplainError(e.message || "Erro ao analisar performance."); } finally { setLoadingExplain(false); } } };
   const toggleFullscreen = () => setIsFullscreen(!isFullscreen);
+
+  const hasPendingEdits = Object.keys(pendingEdits).length > 0;
 
   return (
     <div className={`h-full flex flex-col space-y-4 ${isFullscreen ? 'fixed inset-0 z-[100] bg-white dark:bg-slate-900 p-6' : ''}`}>
@@ -864,6 +975,42 @@ const ResultsStep: React.FC<ResultsStepProps> = ({ data, sql, onBackToBuilder, o
         />
       )}
       {showCodeModal && <CodeSnippetModal sql={sql} onClose={() => setShowCodeModal(false)} />}
+      
+      {/* Confirmation Modal */}
+      {showConfirmation && (
+         <div className="fixed inset-0 z-[200] bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 w-full max-w-md overflow-hidden animate-in zoom-in-95">
+               <div className="p-6 text-center">
+                  <div className="w-16 h-16 bg-orange-100 dark:bg-orange-900/30 text-orange-600 mx-auto rounded-full flex items-center justify-center mb-4">
+                     <AlertTriangle className="w-10 h-10" />
+                  </div>
+                  <h3 className="text-xl font-bold text-slate-800 dark:text-white mb-2">Confirmar Transação?</h3>
+                  <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">
+                     Você possui <strong>{Object.keys(pendingEdits).length}</strong> alteração(ões) pendente(s). <br/>
+                     O comando <code>COMMIT</code> será executado após as atualizações. <br/>
+                     <strong>Tem certeza absoluta?</strong>
+                  </p>
+                  <div className="flex gap-3">
+                     <button 
+                        onClick={() => setShowConfirmation(false)} 
+                        className="flex-1 px-4 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-600 dark:text-slate-300 rounded-xl font-bold transition-all"
+                     >
+                        Cancelar
+                     </button>
+                     <button 
+                        onClick={handleSaveChanges} 
+                        disabled={isSaving}
+                        className="flex-1 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold shadow-lg shadow-indigo-200 dark:shadow-none transition-all flex items-center justify-center gap-2"
+                     >
+                        {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                        Sim, Gravar no Banco
+                     </button>
+                  </div>
+               </div>
+            </div>
+         </div>
+      )}
+
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 shrink-0">
         <div className="flex items-center gap-4">
            {isFullscreen && <button onClick={toggleFullscreen} className="p-2 bg-slate-100 dark:bg-slate-800 rounded-lg hover:bg-slate-200 transition-colors"><Minimize2 className="w-5 h-5 text-slate-600 dark:text-slate-300" /></button>}
@@ -881,7 +1028,24 @@ const ResultsStep: React.FC<ResultsStepProps> = ({ data, sql, onBackToBuilder, o
            ))}
         </div>
         <div className="flex items-center gap-2">
-           {activeTab === 'table' && (<div className="flex items-center gap-2"><SmartFilterBar columns={columns} filters={filters} onChange={setFilters} onClear={() => setFilters([])} />{filters.length === 0 && (<div className="relative group"><Search className="absolute left-3 top-2.5 w-3.5 h-3.5 text-slate-400 group-focus-within:text-indigo-500 transition-colors" /><input type="text" placeholder="Busca rápida..." value={localSearch} onChange={(e) => setLocalSearch(e.target.value)} className="pl-8 pr-4 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none w-48" /></div>)}</div>)}
+           {hasPendingEdits && (
+              <div className="flex items-center gap-2 animate-in slide-in-from-right-2">
+                 <button 
+                    onClick={() => setPendingEdits({})} 
+                    className="flex items-center gap-2 px-3 py-1.5 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-bold text-slate-500 hover:bg-slate-200 transition-all"
+                 >
+                    <Undo2 className="w-4 h-4" /> Descartar
+                 </button>
+                 <button 
+                    onClick={() => setShowConfirmation(true)}
+                    className="flex items-center gap-2 px-4 py-1.5 bg-orange-500 hover:bg-orange-600 text-white rounded-lg text-sm font-bold shadow-lg shadow-orange-200 dark:shadow-none transition-all"
+                 >
+                    <Save className="w-4 h-4" /> Salvar Alterações
+                 </button>
+              </div>
+           )}
+
+           {activeTab === 'table' && !hasPendingEdits && (<div className="flex items-center gap-2"><SmartFilterBar columns={columns} filters={filters} onChange={setFilters} onClear={() => setFilters([])} />{filters.length === 0 && (<div className="relative group"><Search className="absolute left-3 top-2.5 w-3.5 h-3.5 text-slate-400 group-focus-within:text-indigo-500 transition-colors" /><input type="text" placeholder="Busca rápida..." value={localSearch} onChange={(e) => setLocalSearch(e.target.value)} className="pl-8 pr-4 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none w-48" /></div>)}</div>)}
            {activeTab === 'terminal' && (
               <button 
                 onClick={() => { navigator.clipboard.writeText(ansiTableString.replace(/\x1b\[\d+m/g, '')); onShowToast("Tabela (sem cores) copiada!", "success"); }}
@@ -918,6 +1082,7 @@ const ResultsStep: React.FC<ResultsStepProps> = ({ data, sql, onBackToBuilder, o
                  schema={schema} 
                  defaultTableName={mainTableName} 
                  credentials={credentials} 
+                 pendingEdits={pendingEdits}
               />
             )}
             {activeTab === 'terminal' && <AnsiTerminal text={ansiTableString} />}
