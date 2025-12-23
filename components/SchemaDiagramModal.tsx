@@ -1,7 +1,6 @@
 
 import React, { useState, useRef, useEffect, useMemo, useCallback, memo } from 'react';
 import { DatabaseSchema, Table, VirtualRelation, DbCredentials } from '../types';
-// Fixed: Added missing CheckCircle2 import from lucide-react.
 import { X, ZoomIn, ZoomOut, Maximize, Loader2, Search, Key, Link, Target, CornerDownRight, Copy, Eye, Download, Map as MapIcon, Palette, FileCode, Upload, Save, Trash2, Tag, Filter, Eraser, Route, PlayCircle, StopCircle, ArrowRight, ChevronDown, ChevronUp, Sparkles, CheckCircle2 } from 'lucide-react';
 import html2canvas from 'html2canvas';
 import IntersectionValidatorModal from './IntersectionValidatorModal';
@@ -217,7 +216,7 @@ const DiagramNode = memo(({
                                 `}
                                 onContextMenu={(e) => onContextMenu(e, table.name, col.name)}
                                 onMouseEnter={() => onColumnEnter(table.name, col.name, col.references)}
-                                onColumnLeave={handleColumnLeave}
+                                onMouseLeave={onColumnLeave}
                                 onClick={(e) => { e.stopPropagation(); onColumnClick(table.name, col.name, col.references); }}
                              >
                                 <div className="flex items-center gap-2 overflow-hidden text-slate-700 dark:text-slate-300">

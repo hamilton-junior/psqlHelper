@@ -239,7 +239,6 @@ const App: React.FC = () => {
      }
   };
 
-  // Fixed: Replaced 'tableB' with the correct parameter name 'tB' in the template string.
   const handleCheckOverlap = async (tA: string, cA: string, tB: string, cB: string): Promise<number> => {
      if (!credentials) return 0;
      if (credentials.host === 'simulated') return 10; 
