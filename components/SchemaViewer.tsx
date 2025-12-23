@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useEffect, useCallback, memo, useDeferredValue, useRef } from 'react';
 import { DatabaseSchema, Table, Column } from '../types';
 import { Database, Table as TableIcon, Key, Search, ChevronDown, ChevronRight, Link, ArrowUpRight, ArrowDownLeft, X, ArrowUpDown, ArrowUp, ArrowDown, Pencil, Check, Filter, PlusCircle, Target, CornerDownRight, Loader2, ArrowRight, Folder, FolderOpen, Play, Info, Star } from 'lucide-react';
@@ -13,6 +14,8 @@ interface SchemaViewerProps {
   onPreviewTable?: (tableName: string) => void;
 }
 
+type SortField = 'name' | 'type' | 'key';
+type SortDirection = 'asc' | 'desc';
 type VisualState = 'normal' | 'focused' | 'dimmed' | 'parent' | 'child' | 'target' | 'source';
 
 const getTableId = (t: any) => `${t.schema || 'public'}.${t.name}`;
@@ -53,8 +56,8 @@ const SchemaColumnItem = memo(({
 });
 
 const SchemaTableItem = memo(({ 
-  table, visualState, isExpanded, isSelected, isFavorite, selectionMode, editingTable, tempDesc, debouncedTerm, hoveredColumnKey, hoveredColumnRef, selectedColumnKey, 
-  onToggleExpand, onTableClick, onMouseEnter, onStartEditing, onSaveDescription, onColumnHover, onColumnHoverOut, onColumnClick, onPreview, onToggleFavorite 
+  table, visualState, isExpanded, isSelected, isFavorite, selectionMode, editingTable, tempDesc, debouncedTerm, sortField, sortDirection, hoveredColumnKey, hoveredColumnRef, selectedColumnKey, 
+  onToggleExpand, onTableClick, onMouseEnter, onStartEditing, onSaveDescription, onDescChange, onSortChange, onColumnHover, onColumnHoverOut, onColumnClick, onPreview, onToggleFavorite 
 }: any) => {
   const tableId = getTableId(table);
   const isEditing = editingTable === table.name;
@@ -77,7 +80,7 @@ const SchemaTableItem = memo(({
               {onPreview && <button onClick={e => { e.stopPropagation(); onPreview(table.name); }} className="p-1 text-slate-500 hover:text-emerald-400 opacity-0 group-hover/table:opacity-100"><Play className="w-3 h-3 fill-current" /></button>}
            </div>
            {!isEditing && <p className="text-[10px] truncate text-slate-500 cursor-text" onClick={e => { e.stopPropagation(); onStartEditing(e, table); }}>{table.description || 'Adicionar descrição...'}</p>}
-           {isEditing && <input type="text" defaultValue={table.description || ''} className="w-full text-xs bg-slate-700 rounded px-1 text-slate-200 outline-none" autoFocus onBlur={e => onSaveDescription(e, table.name)} onKeyDown={e => e.key === 'Enter' && onSaveDescription(e, table.name)} />}
+           {isEditing && <input type="text" value={tempDesc} onChange={e => onDescChange(e.target.value)} className="w-full text-xs bg-slate-700 rounded px-1 text-slate-200 outline-none" autoFocus onBlur={e => onSaveDescription(e, table.name)} onKeyDown={e => e.key === 'Enter' && onSaveDescription(e, table.name)} />}
         </div>
       </div>
       {isExpanded && (
@@ -114,6 +117,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
   useEffect(() => { localStorage.setItem(`psql-buddy-favorites-${schema.name}`, JSON.stringify(Array.from(favoriteTables))); }, [favoriteTables, schema.name]);
 
   const [editingTable, setEditingTable] = useState<string | null>(null);
+  const [tempDesc, setTempDesc] = useState('');
   const [hoveredTableId, setHoveredTableId] = useState<string | null>(null);
   const [hoveredColumnKey, setHoveredColumnKey] = useState<string | null>(null);
   const [hoveredColumnRef, setHoveredColumnRef] = useState<string | null>(null);
@@ -146,21 +150,16 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
   const handleScroll = useCallback(() => {
     if (!scrollContainerRef.current) return;
     const { scrollTop, scrollHeight, clientHeight } = scrollContainerRef.current;
-    // Se chegamos perto do fim (300px), carregamos mais tabelas "outras"
     if (scrollTop + clientHeight >= scrollHeight - 300) {
-      setRenderLimit(prev => prev + 40);
+      setRenderLimit(prev => Math.min(prev + 40, schema.tables.length));
     }
-  }, []);
+  }, [schema.tables.length]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
        setDebouncedTerm(inputValue);
-       setRenderLimit(40); // Resetar limite ao buscar para priorizar novos resultados
-       if (inputValue) {
-          // Auto-expandir schemas que contenham resultados da busca
-          const schemasWithResults = new Set(schema.tables.filter(t => t.name.toLowerCase().includes(inputValue.toLowerCase())).map(t => t.schema || 'public'));
-          setExpandedSchemas(prev => new Set([...prev, ...schemasWithResults]));
-       }
+       setRenderLimit(40);
+       if (inputValue) setExpandedSchemas(prev => new Set([...prev, ...schema.tables.map(t => t.schema || 'public')]));
     }, 300);
     return () => clearTimeout(timer);
   }, [inputValue, schema.tables]);
@@ -171,7 +170,6 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
     return Array.from(types).sort();
   }, [schema.tables]);
 
-  // Filtro Global sobre TODAS as tabelas do schema
   const filteredTables = useMemo(() => {
     const term = debouncedTerm.toLowerCase().trim();
     let tables = schema.tables;
@@ -188,15 +186,17 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
   const groupedTables = useMemo(() => {
     const groups: Record<string, Table[]> = {};
     
-    // 1. Processar Favoritos PRIMEIRO (Sempre visíveis se passarem no filtro de busca)
-    const matchingFavorites = filteredTables.filter(t => favoriteTables.has(getTableId(t)));
-    if (matchingFavorites.length > 0) {
-       groups['__favorites__'] = matchingFavorites;
+    // Filtramos os favoritos PRIMEIRO para que eles sempre apareçam, independente do renderLimit
+    const favoritedFiltered = filteredTables.filter(t => favoriteTables.has(getTableId(t)));
+    const remainingFiltered = filteredTables.filter(t => !favoriteTables.has(getTableId(t)));
+    
+    // Se houver favoritos, eles formam o primeiro grupo
+    if (favoritedFiltered.length > 0) {
+       groups['__favorites__'] = favoritedFiltered;
     }
 
-    // 2. Processar Outros (Sujeitos ao renderLimit para performance)
-    const otherTables = filteredTables.filter(t => !favoriteTables.has(getTableId(t)));
-    const visibleOthers = otherTables.slice(0, renderLimit);
+    // O renderLimit agora se aplica apenas aos "outros"
+    const visibleOthers = remainingFiltered.slice(0, renderLimit);
     
     visibleOthers.forEach(table => {
        const s = table.schema || 'public';
@@ -204,16 +204,16 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
        groups[s].push(table);
     });
     
-    return { groups, totalFiltered: filteredTables.length, totalVisible: matchingFavorites.length + visibleOthers.length };
+    return groups;
   }, [filteredTables, renderLimit, favoriteTables]);
 
-  const sortedSchemaNames = useMemo(() => {
-     return Object.keys(groupedTables.groups).sort((a, b) => {
+  const sortedSchemas = useMemo(() => {
+     return Object.keys(groupedTables).sort((a, b) => {
         if (a === '__favorites__') return -1;
         if (b === '__favorites__') return 1;
         return a.localeCompare(b);
      });
-  }, [groupedTables.groups]);
+  }, [groupedTables]);
 
   const handleToggleFavorite = useCallback((tableId: string) => {
     setFavoriteTables(prev => {
@@ -270,14 +270,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
         <div className="flex gap-2">
            <div className="relative flex-1">
              <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-500" />
-             <input 
-                type="text" 
-                placeholder="Buscar em todas as tabelas..." 
-                value={inputValue} 
-                onChange={e => setInputValue(e.target.value)} 
-                disabled={loading} 
-                className="w-full pl-9 pr-8 py-2 bg-slate-800 border border-slate-700 rounded text-xs outline-none focus:ring-2 focus:ring-indigo-500 transition-all text-slate-200 placeholder-slate-600" 
-             />
+             <input type="text" placeholder="Buscar tabelas... (Ctrl+K)" value={inputValue} onChange={e => setInputValue(e.target.value)} disabled={loading} className="w-full pl-9 pr-8 py-2 bg-slate-800 border border-slate-700 rounded text-xs outline-none focus:ring-2 focus:ring-indigo-500 transition-all text-slate-200 placeholder-slate-600" />
            </div>
            <select value={selectedTypeFilter} onChange={e => { setSelectedTypeFilter(e.target.value); setRenderLimit(40); }} className="w-[100px] h-full p-2 bg-slate-800 border border-slate-700 rounded text-xs outline-none text-slate-400 cursor-pointer">
               <option value="">Tipos</option>
@@ -286,8 +279,8 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
         </div>
       </div>
       <div ref={scrollContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto p-2 space-y-2 relative custom-scrollbar" onMouseLeave={() => { setHoveredTableId(null); setHoveredColumnKey(null); setHoveredColumnRef(null); }}>
-        {sortedSchemaNames.map(schemaName => {
-           const tablesInSchema = groupedTables.groups[schemaName];
+        {sortedSchemas.map(schemaName => {
+           const tablesInSchema = groupedTables[schemaName];
            if (!tablesInSchema || tablesInSchema.length === 0) return null;
            const isFavoritesGroup = schemaName === '__favorites__';
            const isExpanded = expandedSchemas.has(schemaName);
@@ -304,10 +297,10 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
                           <SchemaTableItem
                              key={getTableId(table)} table={table} visualState={visualStateMap.has(getTableId(table)) ? visualStateMap.get(getTableId(table)) : (visualStateMap.size > 0 ? 'dimmed' : 'normal')}
                              isExpanded={expandedTables.has(getTableId(table))} isSelected={selectedTableIds.includes(getTableId(table))} isFavorite={favoriteTables.has(getTableId(table))}
-                             selectionMode={selectionMode} editingTable={editingTable} debouncedTerm={debouncedTerm} 
+                             selectionMode={selectionMode} editingTable={editingTable} tempDesc={tempDesc} debouncedTerm={debouncedTerm} 
                              onToggleExpand={(e: any, id: string) => { e.stopPropagation(); setExpandedTables(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; }); }}
-                             onTableClick={id => selectionMode ? onToggleTable?.(id) : setExpandedTables(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; })} onMouseEnter={setHoveredTableId} onStartEditing={(e: any, t: any) => { e.stopPropagation(); setEditingTable(t.name); }}
-                             onSaveDescription={(e: any, name: string) => { onDescriptionChange?.(name, e.target.value); setEditingTable(null); }}
+                             onTableClick={id => selectionMode ? onToggleTable?.(id) : setExpandedTables(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; })} onMouseEnter={setHoveredTableId} onStartEditing={(e: any, t: any) => { e.stopPropagation(); setEditingTable(t.name); setTempDesc(t.description || ''); }}
+                             onSaveDescription={(e: any, name: string) => { onDescriptionChange?.(name, tempDesc); setEditingTable(null); }} onDescChange={setTempDesc}
                              onColumnHover={(tid: string, col: string, ref?: string) => { setHoveredColumnKey(`${tid}.${col}`); setHoveredColumnRef(ref || null); }}
                              onColumnHoverOut={() => { setHoveredColumnKey(null); setHoveredColumnRef(null); }} onColumnClick={(tid: string, col: string) => setSelectedColumnKey(`${tid}.${col}`)}
                              onPreview={onPreviewTable} onToggleFavorite={handleToggleFavorite}
@@ -318,12 +311,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
               </div>
            );
         })}
-        {groupedTables.totalFiltered > groupedTables.totalVisible && (
-           <div className="py-4 text-center text-slate-600 text-[10px] italic flex items-center justify-center gap-2">
-              <Loader2 className="w-3 h-3 animate-spin" /> 
-              Carregando mais {groupedTables.totalFiltered - groupedTables.totalVisible} resultados...
-           </div>
-        )}
+        {filteredTables.length > renderLimit && <div className="py-4 text-center text-slate-600 text-xs italic flex items-center justify-center gap-2"><Loader2 className="w-3 h-3 animate-spin" /> Carregando mais tabelas...</div>}
       </div>
       <div className="p-3 bg-slate-900 border-t border-slate-800 text-[10px] text-slate-500 shrink-0">
         <p className="flex items-center gap-3">
