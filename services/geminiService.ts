@@ -48,7 +48,7 @@ export const generateBuilderStateFromPrompt = async (
     3. Para 'selectedColumns', use o formato "schema.tabela.coluna".
     4. Para 'aggregations', retorne uma lista com a coluna e a função: COUNT, SUM, AVG, MIN, MAX ou NONE.
     5. Infira JOINS se múltiplas tabelas forem necessárias.
-    6. Infira FILTROS se o usuário pedir. IMPORTANTE: No PostgreSQL, operadores LIKE/ILIKE exigem valores entre aspas simples.
+    6. Infira FILTROS se o usuário pedir. IMPORTANTE: No PostgreSQL, operadores LIKE/ILIKE exigem valores entre aspas simples. Não inclua o símbolo % no valor, pois o builder cuidará disso.
     7. Se o usuário pedir agrupamento, adicione ao 'groupBy'.
 
     Retorne APENAS JSON.
@@ -127,7 +127,8 @@ export const generateBuilderStateFromPrompt = async (
           id: crypto.randomUUID(),
           column: f.column,
           operator: (['=', '!=', '>', '<', '>=', '<=', 'LIKE', 'ILIKE', 'IN', 'IS NULL', 'IS NOT NULL'].includes(f.operator) ? f.operator : '=') as Operator,
-          value: String(f.value)
+          value: String(f.value),
+          wildcardPosition: 'both' // Default to contains
         })),
         joins: (rawData.joins || []).map((j: any) => ({
           id: crypto.randomUUID(),

@@ -287,7 +287,7 @@ const ManualMappingPopover: React.FC<{
                 <div className="space-y-1.5">
                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">Novo Alvo</label>
                    <div className="relative">
-                      <Search className="absolute left-2 top-2.5 w-3 h-3 text-slate-400" />
+                      <Search className="absolute left-2.5 top-2.5 w-3.5 h-3.5 text-slate-400" />
                       <input 
                          autoFocus
                          type="text" 
@@ -798,7 +798,8 @@ const ResultsStep: React.FC<ResultsStepProps> = ({ data, sql, onBackToBuilder, o
         res = res.filter(row => filters.every(f => {
               const val = row[f.column];
               const strVal = String(val || '').toLowerCase();
-              const filterVal = (f.value || '').toLowerCase();
+              /* Fixed: explicitly use String() to ensure f.value is handled as a string by the TS compiler */
+              const filterVal = String(f.value || '').toLowerCase();
               if (f.value === '') return true;
               switch(f.operator) {
                  case 'contains': return strVal.includes(filterVal);
@@ -887,7 +888,10 @@ const ResultsStep: React.FC<ResultsStepProps> = ({ data, sql, onBackToBuilder, o
        if (!pkVal && schema) {
           const t = schema.tables.find(tbl => tableName.includes(tbl.name));
           const pk = t?.columns.find(c => c.isPrimaryKey);
-          if (pk) pkVal = row[pk.name];
+          if (pk) {
+             pkCol = pk.name;
+             pkVal = row[pk.name];
+          }
        }
        if (pkVal === undefined) continue;
        const setClause = Object.entries(cols).map(([col, val]) => `"${col}" = '${val.replace(/'/g, "''")}'`).join(', ');
@@ -923,16 +927,15 @@ const ResultsStep: React.FC<ResultsStepProps> = ({ data, sql, onBackToBuilder, o
     if (mainTableName) setDrillDownTarget({ table: mainTableName, col, val }); 
   }; 
   
-  // Fix: Added explicit typing (row: any) and string conversion for non-string values to prevent TypeScript 'unknown' errors during export
   const handleExportInsert = () => { 
     if (filteredData.length === 0) return; 
     const tableName = "exported_data"; 
     const cols = columns.join(', '); 
-    const statements = filteredData.map((row: any) => { 
+    const statements = (filteredData as any[]).map((row: any) => { 
       const values = columns.map(col => { 
-        const val = row[col]; 
+        const val: any = row[col]; 
         if (val === null) return 'NULL'; 
-        if (typeof val === 'string') return `'${val.replace(/'/g, "''")}'`; 
+        if (typeof val === 'string') return `'${(val as string).replace(/'/g, "''")}'`; 
         return String(val); 
       }).join(', '); 
       return `INSERT INTO ${tableName} (${cols}) VALUES (${values});`; 
@@ -963,7 +966,7 @@ const ResultsStep: React.FC<ResultsStepProps> = ({ data, sql, onBackToBuilder, o
   const hasPendingEdits = Object.keys(pendingEdits).length > 0;
 
   return (
-    <div className={`h-full flex flex-col space-y-4 ${isFullscreen ? 'fixed inset-0 z-[100] bg-white dark:bg-slate-900 p-6' : ''}`}>
+    <div className={`h-full flex flex-col space-y-4 ${isFullscreen ? 'fixed inset-0 z-[100] bg-[#0f172a] p-6' : ''}`}>
       {selectedRow && <RowInspector row={selectedRow} onClose={() => setSelectedRow(null)} />}
       {viewJson && <JsonViewerModal json={viewJson} onClose={() => setViewJson(null)} />}
       {drillDownTarget && (
@@ -982,13 +985,13 @@ const ResultsStep: React.FC<ResultsStepProps> = ({ data, sql, onBackToBuilder, o
       
       {showConfirmation && (
          <div className="fixed inset-0 z-[200] bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-4">
-            <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 w-full max-w-lg overflow-hidden animate-in zoom-in-95">
+            <div className="bg-slate-800 rounded-2xl shadow-2xl border border-slate-700 w-full max-w-lg overflow-hidden animate-in zoom-in-95">
                <div className="p-6 text-center">
-                  <div className="w-16 h-16 bg-red-100 dark:bg-red-900/30 text-red-600 mx-auto rounded-full flex items-center justify-center mb-4">
+                  <div className="w-16 h-16 bg-red-900/30 text-red-600 mx-auto rounded-full flex items-center justify-center mb-4">
                      <ShieldAlert className="w-10 h-10" />
                   </div>
-                  <h3 className="text-xl font-bold text-red-600 dark:text-red-400 mb-2 uppercase tracking-tight">Certeza Absoluta?</h3>
-                  <p className="text-sm text-slate-500 dark:text-slate-400 mb-6 px-4">
+                  <h3 className="text-xl font-bold text-red-400 mb-2 uppercase tracking-tight">Certeza Absoluta?</h3>
+                  <p className="text-sm text-slate-400 mb-6 px-4">
                      Você está prestes a gravar <strong>{Object.keys(pendingEdits).length}</strong> alteração(ões) diretamente no banco de dados. <br/>
                      O script SQL abaixo será executado dentro de um bloco de transação.
                   </p>
@@ -999,8 +1002,8 @@ const ResultsStep: React.FC<ResultsStepProps> = ({ data, sql, onBackToBuilder, o
                      </pre>
                   </div>
                   <div className="flex gap-3 px-2">
-                     <button onClick={() => setShowConfirmation(false)} className="flex-1 px-4 py-3 bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-600 dark:text-slate-300 rounded-xl font-bold transition-all">Cancelar</button>
-                     <button onClick={handleSaveChanges} disabled={isSaving} className="flex-[2] px-4 py-3 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold shadow-lg shadow-red-200 dark:shadow-none transition-all flex items-center justify-center gap-2">
+                     <button onClick={() => setShowConfirmation(false)} className="flex-1 px-4 py-3 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-xl font-bold transition-all">Cancelar</button>
+                     <button onClick={handleSaveChanges} disabled={isSaving} className="flex-[2] px-4 py-3 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold shadow-lg transition-all flex items-center justify-center gap-2">
                         {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />} Sim, Confirmar COMMIT
                      </button>
                   </div>
@@ -1011,10 +1014,10 @@ const ResultsStep: React.FC<ResultsStepProps> = ({ data, sql, onBackToBuilder, o
 
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 shrink-0">
         <div className="flex items-center gap-4">
-           {isFullscreen && <button onClick={toggleFullscreen} className="p-2 bg-slate-100 dark:bg-slate-800 rounded-lg hover:bg-slate-200 transition-colors"><Minimize2 className="w-5 h-5 text-slate-600 dark:text-slate-300" /></button>}
-           <div><h2 className="text-xl font-bold text-slate-800 dark:text-white flex items-center gap-3">Resultados<span className="text-xs font-normal text-slate-500 bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded-full border border-slate-200 dark:border-slate-700 shadow-sm">{filteredData.length} registros</span>{settings?.advancedMode && <span className="text-[10px] bg-orange-100 text-orange-700 px-2 py-0.5 rounded font-bold border border-orange-200 flex items-center gap-1"><PenTool className="w-3 h-3" /> Modo Edição</span>}</h2></div>
+           {isFullscreen && <button onClick={toggleFullscreen} className="p-2 bg-slate-800 rounded-lg hover:bg-slate-700 transition-colors"><Minimize2 className="w-5 h-5 text-slate-300" /></button>}
+           <div><h2 className="text-xl font-bold text-white flex items-center gap-3">Resultados<span className="text-xs font-normal text-slate-500 bg-slate-800 px-2 py-1 rounded-full border border-slate-700 shadow-sm">{filteredData.length} registros</span>{settings?.advancedMode && <span className="text-[10px] bg-orange-900/40 text-orange-400 px-2 py-0.5 rounded font-bold border border-orange-500/50 flex items-center gap-1"><PenTool className="w-3 h-3" /> Modo Edição</span>}</h2></div>
         </div>
-        <div className="flex bg-white dark:bg-slate-800 p-1 rounded-lg border border-slate-200 dark:border-slate-700 shadow-sm overflow-x-auto">
+        <div className="flex bg-slate-800 p-1 rounded-lg border border-slate-700 shadow-sm overflow-x-auto">
            {[
              { id: 'table', icon: <FileSpreadsheet className="w-4 h-4" />, label: 'Tabela' },
              { id: 'terminal', icon: <TerminalIcon className="w-4 h-4" />, label: 'Terminal (ANSI)' },
@@ -1022,31 +1025,31 @@ const ResultsStep: React.FC<ResultsStepProps> = ({ data, sql, onBackToBuilder, o
              { id: 'analysis', icon: <MessageSquare className="w-4 h-4" />, label: 'AI Analyst' },
              { id: 'explain', icon: <Activity className="w-4 h-4" />, label: 'Performance' }
            ].map(tab => (
-              <button key={tab.id} onClick={() => { setActiveTab(tab.id as ResultTab); if(tab.id === 'explain') handleExplain(); }} className={`flex items-center gap-2 px-4 py-1.5 rounded-md text-sm font-medium transition-all whitespace-nowrap ${activeTab === tab.id ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/50 dark:text-indigo-300' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}>{tab.icon} {tab.label}</button>
+              <button key={tab.id} onClick={() => { setActiveTab(tab.id as ResultTab); if(tab.id === 'explain') handleExplain(); }} className={`flex items-center gap-2 px-4 py-1.5 rounded-md text-sm font-medium transition-all whitespace-nowrap ${activeTab === tab.id ? 'bg-indigo-900/50 text-indigo-300' : 'text-slate-500 hover:text-slate-300'}`}>{tab.icon} {tab.label}</button>
            ))}
         </div>
         <div className="flex items-center gap-2">
            {hasPendingEdits && (
               <div className="flex items-center gap-2 animate-in slide-in-from-right-2">
-                 <button onClick={() => setPendingEdits({})} className="flex items-center gap-2 px-3 py-1.5 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-bold text-slate-500 hover:bg-slate-200 transition-all"><Undo2 className="w-4 h-4" /> Descartar</button>
-                 <button onClick={() => setShowConfirmation(true)} className="flex items-center gap-2 px-4 py-1.5 bg-orange-500 hover:bg-orange-600 text-white rounded-lg text-sm font-bold shadow-lg shadow-orange-200 dark:shadow-none transition-all"><Save className="w-4 h-4" /> Gravar Alterações</button>
+                 <button onClick={() => setPendingEdits({})} className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-sm font-bold text-slate-500 hover:bg-slate-700 transition-all"><Undo2 className="w-4 h-4" /> Descartar</button>
+                 <button onClick={() => setShowConfirmation(true)} className="flex items-center gap-2 px-4 py-1.5 bg-orange-600 hover:bg-orange-500 text-white rounded-lg text-sm font-bold shadow-lg transition-all"><Save className="w-4 h-4" /> Gravar Alterações</button>
               </div>
            )}
 
-           {activeTab === 'table' && !hasPendingEdits && (<div className="flex items-center gap-2"><SmartFilterBar columns={columns} filters={filters} onChange={setFilters} onClear={() => setFilters([])} />{filters.length === 0 && (<div className="relative group"><Search className="absolute left-3 top-2.5 w-3.5 h-3.5 text-slate-400 group-focus-within:text-indigo-500 transition-colors" /><input type="text" placeholder="Busca rápida..." value={localSearch} onChange={(e) => setLocalSearch(e.target.value)} className="pl-8 pr-4 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none w-48" /></div>)}</div>)}
+           {activeTab === 'table' && !hasPendingEdits && (<div className="flex items-center gap-2"><SmartFilterBar columns={columns} filters={filters} onChange={setFilters} onClear={() => setFilters([])} />{filters.length === 0 && (<div className="relative group"><Search className="absolute left-3 top-2.5 w-3.5 h-3.5 text-slate-500 group-focus-within:text-indigo-400 transition-colors" /><input type="text" placeholder="Busca rápida..." value={localSearch} onChange={(e) => setLocalSearch(e.target.value)} className="pl-8 pr-4 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none w-48 text-slate-200" /></div>)}</div>)}
            <div className="relative">
-              <button onClick={() => setShowExportMenu(!showExportMenu)} className={`flex items-center gap-2 px-3 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-medium hover:bg-slate-50 dark:hover:bg-slate-700 shadow-sm transition-colors text-slate-700 dark:text-slate-300 ${showExportMenu ? 'ring-2 ring-indigo-500' : ''}`}><Download className="w-4 h-4" /> Exportar</button>
-              {showExportMenu && (<div className="absolute right-0 top-full mt-2 w-56 bg-white dark:bg-slate-800 rounded-xl shadow-xl border border-slate-200 dark:border-slate-700 z-[90] overflow-hidden animate-in fade-in zoom-in-95" onClick={() => setShowExportMenu(false)}><div className="p-2 border-b border-slate-100 dark:border-slate-700"><button onClick={() => { setShowCodeModal(true); setShowExportMenu(false); }} className="w-full text-left px-2 py-1.5 text-xs hover:bg-slate-50 dark:hover:bg-slate-700 rounded flex items-center gap-2 text-indigo-600 font-medium"><FileCode className="w-3.5 h-3.5" /> Exportar Código</button><button onClick={handleExportInsert} className="w-full text-left px-2 py-1.5 text-xs hover:bg-slate-50 dark:hover:bg-slate-700 rounded flex items-center gap-2"><Database className="w-3.5 h-3.5" /> Copy as SQL INSERT</button></div><div className="p-2"><button onClick={() => { navigator.clipboard.writeText(JSON.stringify(filteredData)); onShowToast("JSON copiado!", "success"); }} className="w-full text-left px-2 py-1.5 text-xs hover:bg-slate-50 dark:hover:bg-slate-700 rounded flex items-center gap-2"><FileJson className="w-3.5 h-3.5" /> Copy JSON Raw</button></div></div>)}
+              <button onClick={() => setShowExportMenu(!showExportMenu)} className={`flex items-center gap-2 px-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-sm font-medium hover:bg-slate-700 shadow-sm transition-colors text-slate-300 ${showExportMenu ? 'ring-2 ring-indigo-500' : ''}`}><Download className="w-4 h-4" /> Exportar</button>
+              {showExportMenu && (<div className="absolute right-0 top-full mt-2 w-56 bg-slate-800 rounded-xl shadow-xl border border-slate-700 z-[90] overflow-hidden animate-in fade-in zoom-in-95" onClick={() => setShowExportMenu(false)}><div className="p-2 border-b border-slate-700"><button onClick={() => { setShowCodeModal(true); setShowExportMenu(false); }} className="w-full text-left px-2 py-1.5 text-xs hover:bg-slate-700 rounded flex items-center gap-2 text-indigo-400 font-medium"><FileCode className="w-3.5 h-3.5" /> Exportar Código</button><button onClick={handleExportInsert} className="w-full text-left px-2 py-1.5 text-xs hover:bg-slate-700 rounded flex items-center gap-2"><Database className="w-3.5 h-3.5" /> Copy as SQL INSERT</button></div><div className="p-2"><button onClick={() => { navigator.clipboard.writeText(JSON.stringify(filteredData)); onShowToast("JSON copiado!", "success"); }} className="w-full text-left px-2 py-1.5 text-xs hover:bg-slate-700 rounded flex items-center gap-2"><FileJson className="w-3.5 h-3.5" /> Copy JSON Raw</button></div></div>)}
            </div>
-           {!isFullscreen && <button onClick={toggleFullscreen} className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors" title="Tela Cheia"><Maximize2 className="w-5 h-5" /></button>}
+           {!isFullscreen && <button onClick={toggleFullscreen} className="p-2 text-slate-500 hover:text-slate-200 transition-colors" title="Tela Cheia"><Maximize2 className="w-5 h-5" /></button>}
         </div>
       </div>
 
-      <div id="results-content" className="flex-1 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden flex flex-col relative">
+      <div id="results-content" className="flex-1 bg-slate-800 rounded-2xl border border-slate-700 shadow-sm overflow-hidden flex flex-col relative">
         {filteredData.length === 0 && data.length > 0 ? (
-           <div className="flex-1 flex flex-col items-center justify-center text-slate-400 p-8"><Filter className="w-12 h-12 opacity-30 mb-4" /><p>Nenhum resultado corresponde aos filtros atuais.</p></div>
+           <div className="flex-1 flex flex-col items-center justify-center text-slate-500 p-8"><Filter className="w-12 h-12 opacity-30 mb-4" /><p>Nenhum resultado corresponde aos filtros atuais.</p></div>
         ) : data.length === 0 ? (
-          <div className="flex-1 flex flex-col items-center justify-center text-slate-400 p-8"><Database className="w-12 h-12 opacity-30 mb-4" /><p>Nenhum resultado retornado</p></div>
+          <div className="flex-1 flex flex-col items-center justify-center text-slate-500 p-8"><Database className="w-12 h-12 opacity-30 mb-4" /><p>Nenhum resultado retornado</p></div>
         ) : (
           <>
             {activeTab === 'table' && (
@@ -1076,10 +1079,10 @@ const ResultsStep: React.FC<ResultsStepProps> = ({ data, sql, onBackToBuilder, o
       {!isFullscreen && (
          <div className="flex items-center justify-between shrink-0">
             <div className="flex items-center gap-4">
-               <button onClick={onNewConnection} className="text-slate-400 hover:text-slate-600 text-sm flex items-center gap-2 px-2 py-1"><Database className="w-4 h-4" /> Nova Conexão</button>
-               {executionDuration !== undefined && executionDuration > 0 && (<span className="text-xs text-slate-400 flex items-center gap-1 bg-slate-50 dark:bg-slate-800 px-2 py-1 rounded border border-slate-200 dark:border-slate-700"><Clock className="w-3 h-3" /> Executado em {executionDuration.toFixed(0)}ms</span>)}
+               <button onClick={onNewConnection} className="text-slate-500 hover:text-slate-300 text-sm flex items-center gap-2 px-2 py-1"><Database className="w-4 h-4" /> Nova Conexão</button>
+               {executionDuration !== undefined && executionDuration > 0 && (<span className="text-xs text-slate-500 flex items-center gap-1 bg-slate-800 px-2 py-1 rounded border border-slate-700"><Clock className="w-3 h-3" /> Executado em {executionDuration.toFixed(0)}ms</span>)}
             </div>
-            <button onClick={onBackToBuilder} className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-bold shadow-lg flex items-center gap-2"><ArrowLeft className="w-4 h-4" /> Voltar</button>
+            <button onClick={onBackToBuilder} className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg font-bold shadow-lg flex items-center gap-2"><ArrowLeft className="w-4 h-4" /> Voltar</button>
          </div>
       )}
     </div>

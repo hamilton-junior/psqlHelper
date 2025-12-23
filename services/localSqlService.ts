@@ -156,16 +156,27 @@ export const generateLocalSql = (schema: DatabaseSchema, state: BuilderState): Q
       
       const isLike = f.operator === 'LIKE' || f.operator === 'ILIKE';
       
+      let val = f.value;
+      
+      if (isLike) {
+         // Apply wildcard based on position
+         const pos = f.wildcardPosition || 'both';
+         const cleanValue = val.replace(/%/g, ''); // Ensure we don't double up
+         if (pos === 'start') val = `%${cleanValue}`;
+         else if (pos === 'end') val = `${cleanValue}%`;
+         else val = `%${cleanValue}%`;
+      }
+
       // PostgreSQL requer literais de string para LIKE/ILIKE.
       // Sempre usamos aspas se for um operador de LIKE ou se não for um número válido.
-      const val = (isLike || isNaN(Number(f.value)) || f.value === '') 
-        ? `'${f.value}'` 
-        : f.value;
+      const valLiteral = (isLike || isNaN(Number(val)) || val === '') 
+        ? `'${val.replace(/'/g, "''")}'` 
+        : val;
       
       // Para usar LIKE/ILIKE em colunas não-texto (ex: bigint, int), aplicamos o cast para ::text
       const columnExpr = isLike ? `${f.column}::text` : f.column;
       
-      return `${columnExpr} ${f.operator} ${val}`;
+      return `${columnExpr} ${f.operator} ${valLiteral}`;
     });
     whereClause = `WHERE ${conditions.join(' AND ')}`;
   }
