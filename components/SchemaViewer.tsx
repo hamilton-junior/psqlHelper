@@ -578,21 +578,21 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
 
   const sortedSchemas = useMemo(() => {
      const schemas = Object.keys(groupedTables);
-     if (debouncedTerm) {
-         const schemaRank: Record<string, number> = {};
-         filteredTables.forEach((t, idx) => {
-            const s = t.schema || 'public';
-            if (schemaRank[s] === undefined) schemaRank[s] = idx;
-         });
-         return schemas.sort((a, b) => {
-            const rankA = schemaRank[a] ?? Infinity;
-            const rankB = schemaRank[b] ?? Infinity;
-            return rankA - rankB;
-         });
-     }
+     
+     // Sempre prioriza os favoritos acima de tudo
      return schemas.sort((a, b) => {
         if (a === '__favorites__') return -1;
         if (b === '__favorites__') return 1;
+        
+        if (debouncedTerm) {
+            // Se houver busca, mantém a lógica de rank por relevância após os favoritos
+            const findRank = (s: string) => {
+               const idx = filteredTables.findIndex(t => (t.schema || 'public') === s);
+               return idx === -1 ? Infinity : idx;
+            };
+            return findRank(a) - findRank(b);
+        }
+        
         return a.localeCompare(b);
      });
   }, [groupedTables, filteredTables, debouncedTerm]);
@@ -607,7 +607,11 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
   }, []);
 
   const handleToggleSchema = useCallback((schemaName: string) => {
-    if (schemaName === '__favorites__') return; 
+    if (schemaName === '__favorites__') {
+       // Se clicar no título de favoritos, rola até o topo
+       scrollContainerRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+       return; 
+    }
     setExpandedSchemas(prev => {
       const newSet = new Set(prev);
       if (newSet.has(schemaName)) newSet.delete(schemaName); else newSet.add(schemaName);
