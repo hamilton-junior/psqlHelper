@@ -11,9 +11,16 @@ import { addToHistory } from '../../services/historyService';
 import { executeQueryReal, explainQueryReal } from '../../services/dbService';
 import BeginnerTip from '../BeginnerTip';
 
+/**
+ * Log centralizado para facilitar debug do componente de resultados
+ */
+const resultsLogger = (context: string, message: string, data?: any) => {
+  const timestamp = new Date().toLocaleTimeString();
+  console.log(`%c[${timestamp}] [RESULTS:${context}] %c${message}`, "color: #6366f1; font-weight: bold", "color: inherit", data || '');
+};
+
 // --- Sub-componente de Renderização ANSI ---
 const AnsiTerminal: React.FC<{ text: string }> = ({ text }) => {
-  // Parser simples de ANSI para React spans
   const parts: string[] = text.split(/(\x1b\[\d+m)/);
   let currentColor = "";
   
@@ -64,7 +71,16 @@ const HoverPreviewTooltip: React.FC<{
   useEffect(() => {
     let isMounted = true;
     const fetchPreview = async () => {
+      // Caso o valor seja undefined ou null, não tentamos buscar
+      if (value === undefined || value === null || value === '') {
+        resultsLogger('HoverPreview', 'Valor nulo ou indefinido ignorado');
+        setData("");
+        setLoading(false);
+        return;
+      }
+
       if (!credentials || !targetTable || !displayColumn || !schema) return;
+      
       setLoading(true);
       try {
         const tableParts = targetTable.split('.');
@@ -82,19 +98,23 @@ const HoverPreviewTooltip: React.FC<{
            return;
         }
 
-        const existingColNames = new Set(tableObj.columns.map(c => c.name.toLowerCase()));
-        const candidates = [pkColumn, 'grid', 'id', 'codigo', 'cod', 'mlid'].filter(Boolean);
-        const validIdCols = candidates.filter(c => existingColNames.has(c.toLowerCase()));
-
-        if (validIdCols.length === 0) {
-           validIdCols.push(tableObj.columns[0].name);
+        // Determina as colunas de busca (chave)
+        let searchCols = [pkColumn];
+        
+        // Se pkColumn for 'grid' (padrão antigo/auto), tentamos heurística se falhar, mas priorizamos o PK real
+        if (!pkColumn || pkColumn === 'grid') {
+           const existingColNames = new Set(tableObj.columns.map(c => c.name.toLowerCase()));
+           searchCols = ['grid', 'id', 'codigo', 'cod', 'mlid'].filter(c => existingColNames.has(c.toLowerCase()));
+           if (searchCols.length === 0) searchCols = [tableObj.columns[0].name];
         }
 
         const formattedTable = `"${sName}"."${tName}"`;
         const valStr = String(value).replace(/'/g, "''");
-        const conditions = validIdCols.map(col => `"${col}"::text = '${valStr}'`).join(' OR ');
+        const conditions = searchCols.map(col => `"${col}"::text = '${valStr}'`).join(' OR ');
         
         const sql = `SELECT "${displayColumn.replace(/"/g, '')}" FROM ${formattedTable} WHERE ${conditions} LIMIT 1;`;
+        
+        resultsLogger('HoverPreview', `Buscando info de preview: ${sql}`);
         
         const results = await executeQueryReal(credentials, sql);
         if (isMounted) {
@@ -106,6 +126,7 @@ const HoverPreviewTooltip: React.FC<{
           }
         }
       } catch (e) {
+        resultsLogger('HoverPreview', 'Erro na query de preview', e);
         if (isMounted) setError(true);
       } finally {
         if (isMounted) setLoading(false);
@@ -146,13 +167,15 @@ const HoverPreviewTooltip: React.FC<{
 const ManualMappingPopover: React.FC<{ 
   column: string, 
   schema: DatabaseSchema, 
-  onSave: (table: string, previewCol: string) => void, 
+  onSave: (table: string, keyCol: string, previewCol: string) => void, 
   onClose: () => void,
   currentValue?: string,
+  currentKeyCol?: string,
   currentPreviewCol?: string
-}> = ({ column, schema, onSave, onClose, currentValue, currentPreviewCol }) => {
+}> = ({ column, schema, onSave, onClose, currentValue, currentKeyCol, currentPreviewCol }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedTable, setSelectedTable] = useState(currentValue || '');
+  const [keyCol, setKeyCol] = useState(currentKeyCol || '');
   const [previewCol, setPreviewCol] = useState(currentPreviewCol || '');
   
   const schemasPresent = useMemo(() => {
@@ -161,10 +184,8 @@ const ManualMappingPopover: React.FC<{
 
   const hasMultipleSchemas = schemasPresent.length > 1;
 
-  // Lógica de filtragem e ordenação por relevância (mesma do SchemaViewer)
   const filteredAndSortedTables = useMemo(() => {
     const term = searchTerm.toLowerCase().trim();
-    
     const list = schema.tables.filter(t => 
       !term ||
       t.name.toLowerCase().includes(term) || 
@@ -175,31 +196,22 @@ const ManualMappingPopover: React.FC<{
       list.sort((a, b) => {
         const nameA = a.name.toLowerCase();
         const nameB = b.name.toLowerCase();
-        
-        // 1. Exato
         if (nameA === term && nameB !== term) return -1;
         if (nameB === term && nameA !== term) return 1;
-        
-        // 2. Começa com
         const startsA = nameA.startsWith(term);
         const startsB = nameB.startsWith(term);
         if (startsA && !startsB) return -1;
         if (!startsA && startsB) return 1;
-        
-        // 3. Contém
         const includesA = nameA.includes(term);
         const includesB = nameB.includes(term);
         if (includesA && !includesB) return -1;
         if (!includesA && includesB) return 1;
-        
-        // Fallback: Schema e Nome
         const sA = (a.schema || 'public').toLowerCase();
         const sB = (b.schema || 'public').toLowerCase();
         if (sA !== sB) return sA.localeCompare(sB);
         return nameA.localeCompare(nameB);
       });
     } else {
-      // Ordenação padrão se não houver busca
       list.sort((a, b) => {
         const sA = (a.schema || 'public').toLowerCase();
         const sB = (b.schema || 'public').toLowerCase();
@@ -207,11 +219,9 @@ const ManualMappingPopover: React.FC<{
         return a.name.toLowerCase().localeCompare(b.name.toLowerCase());
       });
     }
-
     return list;
   }, [schema.tables, searchTerm]);
 
-  // Agrupa os resultados já ordenados por schema
   const groupedTables = useMemo(() => {
     const grouped: Record<string, Table[]> = {};
     filteredAndSortedTables.forEach(t => {
@@ -222,7 +232,6 @@ const ManualMappingPopover: React.FC<{
     return grouped;
   }, [filteredAndSortedTables]);
 
-  // Ordena as chaves dos schemas pela posição do melhor resultado encontrado
   const sortedSchemaKeys = useMemo(() => {
     const keys = Object.keys(groupedTables);
     const term = searchTerm.toLowerCase().trim();
@@ -235,14 +244,8 @@ const ManualMappingPopover: React.FC<{
           schemaRank[s] = idx;
         }
       });
-      
-      return keys.sort((a, b) => {
-        const rankA = schemaRank[a] ?? Infinity;
-        const rankB = schemaRank[b] ?? Infinity;
-        return rankA - rankB;
-      });
+      return keys.sort((a, b) => (schemaRank[a] ?? Infinity) - (schemaRank[b] ?? Infinity));
     }
-    
     return keys.sort((a, b) => a.localeCompare(b));
   }, [groupedTables, filteredAndSortedTables, searchTerm]);
 
@@ -253,21 +256,28 @@ const ManualMappingPopover: React.FC<{
     const t = parts.length > 1 ? parts[1] : parts[0];
     const tbl = schema.tables.find(table => table.name === t && (table.schema || 'public') === s);
     if (!tbl) return [];
+    
+    // Auto-select keyCol if it was 'grid' or empty but we find a PK
+    if (!keyCol && !currentKeyCol) {
+       const pk = tbl.columns.find(c => c.isPrimaryKey || c.name.toLowerCase() === 'grid' || c.name.toLowerCase() === 'id');
+       if (pk) setKeyCol(pk.name);
+    }
+
     return tbl.columns
       .map(c => c.name)
       .sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
-  }, [selectedTable, schema]);
+  }, [selectedTable, schema, keyCol, currentKeyCol]);
 
   return (
     <div className="absolute z-[70] top-full mt-2 right-0 w-80 bg-white dark:bg-slate-800 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-700 overflow-hidden animate-in fade-in zoom-in-95 origin-top-right" onClick={e => e.stopPropagation()}>
        <div className="p-3 border-b border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50 flex justify-between items-center">
           <span className="text-[10px] font-bold uppercase text-slate-500 truncate mr-2">Vínculo: {column}</span>
-          <button onClick={onClose} className="p-1 hover:bg-slate-200 rounded shrink-0"><X className="w-3 h-3" /></button>
+          <button onClick={onClose} className="p-1.5 hover:bg-slate-200 rounded shrink-0"><X className="w-3.5 h-3.5" /></button>
        </div>
        
-       <div className="p-3 space-y-4">
+       <div className="p-3 space-y-4 max-h-[70vh] overflow-y-auto custom-scrollbar">
           <div className="space-y-1.5">
-             <label className="text-[10px] font-bold text-slate-400 uppercase">Tabela de Destino</label>
+             <label className="text-[10px] font-bold text-slate-400 uppercase">1. Tabela de Destino</label>
              <div className="relative">
                 <Search className="absolute left-2 top-2.5 w-3 h-3 text-slate-400" />
                 <input 
@@ -295,15 +305,13 @@ const ManualMappingPopover: React.FC<{
                         {groupedTables[schemaName].map(t => {
                            const fullId = `${t.schema || 'public'}.${t.name}`;
                            const isSelected = selectedTable === fullId;
-                           const displayName = t.name;
-
                            return (
                               <button 
                                 key={fullId}
-                                onClick={() => { setSelectedTable(fullId); setPreviewCol(''); }}
+                                onClick={() => { setSelectedTable(fullId); setPreviewCol(''); setKeyCol(''); }}
                                 className={`w-full text-left px-3 py-1.5 text-xs flex items-center justify-between hover:bg-indigo-50 dark:hover:bg-indigo-900/30 transition-colors ${isSelected ? 'bg-indigo-50 text-indigo-700 font-bold dark:bg-indigo-900/40' : 'text-slate-600 dark:text-slate-300'}`}
                               >
-                                 <span className="truncate">{displayName}</span>
+                                 <span className="truncate">{t.name}</span>
                                  {isSelected && <Check className="w-3 h-3" />}
                               </button>
                            );
@@ -316,32 +324,47 @@ const ManualMappingPopover: React.FC<{
           </div>
 
           {selectedTable && (
-            <div className="space-y-1.5 animate-in slide-in-from-top-1">
-               <label className="text-[10px] font-bold text-slate-400 uppercase">Mostrar no Hover (Preview)</label>
-               <select 
-                  value={previewCol}
-                  onChange={e => setPreviewCol(e.target.value)}
-                  className="w-full p-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs outline-none focus:ring-1 focus:ring-indigo-500 font-medium"
-               >
-                  <option value="">-- Selecione uma coluna --</option>
-                  {targetColumns.map(c => <option key={c} value={c}>{c}</option>)}
-               </select>
-               <p className="text-[9px] text-slate-400 italic">Esta coluna será mostrada ao passar o mouse no link.</p>
-            </div>
+            <>
+               <div className="space-y-1.5 animate-in slide-in-from-top-1">
+                  <label className="text-[10px] font-bold text-slate-400 uppercase">2. Coluna Chave no Destino</label>
+                  <select 
+                     value={keyCol}
+                     onChange={e => setKeyCol(e.target.value)}
+                     className="w-full p-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs outline-none focus:ring-1 focus:ring-indigo-500 font-medium"
+                  >
+                     <option value="">-- Selecione a PK/Identificador --</option>
+                     {targetColumns.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                  <p className="text-[9px] text-slate-400 italic">Onde o valor "{column}" será procurado em {selectedTable.split('.').pop()}.</p>
+               </div>
+
+               <div className="space-y-1.5 animate-in slide-in-from-top-1">
+                  <label className="text-[10px] font-bold text-slate-400 uppercase">3. Mostrar no Hover (Preview)</label>
+                  <select 
+                     value={previewCol}
+                     onChange={e => setPreviewCol(e.target.value)}
+                     className="w-full p-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs outline-none focus:ring-1 focus:ring-indigo-500 font-medium"
+                  >
+                     <option value="">-- Selecione uma coluna --</option>
+                     {targetColumns.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                  <p className="text-[9px] text-slate-400 italic">Valor textual mostrado ao passar o mouse.</p>
+               </div>
+            </>
           )}
        </div>
 
        <div className="p-2 border-t border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/20 flex gap-2">
           <button 
-             onClick={() => onSave(selectedTable, previewCol)}
-             disabled={!selectedTable}
+             onClick={() => onSave(selectedTable, keyCol, previewCol)}
+             disabled={!selectedTable || !keyCol || !previewCol}
              className="flex-1 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition-all disabled:opacity-50 shadow-sm"
           >
              Salvar Vínculo
           </button>
           {currentValue && (
              <button 
-                onClick={() => onSave('', '')}
+                onClick={() => onSave('', '', '')}
                 className="px-2 py-1.5 text-xs font-bold text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
              >
                 Remover
@@ -427,7 +450,6 @@ interface VirtualTableProps {
    credentials?: any;
 }
 
-// Fix: Remove redundant React.FC and use explicit props type in parameter for better inference
 const VirtualTable = ({ 
   data, 
   columns, 
@@ -449,17 +471,22 @@ const VirtualTable = ({
    const [hoverPreview, setHoverPreview] = useState<{table: string, pk: string, val: any, displayCol: string, x: number, y: number} | null>(null);
    const hoverTimeoutRef = useRef<any>(null);
 
-   const [manualMappings, setManualMappings] = useState<Record<string, { table: string, previewCol?: string }>>(() => {
+   const [manualMappings, setManualMappings] = useState<Record<string, { table: string, keyCol?: string, previewCol?: string }>>(() => {
       try {
          const stored = localStorage.getItem('psql-buddy-manual-drilldown-links');
          return stored ? JSON.parse(stored) : {};
       } catch { return {}; }
    });
 
-   const handleSaveManualMapping = (colName: string, targetTable: string, previewCol: string) => {
+   const handleSaveManualMapping = (colName: string, targetTable: string, keyCol: string, previewCol: string) => {
       const newMappings = { ...manualMappings };
-      if (!targetTable) delete newMappings[colName];
-      else newMappings[colName] = { table: targetTable, previewCol };
+      if (!targetTable) {
+        delete newMappings[colName];
+        resultsLogger('ManualLink', `Removendo vínculo de ${colName}`);
+      } else {
+        newMappings[colName] = { table: targetTable, keyCol, previewCol };
+        resultsLogger('ManualLink', `Novo vínculo para ${colName} -> ${targetTable} (${keyCol})`);
+      }
       
       setManualMappings(newMappings);
       localStorage.setItem('psql-buddy-manual-drilldown-links', JSON.stringify(newMappings));
@@ -473,7 +500,11 @@ const VirtualTable = ({
 
    const getLinkTarget = (colName: string): { table: string, pk: string, previewCol?: string } | null => {
       if (manualMappings[colName]) {
-         return { table: manualMappings[colName].table, pk: 'grid', previewCol: manualMappings[colName].previewCol };
+         return { 
+           table: manualMappings[colName].table, 
+           pk: manualMappings[colName].keyCol || 'grid', 
+           previewCol: manualMappings[colName].previewCol 
+         };
       }
 
       if (!schema || !colName) return null;
@@ -609,8 +640,9 @@ const VirtualTable = ({
                                     column={col} 
                                     schema={schema} 
                                     currentValue={mapping?.table || autoTarget?.table}
+                                    currentKeyCol={mapping?.keyCol || autoTarget?.pk}
                                     currentPreviewCol={mapping?.previewCol}
-                                    onSave={(tbl, previewCol) => handleSaveManualMapping(col, tbl, previewCol)} 
+                                    onSave={(tbl, keyCol, previewCol) => handleSaveManualMapping(col, tbl, keyCol, previewCol)} 
                                     onClose={() => setActiveMappingCol(null)} 
                                  />
                               )}
@@ -681,7 +713,6 @@ const ColumnProfiler: React.FC<{ data: any[], column: string, onClose: () => voi
    );
 };
 
-// Fix: Remove redundant React.FC and use explicit props type in parameter for better inference
 const ExplainVisualizer = ({ plan, loading, error }: { plan: ExplainNode | null, loading: boolean, error: string | null }) => {
    if (loading) return <div className="p-10 text-center"><div className="animate-spin w-8 h-8 border-4 border-indigo-500 border-t-transparent rounded-full mx-auto mb-2"></div><p className="text-slate-500">Analisando performance...</p></div>;
    if (error) return <div className="p-10 text-center flex flex-col items-center justify-center text-slate-400"><div className="w-16 h-16 bg-red-50 dark:bg-red-900/20 rounded-full flex items-center justify-center mb-4"><AlertCircle className="w-8 h-8 text-red-500" /></div><h3 className="text-slate-700 dark:text-slate-200 font-bold mb-1">Falha na Análise</h3><p className="text-sm max-w-md">{error}</p></div>;
@@ -778,7 +809,6 @@ const ResultsStep: React.FC<ResultsStepProps> = ({ data, sql, onBackToBuilder, o
      return res;
   }, [localData, filters, localSearch]);
 
-  // Gera a tabela em formato ANSI String
   const ansiTableString = useMemo(() => {
     if (filteredData.length === 0) return "Nenhum dado retornado para os filtros atuais.";
     
@@ -798,13 +828,9 @@ const ResultsStep: React.FC<ResultsStepProps> = ({ data, sql, onBackToBuilder, o
     const cyan = "\x1b[36m";
 
     let out = "";
-    // Borda Superior
     out += "┌" + colWidths.map(w => "─".repeat(w + 2)).join("┬") + "┐\n";
-    // Cabeçalho
     out += "│ " + cols.map((col, i) => `${blue}${col.padEnd(colWidths[i])}${reset}`).join(" │ ") + " │\n";
-    // Borda Intermediária
     out += "├" + colWidths.map(w => "─".repeat(w + 2)).join("┼") + "┤\n";
-    // Linhas
     filteredData.forEach(row => {
       out += "│ " + cols.map((col, i) => {
         const val = row[col];
@@ -819,7 +845,6 @@ const ResultsStep: React.FC<ResultsStepProps> = ({ data, sql, onBackToBuilder, o
         return `${color}${str.padEnd(colWidths[i])}${reset}`;
       }).join(" │ ") + " │\n";
     });
-    // Borda Inferior
     out += "└" + colWidths.map(w => "─".repeat(w + 2)).join("┴") + "┘";
     return out;
   }, [filteredData]);
