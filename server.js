@@ -16,38 +16,32 @@ const __dirname = path.dirname(__filename);
 app.use(cors());
 app.use(express.json());
 
-// CONFIGURAÇÃO DE ENCODING GLOBAL:
-// Intercepta tipos de texto do Postgres e garante que sejam lidos como 'latin1' 
-// caso o banco envie bytes não-UTF8, convertendo-os para as strings UTF-8 do JS.
-const parseText = (val) => {
-  if (val === null) return null;
-  // O driver pg já nos dá o valor como string. 
-  // Se houver caracteres corrompidos (como o erro 0xc7), 
-  // tratamos a string como um buffer latin1 e convertemos para utf8.
-  return Buffer.from(val, 'binary').toString('utf8');
+const serverLog = (method, path, message, extra = '') => {
+  const timestamp = new Date().toISOString();
+  console.log(`[${timestamp}] [SERVER] ${method} ${path} - ${message}`, extra);
 };
 
 // Sobrescreve os parsers para TEXT (25), VARCHAR (1043) e BPCHAR (1042)
-types.setTypeParser(25, (v) => v); // Deixa o driver ler, vamos converter na sessão
+types.setTypeParser(25, (v) => v); 
 types.setTypeParser(1043, (v) => v);
 types.setTypeParser(1042, (v) => v);
 
-console.log(`Starting server...`);
+serverLog('INIT', '-', 'Servidor inicializando e parsers de tipos configurados.');
 
-// Helper para configurar a sessão com encoding resiliente
 async function setupSession(client) {
   try {
-    // Definimos LATIN1 na sessão. Isso faz com que o Postgres nos envie os bytes puros
-    // sem tentar validar se eles são UTF-8 válidos no disco, evitando o erro 0xc7.
     await client.query("SET client_encoding TO 'LATIN1'");
   } catch (e) {
-    console.warn("Could not set client_encoding to LATIN1, falling back to default.");
+    serverLog('SESSION', '-', 'Falha ao definir encoding para LATIN1, usando padrão.', e.message);
   }
 }
 
 app.post('/api/connect', async (req, res) => {
   const { host, port, user, password, database } = req.body;
+  const start = Date.now();
   
+  serverLog('POST', '/api/connect', `Tentativa de conexão: ${user}@${host}/${database}`);
+
   if (!host || !port || !user || !database) {
     return res.status(400).json({ error: 'Missing connection details' });
   }
@@ -65,6 +59,8 @@ app.post('/api/connect', async (req, res) => {
     await client.connect();
     await setupSession(client);
     
+    serverLog('POST', '/api/connect', 'Conectado. Buscando metadados do schema...');
+
     // 1. Fetch Tables
     const tablesQuery = `
       SELECT 
@@ -122,7 +118,6 @@ app.post('/api/connect', async (req, res) => {
     `;
     const fkRes = await client.query(fkQuery);
 
-    // Assemble Schema Object
     const tables = tablesRes.rows.map(t => {
       const tableCols = columnsRes.rows
         .filter(c => c.table_name === t.table_name && c.table_schema === t.table_schema)
@@ -150,13 +145,12 @@ app.post('/api/connect', async (req, res) => {
       };
     });
 
-    res.json({
-      name: database,
-      tables: tables
-    });
+    const duration = Date.now() - start;
+    serverLog('POST', '/api/connect', `Schema carregado com sucesso em ${duration}ms.`);
+    res.json({ name: database, tables: tables });
 
   } catch (err) {
-    console.error('Connection error:', err);
+    serverLog('POST', '/api/connect', 'ERRO de conexão', err.message);
     res.status(500).json({ error: err.message });
   } finally {
     try { await client.end(); } catch (e) {}
@@ -165,10 +159,13 @@ app.post('/api/connect', async (req, res) => {
 
 app.post('/api/execute', async (req, res) => {
   const { credentials, sql } = req.body;
+  const start = Date.now();
   
   if (!credentials || !sql) {
     return res.status(400).json({ error: 'Missing credentials or SQL' });
   }
+
+  serverLog('POST', '/api/execute', `Executando query no banco ${credentials.database}`);
 
   const client = new Client(credentials);
 
@@ -177,14 +174,17 @@ app.post('/api/execute', async (req, res) => {
     await setupSession(client);
     
     const result = await client.query(sql);
+    const duration = Date.now() - start;
     
     if (Array.isArray(result)) {
+        serverLog('POST', '/api/execute', `Sucesso (Multi-statement) em ${duration}ms.`);
         res.json(result[result.length - 1].rows);
     } else {
+        serverLog('POST', '/api/execute', `Sucesso em ${duration}ms. ${result.rowCount} linhas.`);
         res.json(result.rows);
     }
   } catch (err) {
-    console.error('Execution error:', err);
+    serverLog('POST', '/api/execute', 'ERRO de execução', err.message);
     res.status(500).json({ error: err.message });
   } finally {
     try { await client.end(); } catch (e) {}
@@ -192,5 +192,5 @@ app.post('/api/execute', async (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  serverLog('STARTUP', '-', `Servidor API rodando na porta ${PORT}`);
 });
