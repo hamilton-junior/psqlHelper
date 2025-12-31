@@ -93,9 +93,13 @@ const App: React.FC = () => {
   const [virtualRelations, setVirtualRelations] = useState<VirtualRelation[]>([]);
 
   useEffect(() => {
-    document.documentElement.classList.toggle('dark', settings.theme === 'dark');
+    if (settings.theme === 'dark') {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
     localStorage.setItem('psql-buddy-settings', JSON.stringify(settings));
-  }, [settings]);
+  }, [settings.theme]);
 
   useEffect(() => {
     localStorage.setItem('psql-buddy-dashboard', JSON.stringify(dashboardItems));
@@ -288,7 +292,7 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className="flex h-screen w-screen bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 overflow-hidden font-sans">
+    <div className="flex h-screen w-screen bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 overflow-hidden font-sans transition-colors duration-500">
       <Toaster position="top-right" toastOptions={{ className: 'text-sm font-medium', style: { background: '#1e293b', color: '#fff' } }} />
       
       <Sidebar 
