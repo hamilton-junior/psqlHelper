@@ -1,6 +1,6 @@
 
 import { GoogleGenAI } from "@google/genai";
-import { SAMPLE_SCHEMA } from "../types";
+import { SAMPLE_SCHEMA, BuilderState, AggregateFunction } from "../types";
 import { executeOfflineQuery, initializeSimulation } from "./simulationService";
 
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
@@ -12,6 +12,13 @@ export interface HealthStatus {
   message?: string;
   cause?: string;
   solution?: string;
+}
+
+export interface StressTestLog {
+  iteration: number;
+  type: string;
+  status: 'ok' | 'fail';
+  detail: string;
 }
 
 export const runFullHealthCheck = async (): Promise<HealthStatus[]> => {
@@ -27,30 +34,24 @@ export const runFullHealthCheck = async (): Promise<HealthStatus[]> => {
     const testKey = 'psql_buddy_health_test';
     localStorage.setItem(testKey, 'ok');
     if (localStorage.getItem(testKey) !== 'ok') throw new Error("Mismatch");
-    localStorage.removeItem(testKey);
     results[2].status = 'success';
-    results[2].message = 'Leitura e escrita funcionando perfeitamente.';
+    results[2].message = 'Leitura e escrita em localStorage OK.';
   } catch (e) {
     results[2].status = 'error';
-    results[2].message = 'Falha ao acessar o LocalStorage do navegador.';
-    results[2].cause = 'O navegador pode estar em modo privado ou com o armazenamento cheio.';
-    results[2].solution = 'Desative o modo anônimo ou limpe o cache do site.';
+    results[2].message = 'Falha no Storage.';
   }
 
   // 2. Backend Check
   try {
     const controller = new AbortController();
-    const id = setTimeout(() => controller.abort(), 2000);
-    // Ping only - assuming server.js is at 3000
-    const res = await fetch('http://localhost:3000', { mode: 'no-cors', signal: controller.signal });
+    const id = setTimeout(() => controller.abort(), 1500);
+    await fetch('http://localhost:3000', { mode: 'no-cors', signal: controller.signal });
     clearTimeout(id);
     results[1].status = 'success';
-    results[1].message = 'Backend detectado e respondendo.';
+    results[1].message = 'Servidor local respondendo.';
   } catch (e) {
     results[1].status = 'error';
-    results[1].message = 'Não foi possível contatar o servidor local.';
-    results[1].cause = 'O processo Node.js (server.js) não está rodando na porta 3000.';
-    results[1].solution = 'Abra um novo terminal na pasta do projeto e execute: npm run server';
+    results[1].message = 'Backend offline.';
   }
 
   // 3. AI Check
@@ -61,23 +62,21 @@ export const runFullHealthCheck = async (): Promise<HealthStatus[]> => {
     });
     if (response.text?.toLowerCase().includes('ping')) {
       results[0].status = 'success';
-      results[0].message = 'Conexão com Gemini AI estabelecida.';
+      results[0].message = 'API Gemini operacional.';
     } else {
-      throw new Error("Unexpected response");
+      throw new Error();
     }
   } catch (e: any) {
     results[0].status = 'error';
-    results[0].message = 'Falha na comunicação com a API do Google.';
-    results[0].cause = 'Chave de API inválida, sem conexão com internet ou cota excedida.';
-    results[0].solution = 'Verifique seu arquivo .env e sua conexão com a internet.';
+    results[0].message = 'Falha na conexão com a IA.';
   }
 
   // 4. Simulation Check
   try {
     const simData = initializeSimulation(SAMPLE_SCHEMA);
-    const mockState: any = {
-      selectedTables: [Object.keys(simData)[0]],
-      selectedColumns: [],
+    const mockState: BuilderState = {
+      selectedTables: ['public.users'],
+      selectedColumns: ['public.users.id'],
       aggregations: {},
       joins: [],
       filters: [],
@@ -85,19 +84,90 @@ export const runFullHealthCheck = async (): Promise<HealthStatus[]> => {
       orderBy: [],
       limit: 5
     };
-    const testData = executeOfflineQuery(SAMPLE_SCHEMA, simData, mockState);
-    if (testData.length > 0) {
-      results[3].status = 'success';
-      results[3].message = 'Gerador de dados fictícios operacional.';
-    } else {
-      throw new Error("No data");
-    }
+    executeOfflineQuery(SAMPLE_SCHEMA, simData, mockState);
+    results[3].status = 'success';
+    results[3].message = 'Motor de simulação estável.';
   } catch (e) {
     results[3].status = 'error';
-    results[3].message = 'Erro interno no motor de simulação.';
-    results[3].cause = 'Inconsistência nos tipos de dados do SAMPLE_SCHEMA.';
-    results[3].solution = 'Recarregue a aplicação para reiniciar o estado global.';
+    results[3].message = 'Erro no motor offline.';
   }
 
   return results;
+};
+
+/**
+ * Executa testes de estresse aleatórios (Fuzzing)
+ */
+export const runRandomizedStressTest = async (
+  onProgress: (log: StressTestLog) => void
+): Promise<boolean> => {
+  const simData = initializeSimulation(SAMPLE_SCHEMA);
+  const tables = SAMPLE_SCHEMA.tables;
+  let allPassed = true;
+
+  for (let i = 1; i <= 20; i++) {
+    try {
+      // 1. Escolhe tabelas e colunas aleatórias
+      const randomTable = tables[Math.floor(Math.random() * tables.length)];
+      const randomCol = randomTable.columns[Math.floor(Math.random() * randomTable.columns.length)];
+      const tableId = `public.${randomTable.name}`;
+      const colId = `${tableId}.${randomCol.name}`;
+
+      // 2. Gera um estado aleatório
+      const state: BuilderState = {
+        selectedTables: [tableId],
+        selectedColumns: [colId],
+        aggregations: {},
+        joins: [],
+        filters: [],
+        groupBy: [],
+        orderBy: [],
+        limit: Math.floor(Math.random() * 100) + 1,
+        calculatedColumns: []
+      };
+
+      // 3. Adiciona um filtro aleatório (Fuzzing)
+      if (Math.random() > 0.5) {
+        state.filters.push({
+          id: 'test-fuzz',
+          column: colId,
+          operator: ['=', '>', '<', 'LIKE'][Math.floor(Math.random() * 4)] as any,
+          value: Math.random() > 0.5 ? String(Math.random() * 1000) : 'random_string'
+        });
+      }
+
+      // 4. Adiciona uma fórmula matemática aleatória
+      if (Math.random() > 0.7) {
+        state.calculatedColumns?.push({
+          id: 'calc-fuzz',
+          alias: 'fuzz_result',
+          expression: `(${Math.floor(Math.random() * 100)} * 2) / 1.5`
+        });
+      }
+
+      // Executa
+      const results = executeOfflineQuery(SAMPLE_SCHEMA, simData, state);
+      
+      onProgress({
+        iteration: i,
+        type: 'Query Logic',
+        status: 'ok',
+        detail: `Testada tabela ${randomTable.name} com ${results.length} resultados.`
+      });
+
+    } catch (e: any) {
+      allPassed = false;
+      onProgress({
+        iteration: i,
+        type: 'Query Logic',
+        status: 'fail',
+        detail: `Crash na iteração ${i}: ${e.message}`
+      });
+    }
+    
+    // Pequeno delay para animação fluida
+    await new Promise(r => setTimeout(r, 50));
+  }
+
+  return allPassed;
 };

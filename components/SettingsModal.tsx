@@ -1,9 +1,14 @@
 
-import React, { useState } from 'react';
-// Fixed: Added missing 'Play' import from lucide-react
-import { Settings, Moon, Sun, Save, X, AlertTriangle, Bot, Zap, ShieldCheck, Lightbulb, Clock, LayoutList, ListFilter, AlertCircle, GraduationCap, PenTool, DatabaseZap, HeartPulse, Activity, CheckCircle2, XCircle, Info, RefreshCw, Play } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import { 
+  Settings, Moon, Sun, Save, X, AlertTriangle, Bot, Zap, 
+  ShieldCheck, Lightbulb, Clock, LayoutList, ListFilter, 
+  AlertCircle, GraduationCap, PenTool, DatabaseZap, HeartPulse, 
+  Activity, CheckCircle2, XCircle, Info, RefreshCw, Play, 
+  Beaker, Terminal, Bug, Loader2, Database, User, Server, Hash 
+} from 'lucide-react';
 import { AppSettings } from '../types';
-import { runFullHealthCheck, HealthStatus } from '../services/healthService';
+import { runFullHealthCheck, HealthStatus, runRandomizedStressTest, StressTestLog } from '../services/healthService';
 
 interface SettingsModalProps {
   settings: AppSettings;
@@ -16,6 +21,17 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ settings, onSave, onClose
   const [formData, setFormData] = React.useState<AppSettings>({ ...settings });
   const [healthResults, setHealthResults] = useState<HealthStatus[] | null>(null);
   const [isChecking, setIsChecking] = useState(false);
+  
+  // Stress Test State
+  const [isStressing, setIsStressing] = useState(false);
+  const [stressLogs, setStressLogs] = useState<StressTestLog[]>([]);
+  const logEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (logEndRef.current) {
+      logEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [stressLogs]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -34,23 +50,37 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ settings, onSave, onClose
       const results = await runFullHealthCheck();
       setHealthResults(results);
     } catch (e) {
-      console.error("Health Check failed catastrophically", e);
+      console.error("Health Check failed", e);
     } finally {
       setIsChecking(false);
+    }
+  };
+
+  const handleRunStressTest = async () => {
+    setIsStressing(true);
+    setStressLogs([]);
+    try {
+      await runRandomizedStressTest((newLog) => {
+        setStressLogs(prev => [...prev, newLog]);
+      });
+    } catch (e) {
+      console.error("Stress test failed", e);
+    } finally {
+      setIsStressing(false);
     }
   };
 
   const isAiDisabled = !formData.enableAiGeneration;
 
   return (
-    <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-sm z-50 flex items-center justify-center p-4 font-sans">
-      <div className="bg-white dark:bg-slate-800 rounded-xl shadow-2xl w-full max-w-lg flex flex-col overflow-hidden border border-slate-200 dark:border-slate-700 max-h-[90vh]">
+    <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-sm z-[100] flex items-center justify-center p-4 font-sans">
+      <div className="bg-white dark:bg-slate-800 rounded-xl shadow-2xl w-full max-w-2xl flex flex-col overflow-hidden border border-slate-200 dark:border-slate-700 max-h-[90vh]">
         
         {/* Header */}
         <div className="bg-slate-100 dark:bg-slate-900 p-4 flex items-center justify-between border-b border-slate-200 dark:border-slate-700">
           <div className="flex items-center gap-2">
             <Settings className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
-            <h3 className="text-lg font-bold text-slate-800 dark:text-white">Configurações</h3>
+            <h3 className="text-lg font-bold text-slate-800 dark:text-white">Configurações do Sistema</h3>
           </div>
           <button onClick={onClose} className="text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200">
             <X className="w-5 h-5" />
@@ -60,390 +90,319 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ settings, onSave, onClose
         {/* Form */}
         <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6 space-y-8 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 custom-scrollbar">
           
-          <div className="space-y-3">
-             <h4 className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-3">Modos de Interface</h4>
-             
-             {/* Beginner Mode */}
-             <div className="bg-emerald-50/50 dark:bg-emerald-900/10 p-3 rounded-lg border border-emerald-100 dark:border-emerald-800/30">
-                <div className="flex items-center justify-between">
+          {/* Section 1: Interface e Comportamento */}
+          <div>
+             <h4 className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-4 flex items-center gap-2">
+                <LayoutList className="w-4 h-4" /> Interface & Comportamento
+             </h4>
+             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="bg-emerald-50/50 dark:bg-emerald-900/10 p-3 rounded-lg border border-emerald-100 dark:border-emerald-800/30 flex items-center justify-between">
                    <div className="flex items-center gap-3">
-                      <div className="p-2 bg-emerald-100 dark:bg-emerald-900/50 text-emerald-600 dark:text-emerald-400 rounded-lg">
-                         <GraduationCap className="w-5 h-5" />
-                      </div>
-                      <div>
-                         <h4 className="font-bold text-slate-800 dark:text-white text-sm">Modo Iniciante</h4>
-                         <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                            Exibe dicas educativas sobre SQL.
-                         </p>
+                      <GraduationCap className="w-5 h-5 text-emerald-600" />
+                      <div className="flex flex-col">
+                        <span className="text-sm font-bold">Modo Iniciante</span>
+                        <span className="text-[10px] text-slate-500">Exibe dicas de SQL</span>
                       </div>
                    </div>
-                   <label className="relative inline-flex items-center cursor-pointer">
-                     <input 
-                       type="checkbox" 
-                       checked={formData.beginnerMode} 
-                       onChange={e => setFormData({...formData, beginnerMode: e.target.checked})}
-                       className="sr-only peer" 
-                     />
-                     <div className="w-11 h-6 bg-slate-300 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-emerald-300 dark:peer-focus:ring-emerald-800 rounded-full peer dark:bg-slate-600 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500"></div>
-                   </label>
+                   <input 
+                     type="checkbox" 
+                     checked={formData.beginnerMode} 
+                     onChange={e => setFormData({...formData, beginnerMode: e.target.checked})}
+                     className="w-4 h-4 text-emerald-600 rounded focus:ring-emerald-500" 
+                   />
                 </div>
-             </div>
 
-             {/* Background Loading Toggle */}
-             <div className="bg-indigo-50/50 dark:bg-indigo-900/10 p-3 rounded-lg border border-indigo-100 dark:border-indigo-800/30">
-                <div className="flex items-center justify-between">
+                <div className="bg-orange-50/50 dark:bg-orange-900/10 p-3 rounded-lg border border-orange-100 dark:border-orange-800/30 flex items-center justify-between">
                    <div className="flex items-center gap-3">
-                      <div className="p-2 bg-indigo-100 dark:bg-indigo-900/50 text-indigo-600 dark:text-indigo-400 rounded-lg">
-                         <DatabaseZap className="w-5 h-5" />
-                      </div>
-                      <div>
-                         <h4 className="font-bold text-slate-800 dark:text-white text-sm">Otimização de Vínculos</h4>
-                         <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                            Carregar todos os vínculos em background ao abrir detalhes.
-                         </p>
+                      <PenTool className="w-5 h-5 text-orange-600" />
+                      <div className="flex flex-col">
+                        <span className="text-sm font-bold">Modo CRUD</span>
+                        <span className="text-[10px] text-slate-500">Edição em tempo real</span>
                       </div>
                    </div>
-                   <label className="relative inline-flex items-center cursor-pointer">
-                     <input 
-                       type="checkbox" 
-                       checked={formData.backgroundLoadLinks} 
-                       onChange={e => setFormData({...formData, backgroundLoadLinks: e.target.checked})}
-                       className="sr-only peer" 
-                     />
-                     <div className="w-11 h-6 bg-slate-300 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-indigo-300 dark:peer-focus:ring-indigo-800 rounded-full peer dark:bg-slate-600 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
-                   </label>
+                   <input 
+                     type="checkbox" 
+                     checked={formData.advancedMode} 
+                     onChange={e => setFormData({...formData, advancedMode: e.target.checked})}
+                     className="w-4 h-4 text-orange-600 rounded focus:ring-orange-500" 
+                   />
+                </div>
+
+                <div className="bg-indigo-50/50 dark:bg-indigo-900/10 p-3 rounded-lg border border-indigo-100 dark:border-indigo-800/30 flex items-center justify-between md:col-span-2">
+                   <div className="flex items-center gap-3">
+                      <DatabaseZap className="w-5 h-5 text-indigo-600" />
+                      <div className="flex flex-col">
+                        <span className="text-sm font-bold">Otimização de Vínculos</span>
+                        <span className="text-[10px] text-slate-500">Carregar relações em background para drill-down instantâneo</span>
+                      </div>
+                   </div>
+                   <input 
+                     type="checkbox" 
+                     checked={formData.backgroundLoadLinks} 
+                     onChange={e => setFormData({...formData, backgroundLoadLinks: e.target.checked})}
+                     className="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500" 
+                   />
                 </div>
              </div>
           </div>
 
-          <hr className="border-slate-200 dark:border-slate-700" />
+          <hr className="border-slate-100 dark:border-slate-700" />
 
-          {/* AI Master Section */}
+          {/* Section 2: IA (Gemini) */}
           <div>
-             <h4 className="text-xs font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider mb-3 flex items-center gap-1">
-                <Bot className="w-4 h-4" /> Inteligência Artificial
+             <h4 className="text-xs font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider mb-4 flex items-center gap-2">
+                <Bot className="w-4 h-4" /> Inteligência Artificial (Gemini)
              </h4>
              
-             {quotaExhausted && (
-                <div className="mb-4 p-3 bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-800 rounded-lg flex gap-3 items-start">
-                  <AlertTriangle className="w-5 h-5 text-amber-500 dark:text-amber-400 shrink-0 mt-0.5" />
-                  <div className="text-xs text-amber-800 dark:text-amber-200">
-                    <span className="font-bold block mb-1">Cota de IA Atingida</span>
-                    <p>Funcionalidades extras (Dicas, Validação) estão bloqueadas para economizar. Você ainda pode tentar gerar queries, mas falhas podem ocorrer.</p>
-                  </div>
-                </div>
-              )}
-
              <div className="space-y-4">
-               {/* Master Switch */}
-               <div className="flex items-start justify-between bg-slate-50 dark:bg-slate-900/50 p-3 rounded-lg border border-slate-100 dark:border-slate-700">
+               <div className="flex items-start justify-between bg-slate-50 dark:bg-slate-900/50 p-4 rounded-xl border border-slate-100 dark:border-slate-700">
                   <div className="flex gap-3">
-                     <div className={`mt-0.5 p-1.5 rounded-md ${formData.enableAiGeneration ? 'bg-indigo-100 text-indigo-600' : 'bg-slate-200 text-slate-500'}`}>
-                        <Zap className="w-4 h-4" />
-                     </div>
-                     <div className="flex flex-col">
-                       <span className="text-sm font-bold text-slate-800 dark:text-slate-200">Habilitar Geração com IA</span>
-                       <span className="text-[10px] text-slate-500 dark:text-slate-400 leading-tight mt-1 max-w-[240px]">
-                         Usa o Google Gemini para criar queries complexas e inferir joins automaticamente.
-                       </span>
+                     <Zap className={`w-5 h-5 ${formData.enableAiGeneration ? 'text-amber-500' : 'text-slate-300'}`} />
+                     <div>
+                       <span className="text-sm font-bold block">Geração Automática de SQL</span>
+                       <p className="text-[10px] text-slate-500 leading-tight mt-1">Habilita tradução de linguagem natural e sugestões de joins por IA.</p>
                      </div>
                   </div>
-                  <label className="relative inline-flex items-center cursor-pointer mt-1">
-                    <input 
-                      type="checkbox" 
-                      checked={formData.enableAiGeneration} 
-                      onChange={e => setFormData({...formData, enableAiGeneration: e.target.checked})}
-                      className="sr-only peer" 
-                    />
-                    <div className="w-11 h-6 bg-slate-300 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-indigo-300 dark:peer-focus:ring-indigo-800 rounded-full peer dark:bg-slate-600 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
-                  </label>
+                  <input 
+                    type="checkbox" 
+                    checked={formData.enableAiGeneration} 
+                    onChange={e => setFormData({...formData, enableAiGeneration: e.target.checked})}
+                    className="w-5 h-5 text-indigo-600 rounded focus:ring-indigo-500" 
+                  />
                </div>
 
-               {/* Child Switches */}
-               <div className={`space-y-3 pl-4 border-l-2 border-slate-100 dark:border-slate-700 ml-3 transition-opacity duration-200 ${isAiDisabled ? 'opacity-40 grayscale pointer-events-none' : 'opacity-100'}`}>
-                  <div className="flex items-center justify-between">
+               <div className={`grid grid-cols-1 sm:grid-cols-2 gap-4 transition-all duration-300 ${isAiDisabled ? 'opacity-40 grayscale pointer-events-none' : ''}`}>
+                  <div className="flex items-center justify-between p-3 border border-slate-100 dark:border-slate-700 rounded-lg">
                      <div className="flex items-center gap-2">
-                       <ShieldCheck className="w-4 h-4 text-emerald-500" />
-                       <div className="flex flex-col">
-                         <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Validação Automática</span>
-                       </div>
+                        <ShieldCheck className="w-4 h-4 text-emerald-500" />
+                        <span className="text-xs font-medium">Validação de Sintaxe</span>
                      </div>
-                     <label className="relative inline-flex items-center cursor-pointer">
-                       <input 
-                         type="checkbox" 
-                         checked={quotaExhausted ? false : formData.enableAiValidation} 
-                         onChange={e => setFormData({...formData, enableAiValidation: e.target.checked})}
-                         disabled={quotaExhausted}
-                         className="sr-only peer" 
-                       />
-                       <div className="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-500"></div>
-                     </label>
+                     <input type="checkbox" checked={formData.enableAiValidation} onChange={e => setFormData({...formData, enableAiValidation: e.target.checked})} />
                   </div>
-
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between p-3 border border-slate-100 dark:border-slate-700 rounded-lg">
                      <div className="flex items-center gap-2">
-                       <Lightbulb className="w-4 h-4 text-amber-500" />
-                       <div className="flex flex-col">
-                         <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Sugestões e Dicas</span>
-                       </div>
+                        <Lightbulb className="w-4 h-4 text-amber-500" />
+                        <span className="text-xs font-medium">Sugestões de Performance</span>
                      </div>
-                     <label className="relative inline-flex items-center cursor-pointer">
-                       <input 
-                         type="checkbox" 
-                         checked={quotaExhausted ? false : formData.enableAiTips} 
-                         onChange={e => setFormData({...formData, enableAiTips: e.target.checked})}
-                         disabled={quotaExhausted}
-                         className="sr-only peer" 
-                       />
-                       <div className="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-amber-500"></div>
-                     </label>
+                     <input type="checkbox" checked={formData.enableAiTips} onChange={e => setFormData({...formData, enableAiTips: e.target.checked})} />
                   </div>
-
-                  {/* AI Timeout Setting */}
-                  <div className="pt-2">
-                     <div className="flex items-center gap-2 mb-2 text-slate-700 dark:text-slate-300">
-                        <Clock className="w-4 h-4 text-indigo-500" />
-                        <label className="text-sm font-medium">Tempo de Timeout da IA (ms)</label>
+                  <div className="sm:col-span-2 p-3 bg-slate-50 dark:bg-slate-900 rounded-lg border border-slate-100 dark:border-slate-700">
+                     <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2 text-xs font-bold text-slate-500">
+                           <Clock className="w-3.5 h-3.5" /> Timeout da Resposta (ms)
+                        </div>
+                        <span className="text-xs font-mono text-indigo-600">{formData.aiGenerationTimeout}ms</span>
                      </div>
-                     <div className="flex gap-2 items-center">
-                        <input 
-                           type="number" 
-                           min="1000"
-                           step="500"
-                           value={formData.aiGenerationTimeout} 
-                           onChange={e => setFormData({...formData, aiGenerationTimeout: parseInt(e.target.value) || 3000})}
-                           className="flex-1 px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded text-sm text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500 outline-none"
-                        />
-                        <span className="text-xs text-slate-400">Padrão: 3000</span>
-                     </div>
-                     <p className="text-[10px] text-slate-400 mt-1">Tempo de espera antes de mostrar o botão "Pular IA".</p>
+                     <input 
+                        type="range" min="1000" max="10000" step="500"
+                        value={formData.aiGenerationTimeout} 
+                        onChange={e => setFormData({...formData, aiGenerationTimeout: parseInt(e.target.value)})}
+                        className="w-full h-1.5 bg-slate-200 dark:bg-slate-700 rounded-lg appearance-none cursor-pointer accent-indigo-600"
+                     />
                   </div>
                </div>
              </div>
           </div>
 
-          <hr className="border-slate-200 dark:border-slate-700" />
+          <hr className="border-slate-100 dark:border-slate-700" />
 
-          {/* Health Check & Maintenance */}
+          {/* Section 3: Padrões de Banco (RESTAURADO) */}
           <div>
-            <h4 className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-4 flex items-center gap-1">
-               <HeartPulse className="w-4 h-4 text-rose-500" /> Manutenção & Diagnóstico
+            <h4 className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-4 flex items-center gap-2">
+               <Server className="w-4 h-4" /> Padrões de Conexão & Banco
             </h4>
-            <div className="bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 rounded-xl p-4">
-               <div className="flex items-center justify-between mb-4">
-                  <div className="flex items-center gap-3">
-                     <div className={`p-2 rounded-lg ${isChecking ? 'bg-indigo-100 dark:bg-indigo-900 animate-pulse' : 'bg-white dark:bg-slate-800'} border border-slate-200 dark:border-slate-700`}>
-                        <Activity className={`w-5 h-5 ${isChecking ? 'text-indigo-600' : 'text-slate-400'}`} />
-                     </div>
-                     <div>
-                        <h5 className="text-sm font-bold text-slate-800 dark:text-white">Health Check</h5>
-                        <p className="text-[10px] text-slate-500">Valida API, Backend e Conexão.</p>
-                     </div>
-                  </div>
-                  <button 
-                     type="button"
-                     onClick={handleHealthCheck}
-                     disabled={isChecking}
-                     className="px-4 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 transition-all disabled:opacity-50"
-                  >
-                     {isChecking ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
-                     {isChecking ? 'Verificando...' : 'Iniciar Testes'}
-                  </button>
-               </div>
-
-               {healthResults && (
-                  <div className="space-y-3 animate-in slide-in-from-top-2">
-                     {healthResults.map(res => (
-                        <div key={res.id} className="space-y-2">
-                           <div className="flex items-start justify-between gap-3">
-                              <div className="flex items-start gap-2">
-                                 {res.status === 'success' ? (
-                                    <CheckCircle2 className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" />
-                                 ) : (
-                                    <XCircle className="w-4 h-4 text-rose-500 mt-0.5 shrink-0" />
-                                 )}
-                                 <div className="min-w-0">
-                                    <span className="text-xs font-bold text-slate-700 dark:text-slate-200 block">{res.name}</span>
-                                    <span className="text-[10px] text-slate-500 dark:text-slate-400 leading-tight">{res.message}</span>
-                                 </div>
-                              </div>
-                           </div>
-                           
-                           {res.status === 'error' && (
-                              <div className="ml-6 bg-rose-50 dark:bg-rose-900/20 border border-rose-100 dark:border-rose-800 p-3 rounded-lg text-[10px] space-y-1.5 animate-in fade-in zoom-in-95">
-                                 <div className="flex gap-1.5 text-rose-800 dark:text-rose-300">
-                                    <AlertCircle className="w-3 h-3 shrink-0" />
-                                    <p><strong>Causa:</strong> {res.cause}</p>
-                                 </div>
-                                 <div className="flex gap-1.5 text-indigo-800 dark:text-indigo-300">
-                                    <Info className="w-3 h-3 shrink-0" />
-                                    <p><strong>Solução:</strong> {res.solution}</p>
-                                 </div>
-                              </div>
-                           )}
-                        </div>
-                     ))}
-                  </div>
-               )}
-            </div>
-          </div>
-
-          <hr className="border-slate-200 dark:border-slate-700" />
-
-          {/* Connection Defaults */}
-          <div>
-            <h4 className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-3">Padrões do Banco</h4>
-            
-            <div className="mb-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800 rounded-lg p-3 flex gap-2">
-               <AlertCircle className="w-4 h-4 text-blue-500 mt-0.5" />
-               <p className="text-xs text-blue-800 dark:text-blue-200 leading-relaxed">
-                  Defina um limite de linhas seguro para evitar travamentos ao carregar grandes volumes de dados. Este valor será o padrão para todas as novas consultas.
-               </p>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div className="col-span-2">
-                <label className="block text-xs text-slate-500 dark:text-slate-400 mb-1">Host Padrão</label>
-                <input 
-                  type="text" 
-                  value={formData.defaultDbHost} 
-                  onChange={e => setFormData({...formData, defaultDbHost: e.target.value})}
-                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded text-sm text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500 outline-none"
-                />
-              </div>
-              <div>
-                <label className="block text-xs text-slate-500 dark:text-slate-400 mb-1">Usuário Padrão</label>
-                <input 
-                  type="text" 
-                  value={formData.defaultDbUser} 
-                  onChange={e => setFormData({...formData, defaultDbUser: e.target.value})}
-                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded text-sm text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500 outline-none"
-                />
-              </div>
-              <div>
-                <label className="block text-xs text-slate-500 dark:text-slate-400 mb-1">Porta Padrão</label>
-                <input 
-                  type="text" 
-                  value={formData.defaultDbPort} 
-                  onChange={e => setFormData({...formData, defaultDbPort: e.target.value})}
-                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded text-sm text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500 outline-none"
-                />
-              </div>
-              <div className="col-span-2">
-                <label className="block text-xs font-bold text-slate-600 dark:text-slate-300 mb-1 flex items-center gap-1">
-                   <ListFilter className="w-3.5 h-3.5" /> Limite de Linhas (LIMIT Padrão)
-                </label>
-                <div className="relative">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4">
+               <div className="sm:col-span-2">
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1.5 flex items-center gap-1.5">
+                     <Database className="w-3 h-3" /> Host Padrão
+                  </label>
                   <input 
-                     type="number" 
-                     min="1"
-                     max="10000"
-                     value={formData.defaultLimit} 
-                     onChange={e => setFormData({...formData, defaultLimit: parseInt(e.target.value) || 100})}
-                     className="w-full pl-3 pr-16 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded text-sm font-bold text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500 outline-none"
+                     type="text" 
+                     value={formData.defaultDbHost} 
+                     onChange={e => setFormData({...formData, defaultDbHost: e.target.value})} 
+                     className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs outline-none focus:ring-1 focus:ring-indigo-500" 
+                     placeholder="localhost"
                   />
-                  <div className="absolute right-3 top-2.5 text-xs text-slate-400 font-medium pointer-events-none">
-                     registros
-                  </div>
-                </div>
-                <p className="text-[10px] text-slate-400 mt-1">Recomendado: 100-500 para testes rápidos.</p>
-              </div>
-            </div>
-          </div>
-
-          <hr className="border-slate-200 dark:border-slate-700" />
-
-          {/* Appearance */}
-          <div>
-            <h4 className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-3">Aparência e Grid</h4>
-            <div className="space-y-4">
-               <div className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-700">
-                 <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Tema</span>
-                 <button
-                   type="button"
-                   onClick={handleToggleTheme}
-                   className={`flex items-center gap-2 px-3 py-1.5 rounded-full border transition-all ${
-                     formData.theme === 'dark' 
-                       ? 'bg-slate-700 border-slate-600 text-yellow-300' 
-                       : 'bg-white border-slate-200 text-amber-500'
-                   }`}
-                 >
-                   {formData.theme === 'dark' ? <Moon className="w-4 h-4" /> : <Sun className="w-4 h-4" />}
-                   <span className="text-xs font-bold uppercase">{formData.theme === 'light' ? 'Claro' : 'Escuro'}</span>
-                 </button>
+               </div>
+               
+               <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1.5 flex items-center gap-1.5">
+                     <User className="w-3 h-3" /> Usuário Padrão
+                  </label>
+                  <input 
+                     type="text" 
+                     value={formData.defaultDbUser} 
+                     onChange={e => setFormData({...formData, defaultDbUser: e.target.value})} 
+                     className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs outline-none focus:ring-1 focus:ring-indigo-500" 
+                     placeholder="postgres"
+                  />
                </div>
 
                <div>
-                  <label className="block text-xs text-slate-500 dark:text-slate-400 mb-1 flex items-center gap-1">
-                     <LayoutList className="w-3.5 h-3.5" /> Linhas por página (Paginação)
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1.5 flex items-center gap-1.5">
+                     <Hash className="w-3 h-3" /> Porta Padrão
                   </label>
-                  <select 
-                     value={formData.defaultRowsPerPage} 
-                     onChange={e => setFormData({...formData, defaultRowsPerPage: parseInt(e.target.value) || 10})}
-                     className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded text-sm text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500 outline-none"
-                  >
-                     <option value={10}>10 linhas</option>
-                     <option value={25}>25 linhas</option>
-                     <option value={50}>50 linhas</option>
-                     <option value={100}>100 linhas</option>
-                  </select>
+                  <input 
+                     type="text" 
+                     value={formData.defaultDbPort} 
+                     onChange={e => setFormData({...formData, defaultDbPort: e.target.value})} 
+                     className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs outline-none focus:ring-1 focus:ring-indigo-500" 
+                     placeholder="5432"
+                  />
+               </div>
+
+               <div className="sm:col-span-2">
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1.5 flex items-center gap-1.5">
+                     <Server className="w-3 h-3" /> Nome do Banco Padrão
+                  </label>
+                  <input 
+                     type="text" 
+                     value={formData.defaultDbName} 
+                     onChange={e => setFormData({...formData, defaultDbName: e.target.value})} 
+                     className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs outline-none focus:ring-1 focus:ring-indigo-500" 
+                     placeholder="ex: prod_db"
+                  />
+               </div>
+
+               <div className="sm:col-span-2 border-t border-slate-50 dark:border-slate-700 pt-4">
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1.5 flex items-center gap-1.5">
+                     <ListFilter className="w-3.5 h-3.5" /> Limite de Resultados (SQL LIMIT)
+                  </label>
+                  <div className="flex items-center gap-3">
+                     <input 
+                        type="number" 
+                        value={formData.defaultLimit} 
+                        onChange={e => setFormData({...formData, defaultLimit: parseInt(e.target.value) || 100})} 
+                        className="w-32 px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-bold" 
+                     />
+                     <span className="text-[10px] text-slate-400 italic">Registros retornados por consulta no Construtor.</span>
+                  </div>
                </div>
             </div>
           </div>
 
-          <hr className="border-slate-200 dark:border-slate-700" />
+          <hr className="border-slate-100 dark:border-slate-700" />
 
-          {/* Advanced Zone (Moved to Bottom) */}
-          <div className="bg-orange-50/50 dark:bg-orange-900/10 p-4 rounded-xl border border-orange-100 dark:border-orange-800/30">
-             <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-3">
-                   <div className="p-2 bg-orange-100 dark:bg-orange-900/50 text-orange-600 dark:text-orange-400 rounded-lg">
-                      <PenTool className="w-5 h-5" />
-                   </div>
-                   <div>
-                      <h4 className="font-bold text-slate-800 dark:text-white text-sm">Modo Avançado (CRUD)</h4>
-                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                         Habilita edição inline na tabela de resultados.
-                      </p>
-                   </div>
-                </div>
-                <label className="relative inline-flex items-center cursor-pointer">
-                  <input 
-                    type="checkbox" 
-                    checked={formData.advancedMode} 
-                    onChange={e => setFormData({...formData, advancedMode: e.target.checked})}
-                    className="sr-only peer" 
-                  />
-                  <div className="w-11 h-6 bg-slate-300 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-orange-300 dark:peer-focus:ring-orange-800 rounded-full peer dark:bg-slate-600 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-orange-500"></div>
-                </label>
-             </div>
-             
-             {formData.advancedMode && (
-                 <div className="flex gap-2 items-start text-orange-800 dark:text-orange-200 text-xs bg-white dark:bg-slate-900/50 p-3 rounded-lg border border-orange-100 dark:border-orange-900/50 animate-in fade-in slide-in-from-top-2">
-                     <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-orange-600" />
-                     <p className="leading-relaxed">
-                         <strong>Atenção:</strong> Esta ferramenta serve apenas para auxílio. Você deve <u>sempre confirmar</u> a query gerada antes de executar qualquer comando de alteração no banco de dados real.
-                     </p>
-                 </div>
-             )}
+          {/* Section 4: Diagnóstico e Saúde */}
+          <div>
+            <h4 className="text-xs font-bold text-rose-500 dark:text-rose-400 uppercase tracking-wider mb-4 flex items-center gap-2">
+               <HeartPulse className="w-4 h-4" /> Diagnóstico & Estresse
+            </h4>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+               {/* Quick Health Check */}
+               <div className="bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 rounded-xl p-4">
+                  <div className="flex items-center justify-between mb-4">
+                     <div className="flex items-center gap-2">
+                        <Activity className={`w-5 h-5 ${isChecking ? 'text-indigo-500 animate-pulse' : 'text-slate-400'}`} />
+                        <h5 className="text-sm font-bold">Saúde do Sistema</h5>
+                     </div>
+                     <button 
+                        type="button"
+                        onClick={handleHealthCheck}
+                        disabled={isChecking}
+                        className="p-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-50 transition-all disabled:opacity-50"
+                        title="Verificar conectividade básica"
+                     >
+                        <RefreshCw className={`w-4 h-4 ${isChecking ? 'animate-spin' : ''}`} />
+                     </button>
+                  </div>
+
+                  <div className="space-y-2">
+                     {healthResults ? healthResults.map(res => (
+                        <div key={res.id} className="flex items-center justify-between text-xs p-1">
+                           <span className="text-slate-500">{res.name}</span>
+                           {res.status === 'success' ? (
+                              <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                           ) : (
+                              <XCircle className="w-4 h-4 text-rose-500" />
+                           )}
+                        </div>
+                     )) : (
+                        <p className="text-[10px] text-slate-400 italic">Clique no ícone de atualização acima.</p>
+                     )}
+                  </div>
+               </div>
+
+               {/* randomized Stress Test */}
+               <div className="bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 rounded-xl p-4">
+                  <div className="flex items-center justify-between mb-4">
+                     <div className="flex items-center gap-2">
+                        <Bug className={`w-5 h-5 ${isStressing ? 'text-amber-500 animate-bounce' : 'text-slate-400'}`} />
+                        <h5 className="text-sm font-bold">Fuzzing (Estresse)</h5>
+                     </div>
+                     <button 
+                        type="button"
+                        onClick={handleRunStressTest}
+                        disabled={isStressing}
+                        className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-bold transition-all disabled:opacity-50 flex items-center gap-2"
+                     >
+                        {isStressing ? <Loader2 className="w-3 h-3 animate-spin" /> : <Play className="w-3 h-3" />}
+                        Executar
+                     </button>
+                  </div>
+                  
+                  <div className="h-20 overflow-y-auto bg-slate-950 rounded border border-slate-800 p-2 font-mono text-[9px] custom-scrollbar">
+                     {stressLogs.length === 0 ? (
+                        <span className="text-slate-600 italic">Teste de estresse lógico inativo.</span>
+                     ) : (
+                        stressLogs.map((log, idx) => (
+                           <div key={idx} className={log.status === 'ok' ? 'text-emerald-500' : 'text-rose-500'}>
+                              [{log.iteration}] {log.type}: {log.detail}
+                           </div>
+                        ))
+                     )}
+                     <div ref={logEndRef} />
+                  </div>
+               </div>
+            </div>
+          </div>
+
+          <hr className="border-slate-100 dark:border-slate-700" />
+
+          {/* Section 5: Aparência e Grid */}
+          <div>
+            <h4 className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-4 flex items-center gap-2">
+               <LayoutList className="w-4 h-4" /> Aparência & Grid
+            </h4>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+               <div className="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700">
+                  <span className="text-sm font-medium">Tema Visual</span>
+                  <button
+                    type="button"
+                    onClick={handleToggleTheme}
+                    className={`flex items-center gap-2 px-4 py-2 rounded-full border transition-all ${
+                      formData.theme === 'dark' ? 'bg-slate-700 border-slate-600 text-yellow-300' : 'bg-white border-slate-200 text-amber-500'
+                    }`}
+                  >
+                    {formData.theme === 'dark' ? <Moon className="w-4 h-4" /> : <Sun className="w-4 h-4" />}
+                    <span className="text-xs font-bold uppercase">{formData.theme === 'light' ? 'Claro' : 'Escuro'}</span>
+                  </button>
+               </div>
+
+               <div className="p-4 bg-slate-50 dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 flex flex-col justify-center">
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-2">Linhas por Página (Grid)</label>
+                  <select 
+                     value={formData.defaultRowsPerPage} 
+                     onChange={e => setFormData({...formData, defaultRowsPerPage: parseInt(e.target.value) || 25})} 
+                     className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs p-2 outline-none"
+                  >
+                     <option value={10}>10 registros</option>
+                     <option value={25}>25 registros</option>
+                     <option value={50}>50 registros</option>
+                     <option value={100}>100 registros</option>
+                  </select>
+               </div>
+            </div>
           </div>
 
         </form>
 
         {/* Footer */}
         <div className="p-4 bg-slate-50 dark:bg-slate-900 border-t border-slate-200 dark:border-slate-700 flex justify-end gap-3">
-          <button 
-            onClick={onClose}
-            className="px-4 py-2 text-sm text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-lg transition-colors"
-          >
-            Cancelar
-          </button>
-          <button 
-            onClick={handleSubmit}
-            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold rounded-lg shadow-lg shadow-indigo-200 dark:shadow-none flex items-center gap-2"
-          >
-            <Save className="w-4 h-4" />
-            Salvar
+          <button onClick={onClose} className="px-4 py-2 text-sm text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-lg font-medium transition-colors">Cancelar</button>
+          <button onClick={handleSubmit} className="px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold rounded-lg shadow-lg flex items-center gap-2 transition-all">
+            <Save className="w-4 h-4" /> Salvar Configurações
           </button>
         </div>
       </div>
