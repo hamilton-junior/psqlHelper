@@ -121,11 +121,14 @@ const ConnectionStep: React.FC<ConnectionStepProps> = ({ onSchemaLoaded, setting
       if (mode === 'real') {
         if (!dbName) throw new Error("Nome do banco é obrigatório");
         
+        // Default password to 'postgres' if not provided
+        const finalPassword = password || 'postgres';
+
         const creds: DbCredentials = {
           host,
           port,
           user,
-          password,
+          password: finalPassword,
           database: dbName
         };
 
@@ -297,7 +300,7 @@ const ConnectionStep: React.FC<ConnectionStepProps> = ({ onSchemaLoaded, setting
                   placeholder="••••••••" 
                 />
                 <p className="text-[10px] text-slate-400 mt-1 flex items-center gap-1">
-                  <Shield className="w-3 h-3" /> Nunca salva
+                  <Shield className="w-3 h-3" /> Nunca salva | Senha vazia = 'postgres'
                 </p>
               </div>
               <div className="col-span-2 sm:col-span-1">
