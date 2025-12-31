@@ -204,7 +204,7 @@ const SchemaTableItem = memo(({
       label = <span className="absolute top-2 right-2 text-[10px] font-bold text-amber-700 dark:text-amber-400 bg-amber-100 dark:bg-amber-900/50 px-1.5 py-0.5 rounded flex items-center gap-1 shadow-sm"><ArrowUpRight className="w-3 h-3" /> Pai (Referenciado)</span>;
       break;
     case 'child':
-      containerClass = 'opacity-100 border-emerald-300 dark:border-emerald-800 bg-emerald-50/50 dark:bg-emerald-900/10 border-l-4 border-l-emerald-400 shadow-sm';
+      containerClass = 'opacity-100 border-emerald-300 dark:border-emerald-800 bg-emerald-50/50 dark:bg-amber-900/10 border-l-4 border-l-emerald-400 shadow-sm';
       label = <span className="absolute top-2 right-2 text-[10px] font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-900/50 px-1.5 py-0.5 rounded flex items-center gap-1 shadow-sm"><ArrowDownLeft className="w-3 h-3" /> Filho (Referencia)</span>;
       break;
     case 'normal':
@@ -555,26 +555,35 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
 
   const groupedTables = useMemo(() => {
     const groups: Record<string, Table[]> = {};
-    const visible = filteredTables.slice(0, renderLimit);
-    const showFavorites = !debouncedTerm && favoriteTables.size > 0;
-
-    if (showFavorites) groups['__favorites__'] = [];
-
-    visible.forEach(table => {
-      const s = table.schema || 'public';
+    
+    // 1. Separar favoritas do conjunto COMPLETO de filtradas (para garantir que sempre apareçam)
+    const favorites: Table[] = [];
+    const others: Table[] = [];
+    
+    filteredTables.forEach(table => {
       const tId = getTableId(table);
-      
-      // Se for favorita, move para a seção de favoritos e remove da seção original
-      if (showFavorites && favoriteTables.has(tId)) {
-         groups['__favorites__'].push(table);
+      if (favoriteTables.has(tId)) {
+        favorites.push(table);
       } else {
-         if (!groups[s]) groups[s] = [];
-         groups[s].push(table);
+        others.push(table);
       }
     });
-    if (showFavorites && groups['__favorites__'].length === 0) delete groups['__favorites__'];
+
+    // 2. Adicionar favoritas ao grupo virtual (sempre renderizadas se houver match)
+    if (favorites.length > 0) {
+      groups['__favorites__'] = favorites;
+    }
+
+    // 3. Aplicar o limite de renderização APENAS no restante das tabelas
+    const visibleOthers = others.slice(0, renderLimit);
+    visibleOthers.forEach(table => {
+      const s = table.schema || 'public';
+      if (!groups[s]) groups[s] = [];
+      groups[s].push(table);
+    });
+
     return groups;
-  }, [filteredTables, renderLimit, debouncedTerm, favoriteTables]);
+  }, [filteredTables, renderLimit, favoriteTables]);
 
   const sortedSchemas = useMemo(() => {
      const schemas = Object.keys(groupedTables);
@@ -747,6 +756,12 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
      return 'dimmed';
   };
 
+  const totalVisibleCount = useMemo(() => {
+    let count = 0;
+    Object.values(groupedTables).forEach(list => count += list.length);
+    return count;
+  }, [groupedTables]);
+
   return (
     <div id="schema-viewer-container" className="h-full flex flex-col bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 overflow-hidden select-none" onClick={() => setSelectedColumnKey(null)}>
       {!selectionMode && (
@@ -783,7 +798,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
            </div>
         </div>
         <div className="flex justify-between items-center px-1">
-           <span className="text-[10px] text-slate-400 font-medium">{filteredTables.length} tabelas {filteredTables.length > renderLimit && `(Exibindo ${renderLimit})`}</span>
+           <span className="text-[10px] text-slate-400 font-medium">{filteredTables.length} tabelas {filteredTables.length > totalVisibleCount && `(Exibindo ${totalVisibleCount})`}</span>
            <div className="flex gap-2">
              <button onClick={expandAll} className="text-[10px] text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400">Expandir</button>
              <button onClick={collapseAll} className="text-[10px] text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400">Recolher</button>
@@ -882,7 +897,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
                );
             })}
             {/* O indicador de carregamento agora só aparece se houver algo expandido ou busca ativa */}
-            {filteredTables.length > renderLimit && (expandedSchemas.size > 0 || debouncedTerm) && (
+            {filteredTables.length > totalVisibleCount && (expandedSchemas.size > 0 || debouncedTerm) && (
               <div className="py-4 text-center text-slate-400 flex items-center justify-center gap-2">
                  <Loader2 className="w-4 h-4 animate-spin" />
                  <span className="text-xs">Carregando mais tabelas...</span>
