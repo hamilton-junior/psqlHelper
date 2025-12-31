@@ -408,8 +408,9 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
   const [expandedSchemas, setExpandedSchemas] = useState<Set<string>>(() => {
     try {
       const stored = localStorage.getItem(`psql-buddy-viewer-schemas-${schema.name}`);
-      return stored ? new Set(JSON.parse(stored)) : new Set(['public']);
-    } catch { return new Set(['public']); }
+      // Adiciona __favorites__ ao padrão para começar aberto, mas permitindo colapso
+      return stored ? new Set(JSON.parse(stored)) : new Set(['public', '__favorites__']);
+    } catch { return new Set(['public', '__favorites__']); }
   });
 
   const [favoriteTables, setFavoriteTables] = useState<Set<string>>(() => {
@@ -487,7 +488,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
        setDebouncedTerm(inputValue);
        setRenderLimit(40); 
        if (scrollContainerRef.current) scrollContainerRef.current.scrollTop = 0;
-       if (inputValue) setExpandedSchemas(new Set(schema.tables.map(t => t.schema || 'public')));
+       if (inputValue) setExpandedSchemas(new Set(schema.tables.map(t => t.schema || 'public').concat(['__favorites__'])));
     }, 300);
     return () => clearTimeout(timer);
   }, [inputValue, schema.tables]);
@@ -616,11 +617,6 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
   }, []);
 
   const handleToggleSchema = useCallback((schemaName: string) => {
-    if (schemaName === '__favorites__') {
-       // Se clicar no título de favoritos, rola até o topo
-       scrollContainerRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
-       return; 
-    }
     setExpandedSchemas(prev => {
       const newSet = new Set(prev);
       if (newSet.has(schemaName)) newSet.delete(schemaName); else newSet.add(schemaName);
@@ -699,7 +695,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
 
   const expandAll = () => {
      setExpandedTables(new Set(filteredTables.map(t => getTableId(t))));
-     setExpandedSchemas(new Set(schema.tables.map(t => t.schema || 'public')));
+     setExpandedSchemas(new Set(schema.tables.map(t => t.schema || 'public').concat(['__favorites__'])));
   };
   const collapseAll = () => {
      setExpandedTables(new Set());
@@ -821,13 +817,16 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
                const tablesInSchema = groupedTables[schemaName];
                if (!tablesInSchema || tablesInSchema.length === 0) return null;
                const isFavoritesGroup = schemaName === '__favorites__';
-               const isSchemaExpanded = isFavoritesGroup ? true : expandedSchemas.has(schemaName);
+               const isSchemaExpanded = expandedSchemas.has(schemaName);
                return (
                   <div key={schemaName} className="mb-2">
                      <div 
                         className={`flex items-center gap-2 px-2 py-1.5 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 rounded select-none group sticky top-0 z-10 bg-white/95 dark:bg-slate-900/95 backdrop-blur border-b border-transparent ${isSchemaExpanded ? 'border-slate-100 dark:border-slate-800' : ''}`}
                         onClick={() => handleToggleSchema(schemaName)}
                      >
+                        <div className="p-0.5 hover:bg-slate-200 dark:hover:bg-slate-700 rounded text-slate-400 transition-colors">
+                           {isSchemaExpanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+                        </div>
                         {isFavoritesGroup ? (
                            <Star className="w-4 h-4 text-amber-400 fill-amber-400" />
                         ) : (
@@ -836,7 +835,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
                               <Folder className="w-4 h-4 text-slate-400 fill-slate-100 dark:fill-slate-800" />
                         )}
                         <span className={`text-xs font-bold ${isFavoritesGroup ? 'text-amber-600 dark:text-amber-400' : isSchemaExpanded ? 'text-indigo-800 dark:text-indigo-200' : 'text-slate-500 dark:text-slate-400 group-hover:text-slate-700 dark:group-hover:text-slate-200'}`}>
-                           {isFavoritesGroup ? '⭐ Favoritas' : schemaName}
+                           {isFavoritesGroup ? 'Favoritas' : schemaName}
                         </span>
                         <span className="text-[10px] text-slate-400 ml-auto bg-slate-50 dark:bg-slate-800 px-1.5 rounded-full border border-slate-100 dark:border-slate-700">
                            {tablesInSchema.length}
