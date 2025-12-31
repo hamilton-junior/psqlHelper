@@ -7,17 +7,25 @@ import {
   Activity, CheckCircle2, XCircle, Info, RefreshCw, Play, 
   Beaker, Terminal, Bug, Loader2, Database, User, Server, Hash 
 } from 'lucide-react';
-import { AppSettings } from '../types';
+import { AppSettings, DatabaseSchema, DbCredentials } from '../types';
 import { runFullHealthCheck, HealthStatus, runRandomizedStressTest, StressTestLog } from '../services/healthService';
+import { SimulationData } from '../services/simulationService';
 
 interface SettingsModalProps {
   settings: AppSettings;
   onSave: (newSettings: AppSettings) => void;
   onClose: () => void;
   quotaExhausted?: boolean;
+  // Novos props de contexto
+  schema?: DatabaseSchema | null;
+  credentials?: DbCredentials | null;
+  simulationData?: SimulationData;
 }
 
-const SettingsModal: React.FC<SettingsModalProps> = ({ settings, onSave, onClose, quotaExhausted }) => {
+const SettingsModal: React.FC<SettingsModalProps> = ({ 
+  settings, onSave, onClose, quotaExhausted,
+  schema, credentials, simulationData = {}
+}) => {
   const [formData, setFormData] = React.useState<AppSettings>({ ...settings });
   const [healthResults, setHealthResults] = useState<HealthStatus[] | null>(null);
   const [isChecking, setIsChecking] = useState(false);
@@ -26,6 +34,8 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ settings, onSave, onClose
   const [isStressing, setIsStressing] = useState(false);
   const [stressLogs, setStressLogs] = useState<StressTestLog[]>([]);
   const logEndRef = useRef<HTMLDivElement>(null);
+
+  const isConnected = !!schema;
 
   useEffect(() => {
     if (logEndRef.current) {
@@ -47,7 +57,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ settings, onSave, onClose
     setIsChecking(true);
     setHealthResults(null);
     try {
-      const results = await runFullHealthCheck();
+      const results = await runFullHealthCheck(credentials, schema);
       setHealthResults(results);
     } catch (e) {
       console.error("Health Check failed", e);
@@ -60,7 +70,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ settings, onSave, onClose
     setIsStressing(true);
     setStressLogs([]);
     try {
-      await runRandomizedStressTest((newLog) => {
+      await runRandomizedStressTest(schema || null, simulationData, (newLog) => {
         setStressLogs(prev => [...prev, newLog]);
       });
     } catch (e) {
@@ -90,7 +100,96 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ settings, onSave, onClose
         {/* Form */}
         <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6 space-y-8 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 custom-scrollbar">
           
-          {/* Section 1: Interface e Comportamento */}
+          {/* Section: Diagnóstico e Saúde (Movido para topo por solicitação) */}
+          <div>
+            <div className="flex items-center justify-between mb-4">
+              <h4 className="text-xs font-bold text-rose-500 dark:text-rose-400 uppercase tracking-wider flex items-center gap-2">
+                <HeartPulse className="w-4 h-4" /> Diagnóstico & Estresse
+              </h4>
+              <div className={`px-2 py-0.5 rounded text-[9px] font-extrabold uppercase border ${isConnected ? 'bg-emerald-50 text-emerald-600 border-emerald-200' : 'bg-amber-50 text-amber-600 border-amber-200'}`}>
+                {isConnected ? `Conexão Ativa: ${schema?.name}` : 'Modo Offline (Base Exemplo)'}
+              </div>
+            </div>
+            
+            {!isConnected && (
+              <div className="mb-4 p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-100 dark:border-amber-800 rounded-lg flex gap-2 items-start text-[10px] text-amber-800 dark:text-amber-200">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                <p>Nenhuma conexão ativa detectada. Os testes de estresse serão executados na base de dados de exemplo (E-Commerce) para validar a integridade do motor.</p>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+               {/* Quick Health Check */}
+               <div className="bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 rounded-xl p-4">
+                  <div className="flex items-center justify-between mb-4">
+                     <div className="flex items-center gap-2">
+                        <Activity className={`w-5 h-5 ${isChecking ? 'text-indigo-500 animate-pulse' : 'text-slate-400'}`} />
+                        <h5 className="text-sm font-bold">Saúde do Sistema</h5>
+                     </div>
+                     <button 
+                        type="button"
+                        onClick={handleHealthCheck}
+                        disabled={isChecking}
+                        className="p-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-50 transition-all disabled:opacity-50"
+                        title="Verificar conectividade básica"
+                     >
+                        <RefreshCw className={`w-4 h-4 ${isChecking ? 'animate-spin' : ''}`} />
+                     </button>
+                  </div>
+
+                  <div className="space-y-2">
+                     {healthResults ? healthResults.map(res => (
+                        <div key={res.id} className="flex items-center justify-between text-xs p-1">
+                           <span className="text-slate-500">{res.name}</span>
+                           {res.status === 'success' ? (
+                              <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                           ) : (
+                              <XCircle className="w-4 h-4 text-rose-500" />
+                           )}
+                        </div>
+                     )) : (
+                        <p className="text-[10px] text-slate-400 italic">Clique no ícone de atualização acima.</p>
+                     )}
+                  </div>
+               </div>
+
+               {/* randomized Stress Test */}
+               <div className="bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 rounded-xl p-4">
+                  <div className="flex items-center justify-between mb-4">
+                     <div className="flex items-center gap-2">
+                        <Bug className={`w-5 h-5 ${isStressing ? 'text-amber-500 animate-bounce' : 'text-slate-400'}`} />
+                        <h5 className="text-sm font-bold">Fuzzing (Estresse)</h5>
+                     </div>
+                     <button 
+                        type="button"
+                        onClick={handleRunStressTest}
+                        disabled={isStressing}
+                        className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-bold transition-all disabled:opacity-50 flex items-center gap-2"
+                     >
+                        {isStressing ? <Loader2 className="w-3 h-3 animate-spin" /> : <Play className="w-3 h-3" />}
+                        Executar
+                     </button>
+                  </div>
+                  
+                  <div className="h-20 overflow-y-auto bg-slate-950 rounded border border-slate-800 p-2 font-mono text-[9px] custom-scrollbar">
+                     {stressLogs.length === 0 ? (
+                        <span className="text-slate-600 italic">Teste de estresse lógico inativo.</span>
+                     ) : (
+                        stressLogs.map((log, idx) => (
+                           <div key={idx} className={log.status === 'ok' ? 'text-emerald-500' : 'text-rose-500'}>
+                              [{log.iteration}] {log.type}: {log.detail}
+                           </div>
+                        ))
+                     )}
+                     <div ref={logEndRef} />
+                  </div>
+               </div>
+            </div>
+          </div>
+
+          <hr className="border-slate-100 dark:border-slate-700" />
+
+          {/* Section: Interface e Comportamento */}
           <div>
              <h4 className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-4 flex items-center gap-2">
                 <LayoutList className="w-4 h-4" /> Interface & Comportamento
@@ -148,7 +247,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ settings, onSave, onClose
 
           <hr className="border-slate-100 dark:border-slate-700" />
 
-          {/* Section 2: IA (Gemini) */}
+          {/* Section: IA (Gemini) */}
           <div>
              <h4 className="text-xs font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider mb-4 flex items-center gap-2">
                 <Bot className="w-4 h-4" /> Inteligência Artificial (Gemini)
@@ -206,7 +305,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ settings, onSave, onClose
 
           <hr className="border-slate-100 dark:border-slate-700" />
 
-          {/* Section 3: Padrões de Banco (RESTAURADO) */}
+          {/* Section: Padrões de Banco */}
           <div>
             <h4 className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-4 flex items-center gap-2">
                <Server className="w-4 h-4" /> Padrões de Conexão & Banco
@@ -283,84 +382,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ settings, onSave, onClose
 
           <hr className="border-slate-100 dark:border-slate-700" />
 
-          {/* Section 4: Diagnóstico e Saúde */}
-          <div>
-            <h4 className="text-xs font-bold text-rose-500 dark:text-rose-400 uppercase tracking-wider mb-4 flex items-center gap-2">
-               <HeartPulse className="w-4 h-4" /> Diagnóstico & Estresse
-            </h4>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-               {/* Quick Health Check */}
-               <div className="bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 rounded-xl p-4">
-                  <div className="flex items-center justify-between mb-4">
-                     <div className="flex items-center gap-2">
-                        <Activity className={`w-5 h-5 ${isChecking ? 'text-indigo-500 animate-pulse' : 'text-slate-400'}`} />
-                        <h5 className="text-sm font-bold">Saúde do Sistema</h5>
-                     </div>
-                     <button 
-                        type="button"
-                        onClick={handleHealthCheck}
-                        disabled={isChecking}
-                        className="p-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-50 transition-all disabled:opacity-50"
-                        title="Verificar conectividade básica"
-                     >
-                        <RefreshCw className={`w-4 h-4 ${isChecking ? 'animate-spin' : ''}`} />
-                     </button>
-                  </div>
-
-                  <div className="space-y-2">
-                     {healthResults ? healthResults.map(res => (
-                        <div key={res.id} className="flex items-center justify-between text-xs p-1">
-                           <span className="text-slate-500">{res.name}</span>
-                           {res.status === 'success' ? (
-                              <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-                           ) : (
-                              <XCircle className="w-4 h-4 text-rose-500" />
-                           )}
-                        </div>
-                     )) : (
-                        <p className="text-[10px] text-slate-400 italic">Clique no ícone de atualização acima.</p>
-                     )}
-                  </div>
-               </div>
-
-               {/* randomized Stress Test */}
-               <div className="bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 rounded-xl p-4">
-                  <div className="flex items-center justify-between mb-4">
-                     <div className="flex items-center gap-2">
-                        <Bug className={`w-5 h-5 ${isStressing ? 'text-amber-500 animate-bounce' : 'text-slate-400'}`} />
-                        <h5 className="text-sm font-bold">Fuzzing (Estresse)</h5>
-                     </div>
-                     <button 
-                        type="button"
-                        onClick={handleRunStressTest}
-                        disabled={isStressing}
-                        className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-bold transition-all disabled:opacity-50 flex items-center gap-2"
-                     >
-                        {isStressing ? <Loader2 className="w-3 h-3 animate-spin" /> : <Play className="w-3 h-3" />}
-                        Executar
-                     </button>
-                  </div>
-                  
-                  <div className="h-20 overflow-y-auto bg-slate-950 rounded border border-slate-800 p-2 font-mono text-[9px] custom-scrollbar">
-                     {stressLogs.length === 0 ? (
-                        <span className="text-slate-600 italic">Teste de estresse lógico inativo.</span>
-                     ) : (
-                        stressLogs.map((log, idx) => (
-                           <div key={idx} className={log.status === 'ok' ? 'text-emerald-500' : 'text-rose-500'}>
-                              [{log.iteration}] {log.type}: {log.detail}
-                           </div>
-                        ))
-                     )}
-                     <div ref={logEndRef} />
-                  </div>
-               </div>
-            </div>
-          </div>
-
-          <hr className="border-slate-100 dark:border-slate-700" />
-
-          {/* Section 5: Aparência e Grid */}
+          {/* Section: Aparência e Grid */}
           <div>
             <h4 className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-4 flex items-center gap-2">
                <LayoutList className="w-4 h-4" /> Aparência & Grid

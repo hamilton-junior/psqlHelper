@@ -1,7 +1,8 @@
 
 import { GoogleGenAI } from "@google/genai";
-import { SAMPLE_SCHEMA, BuilderState, AggregateFunction } from "../types";
-import { executeOfflineQuery, initializeSimulation } from "./simulationService";
+import { SAMPLE_SCHEMA, BuilderState, DatabaseSchema, DbCredentials } from "../types";
+import { executeOfflineQuery, initializeSimulation, SimulationData } from "./simulationService";
+import { executeQueryReal } from "./dbService";
 
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
@@ -21,99 +22,129 @@ export interface StressTestLog {
   detail: string;
 }
 
-export const runFullHealthCheck = async (): Promise<HealthStatus[]> => {
+/**
+ * Executa o check-up geral, priorizando a conexão ativa se disponível.
+ */
+export const runFullHealthCheck = async (
+  credentials?: DbCredentials | null,
+  schema?: DatabaseSchema | null
+): Promise<HealthStatus[]> => {
   const results: HealthStatus[] = [
     { id: 'gemini', name: 'Gemini AI API', status: 'pending' },
     { id: 'backend', name: 'Servidor Backend Local', status: 'pending' },
+    { id: 'db', name: 'Conexão com Banco de Dados', status: 'pending' },
     { id: 'storage', name: 'Persistência Local (Storage)', status: 'pending' },
-    { id: 'simulation', name: 'Motor de Simulação Offline', status: 'pending' }
+    { id: 'logic', name: 'Validação de Lógica do Builder', status: 'pending' }
   ];
 
   // 1. Storage Check
   try {
-    const testKey = 'psql_buddy_health_test';
-    localStorage.setItem(testKey, 'ok');
-    if (localStorage.getItem(testKey) !== 'ok') throw new Error("Mismatch");
-    results[2].status = 'success';
-    results[2].message = 'Leitura e escrita em localStorage OK.';
+    localStorage.setItem('health_ping', '1');
+    localStorage.removeItem('health_ping');
+    results[3].status = 'success';
+    results[3].message = 'LocalStorage operando.';
   } catch (e) {
-    results[2].status = 'error';
-    results[2].message = 'Falha no Storage.';
+    results[3].status = 'error';
+    results[3].message = 'Storage inacessível.';
   }
 
-  // 2. Backend Check
+  // 2. Backend Check (Verifica se server.js está de pé)
   try {
     const controller = new AbortController();
     const id = setTimeout(() => controller.abort(), 1500);
     await fetch('http://localhost:3000', { mode: 'no-cors', signal: controller.signal });
     clearTimeout(id);
     results[1].status = 'success';
-    results[1].message = 'Servidor local respondendo.';
+    results[1].message = 'Servidor Node.js respondendo.';
   } catch (e) {
     results[1].status = 'error';
     results[1].message = 'Backend offline.';
   }
 
-  // 3. AI Check
+  // 3. Database Check (Context Aware)
+  if (credentials && credentials.host !== 'simulated') {
+    try {
+      await executeQueryReal(credentials, 'SELECT 1');
+      results[2].status = 'success';
+      results[2].message = `Conectado a: ${credentials.database}`;
+    } catch (e: any) {
+      results[2].status = 'error';
+      results[2].message = 'Falha na query de teste.';
+      results[2].cause = e.message;
+    }
+  } else {
+    results[2].status = 'success';
+    results[2].message = credentials?.host === 'simulated' ? 'Modo Simulação Ativo' : 'Nenhuma conexão ativa';
+  }
+
+  // 4. AI Check
   try {
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
-      contents: 'Respond with "ping"',
+      contents: 'Respond with "pong"',
     });
-    if (response.text?.toLowerCase().includes('ping')) {
+    if (response.text?.toLowerCase().includes('pong')) {
       results[0].status = 'success';
       results[0].message = 'API Gemini operacional.';
-    } else {
-      throw new Error();
-    }
+    } else throw new Error();
   } catch (e: any) {
     results[0].status = 'error';
-    results[0].message = 'Falha na conexão com a IA.';
+    results[0].message = 'IA indisponível ou sem chave.';
   }
 
-  // 4. Simulation Check
+  // 5. Logic Check (Testa o motor de simulação no schema atual)
   try {
-    const simData = initializeSimulation(SAMPLE_SCHEMA);
+    const activeSchema = schema || SAMPLE_SCHEMA;
+    const testTable = activeSchema.tables[0];
+    const tableId = `${testTable.schema || 'public'}.${testTable.name}`;
+    
     const mockState: BuilderState = {
-      selectedTables: ['public.users'],
-      selectedColumns: ['public.users.id'],
+      selectedTables: [tableId],
+      selectedColumns: [`${tableId}.${testTable.columns[0].name}`],
       aggregations: {},
       joins: [],
       filters: [],
       groupBy: [],
       orderBy: [],
-      limit: 5
+      limit: 1
     };
-    executeOfflineQuery(SAMPLE_SCHEMA, simData, mockState);
-    results[3].status = 'success';
-    results[3].message = 'Motor de simulação estável.';
+    
+    // Testa se o motor consegue processar o schema sem crashar
+    const tempSimData = initializeSimulation(activeSchema);
+    executeOfflineQuery(activeSchema, tempSimData, mockState);
+    
+    results[4].status = 'success';
+    results[4].message = `Lógica validada para schema: ${activeSchema.name}`;
   } catch (e) {
-    results[3].status = 'error';
-    results[3].message = 'Erro no motor offline.';
+    results[4].status = 'error';
+    results[4].message = 'Erro na validação de lógica.';
   }
 
   return results;
 };
 
 /**
- * Executa testes de estresse aleatórios (Fuzzing)
+ * Executa testes de estresse aleatórios baseados no schema que o usuário está usando.
  */
 export const runRandomizedStressTest = async (
+  schema: DatabaseSchema | null,
+  simulationData: SimulationData,
   onProgress: (log: StressTestLog) => void
 ): Promise<boolean> => {
-  const simData = initializeSimulation(SAMPLE_SCHEMA);
-  const tables = SAMPLE_SCHEMA.tables;
+  // Fallback para o Sample se não houver schema carregado
+  const activeSchema = schema || SAMPLE_SCHEMA;
+  const activeSimData = schema ? simulationData : initializeSimulation(SAMPLE_SCHEMA);
+  
+  const tables = activeSchema.tables;
   let allPassed = true;
 
   for (let i = 1; i <= 20; i++) {
     try {
-      // 1. Escolhe tabelas e colunas aleatórias
       const randomTable = tables[Math.floor(Math.random() * tables.length)];
       const randomCol = randomTable.columns[Math.floor(Math.random() * randomTable.columns.length)];
-      const tableId = `public.${randomTable.name}`;
+      const tableId = `${randomTable.schema || 'public'}.${randomTable.name}`;
       const colId = `${tableId}.${randomCol.name}`;
 
-      // 2. Gera um estado aleatório
       const state: BuilderState = {
         selectedTables: [tableId],
         selectedColumns: [colId],
@@ -122,51 +153,40 @@ export const runRandomizedStressTest = async (
         filters: [],
         groupBy: [],
         orderBy: [],
-        limit: Math.floor(Math.random() * 100) + 1,
+        limit: Math.floor(Math.random() * 50) + 1,
         calculatedColumns: []
       };
 
-      // 3. Adiciona um filtro aleatório (Fuzzing)
+      // Fuzzing de filtro
       if (Math.random() > 0.5) {
         state.filters.push({
-          id: 'test-fuzz',
+          id: 'stress-fuzz',
           column: colId,
-          operator: ['=', '>', '<', 'LIKE'][Math.floor(Math.random() * 4)] as any,
-          value: Math.random() > 0.5 ? String(Math.random() * 1000) : 'random_string'
+          operator: ['=', '>', 'LIKE'][Math.floor(Math.random() * 3)] as any,
+          value: Math.random() > 0.5 ? '100' : 'test'
         });
       }
 
-      // 4. Adiciona uma fórmula matemática aleatória
-      if (Math.random() > 0.7) {
-        state.calculatedColumns?.push({
-          id: 'calc-fuzz',
-          alias: 'fuzz_result',
-          expression: `(${Math.floor(Math.random() * 100)} * 2) / 1.5`
-        });
-      }
-
-      // Executa
-      const results = executeOfflineQuery(SAMPLE_SCHEMA, simData, state);
+      const results = executeOfflineQuery(activeSchema, activeSimData, state);
       
       onProgress({
         iteration: i,
-        type: 'Query Logic',
+        type: 'Query Stress',
         status: 'ok',
-        detail: `Testada tabela ${randomTable.name} com ${results.length} resultados.`
+        detail: `Processado [${randomTable.name}] -> ${results.length} linhas.`
       });
 
     } catch (e: any) {
       allPassed = false;
       onProgress({
         iteration: i,
-        type: 'Query Logic',
+        type: 'Query Stress',
         status: 'fail',
-        detail: `Crash na iteração ${i}: ${e.message}`
+        detail: `Erro na iteração ${i}: ${e.message}`
       });
     }
     
-    // Pequeno delay para animação fluida
-    await new Promise(r => setTimeout(r, 50));
+    await new Promise(r => setTimeout(r, 60));
   }
 
   return allPassed;

@@ -382,7 +382,14 @@ const App: React.FC = () => {
       </main>
 
       {showSettings && (
-         <SettingsModal settings={settings} onSave={setSettings} onClose={() => setShowSettings(false)} />
+         <SettingsModal 
+            settings={settings} 
+            onSave={setSettings} 
+            onClose={() => setShowSettings(false)}
+            schema={schema}
+            credentials={credentials}
+            simulationData={simulationData}
+         />
       )}
 
       {showDiagram && schema && (
