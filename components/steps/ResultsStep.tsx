@@ -813,12 +813,47 @@ const ResultsStep: React.FC<ResultsStepProps> = ({ data, sql, onBackToBuilder, o
   const [pendingEdits, setPendingEdits] = useState<Record<string, string>>({});
   const [showConfirmation, setShowConfirmation] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [userSelectedPk, setUserSelectedPk] = useState<string>('');
 
   const mainTableName = useMemo(() => {
      const fromMatch = sql.match(/FROM\s+([a-zA-Z0-9_."]+)/i);
      if (fromMatch) return fromMatch[1].replace(/"/g, '');
      return null;
   }, [sql]);
+
+  /**
+   * Lógica de prioridade de Chave Primária para CRUD:
+   * 1. Schema PK (se existir na consulta)
+   * 2. grid
+   * 3. id
+   * 4. gfid
+   */
+  const bestPkColumn = useMemo(() => {
+     if (!mainTableName || !schema) return '';
+     
+     // 1. Verificar Schema
+     const tableParts = mainTableName.split('.');
+     const sName = tableParts.length > 1 ? tableParts[0] : 'public';
+     const tName = tableParts.length > 1 ? tableParts[1] : tableParts[0];
+     const tableObj = schema.tables.find(t => 
+        t.name.toLowerCase() === tName.toLowerCase() && 
+        (t.schema || 'public').toLowerCase() === sName.toLowerCase()
+     );
+     
+     const schemaPk = tableObj?.columns.find(c => c.isPrimaryKey)?.name;
+     if (schemaPk && columns.includes(schemaPk)) return schemaPk;
+
+     // 2. Prioridades manuais
+     const priorities = ['grid', 'id', 'gfid'];
+     for (const p of priorities) {
+        if (columns.includes(p)) return p;
+     }
+
+     return '';
+  }, [mainTableName, schema, columns]);
+
+  // Se o usuário já escolheu ou o sistema detectou
+  const finalPkColumn = userSelectedPk || bestPkColumn;
 
   useEffect(() => { if (data) addToHistory({ sql, rowCount: data.length, durationMs: executionDuration || 0, status: 'success', schemaName: 'Database' }); }, []);
 
@@ -898,7 +933,7 @@ const ResultsStep: React.FC<ResultsStepProps> = ({ data, sql, onBackToBuilder, o
   };
 
   const sqlStatementsPreview = useMemo(() => {
-    if (Object.keys(pendingEdits).length === 0) return "";
+    if (Object.keys(pendingEdits).length === 0 || !finalPkColumn) return "";
     const tableName = mainTableName || "table_name";
     let lines = ["BEGIN;"];
     const editsByRow: Record<number, Record<string, string>> = {};
@@ -912,20 +947,18 @@ const ResultsStep: React.FC<ResultsStepProps> = ({ data, sql, onBackToBuilder, o
     for (const [rowIdxStr, cols] of Object.entries(editsByRow)) {
        const rowIdx = Number(rowIdxStr);
        const row = localData[rowIdx];
-       let pkCol = 'id';
-       let pkVal = row['id'] ?? row['grid'];
-       if (!pkVal && schema) {
-          const t = schema.tables.find(tbl => tableName.includes(tbl.name));
-          const pk = t?.columns.find(c => c.isPrimaryKey);
-          if (pk) pkVal = row[pk.name];
-       }
-       if (pkVal === undefined) continue;
+       const pkVal = row[finalPkColumn];
+       
+       if (pkVal === undefined || pkVal === null) continue;
+       
        const setClause = Object.entries(cols).map(([col, val]) => `"${col}" = '${val.replace(/'/g, "''")}'`).join(', ');
-       lines.push(`UPDATE ${tableName} SET ${setClause} WHERE "${pkCol}" = ${pkVal};`);
+       const formattedPkVal = typeof pkVal === 'string' ? `'${pkVal.replace(/'/g, "''")}'` : pkVal;
+       
+       lines.push(`UPDATE ${tableName} SET ${setClause} WHERE "${finalPkColumn}" = ${formattedPkVal};`);
     }
     lines.push("COMMIT;");
     return lines.join('\n');
-  }, [pendingEdits, localData, mainTableName, schema]);
+  }, [pendingEdits, localData, mainTableName, finalPkColumn]);
 
   const handleSaveChanges = async () => {
     if (!credentials || !sqlStatementsPreview) return;
@@ -953,7 +986,6 @@ const ResultsStep: React.FC<ResultsStepProps> = ({ data, sql, onBackToBuilder, o
     if (mainTableName) setDrillDownTarget({ table: mainTableName, col, val }); 
   }; 
   
-  // Fix: Added explicit typing (row: any) and string conversion for non-string values to prevent TypeScript 'unknown' errors during export
   const handleExportInsert = () => { 
     if (filteredData.length === 0) return; 
     const tableName = "exported_data"; 
@@ -1019,18 +1051,45 @@ const ResultsStep: React.FC<ResultsStepProps> = ({ data, sql, onBackToBuilder, o
                   </div>
                   <h3 className="text-xl font-bold text-red-600 dark:text-red-400 mb-2 uppercase tracking-tight">Certeza Absoluta?</h3>
                   <p className="text-sm text-slate-500 dark:text-slate-400 mb-6 px-4">
-                     Você está prestes a gravar <strong>{Object.keys(pendingEdits).length}</strong> alteração(ões) diretamente no banco de dados. <br/>
-                     O script SQL abaixo será executado dentro de um bloco de transação.
+                     Você está prestes a gravar <strong>{Object.keys(pendingEdits).length}</strong> alteração(ões) diretamente no banco de dados.
                   </p>
-                  <div className="bg-slate-900 rounded-xl p-3 mb-6 text-left border border-slate-700 shadow-inner">
-                     <p className="text-[9px] text-slate-500 font-mono mb-2 uppercase tracking-widest border-b border-slate-800 pb-1">Script para Execução:</p>
-                     <pre className="text-[10px] text-emerald-500 font-mono whitespace-pre-wrap max-h-40 overflow-y-auto custom-scrollbar leading-tight">
-                        {sqlStatementsPreview}
-                     </pre>
-                  </div>
+
+                  {!finalPkColumn && (
+                    <div className="mb-6 p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl text-left">
+                       <p className="text-xs font-bold text-amber-800 dark:text-amber-200 mb-2 flex items-center gap-2">
+                          <AlertTriangle className="w-4 h-4" /> Chave Primária não detectada
+                       </p>
+                       <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Qual campo usar como ID único?</label>
+                       <select 
+                          value={userSelectedPk} 
+                          onChange={e => setUserSelectedPk(e.target.value)}
+                          className="w-full p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-500"
+                       >
+                          <option value="">-- Selecione o Campo --</option>
+                          {columns.map(c => <option key={c} value={c}>{c}</option>)}
+                       </select>
+                    </div>
+                  )}
+
+                  {finalPkColumn && (
+                    <div className="bg-slate-900 rounded-xl p-3 mb-6 text-left border border-slate-700 shadow-inner">
+                       <div className="flex justify-between items-center border-b border-slate-800 pb-1 mb-2">
+                          <p className="text-[9px] text-slate-500 font-mono uppercase tracking-widest">Script para Execução:</p>
+                          <span className="text-[9px] text-indigo-400 font-bold uppercase">ID: {finalPkColumn}</span>
+                       </div>
+                       <pre className="text-[10px] text-emerald-500 font-mono whitespace-pre-wrap max-h-40 overflow-y-auto custom-scrollbar leading-tight">
+                          {sqlStatementsPreview}
+                       </pre>
+                    </div>
+                  )}
+
                   <div className="flex gap-3 px-2">
                      <button onClick={() => setShowConfirmation(false)} className="flex-1 px-4 py-3 bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-600 dark:text-slate-300 rounded-xl font-bold transition-all">Cancelar</button>
-                     <button onClick={handleSaveChanges} disabled={isSaving} className="flex-[2] px-4 py-3 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold shadow-lg shadow-red-200 dark:shadow-none transition-all flex items-center justify-center gap-2">
+                     <button 
+                        onClick={handleSaveChanges} 
+                        disabled={isSaving || !finalPkColumn} 
+                        className="flex-[2] px-4 py-3 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold shadow-lg shadow-red-200 dark:shadow-none transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                     >
                         {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />} Sim, Confirmar COMMIT
                      </button>
                   </div>
