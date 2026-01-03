@@ -822,29 +822,31 @@ const ResultsStep: React.FC<ResultsStepProps> = ({ data, sql, onBackToBuilder, o
   }, [sql]);
 
   /**
-   * Lógica de prioridade de Chave Primária para CRUD:
-   * 1. Schema PK (se existir na consulta)
-   * 2. grid
-   * 3. id
-   * 4. gfid
+   * Lógica de prioridade de Chave Primária para CRUD (Nova Ordem solicitada):
+   * 1. Schema Metadata PK (Informação real do banco de dados)
+   * 2. grid (Identificador padrão do sistema)
+   * 3. gfid (Identificador global)
+   * 4. id (Identificador genérico)
    */
   const bestPkColumn = useMemo(() => {
-     if (!mainTableName || !schema) return '';
+     if (!columns || columns.length === 0) return '';
      
-     // 1. Verificar Schema
-     const tableParts = mainTableName.split('.');
-     const sName = tableParts.length > 1 ? tableParts[0] : 'public';
-     const tName = tableParts.length > 1 ? tableParts[1] : tableParts[0];
-     const tableObj = schema.tables.find(t => 
-        t.name.toLowerCase() === tName.toLowerCase() && 
-        (t.schema || 'public').toLowerCase() === sName.toLowerCase()
-     );
-     
-     const schemaPk = tableObj?.columns.find(c => c.isPrimaryKey)?.name;
-     if (schemaPk && columns.includes(schemaPk)) return schemaPk;
+     // 1. Prioridade Máxima: Verificar Metadados do Schema (Primary Key real)
+     if (mainTableName && schema) {
+        const tableParts = mainTableName.split('.');
+        const sName = tableParts.length > 1 ? tableParts[0] : 'public';
+        const tName = tableParts.length > 1 ? tableParts[1] : tableParts[0];
+        const tableObj = schema.tables.find(t => 
+           t.name.toLowerCase() === tName.toLowerCase() && 
+           (t.schema || 'public').toLowerCase() === sName.toLowerCase()
+        );
+        
+        const schemaPk = tableObj?.columns.find(c => c.isPrimaryKey)?.name;
+        if (schemaPk && columns.includes(schemaPk)) return schemaPk;
+     }
 
-     // 2. Prioridades manuais
-     const priorities = ['grid', 'id', 'gfid'];
+     // 2. Prioridades manuais específicas de fallback (grid > gfid > id)
+     const priorities = ['grid', 'gfid', 'id'];
      for (const p of priorities) {
         if (columns.includes(p)) return p;
      }
