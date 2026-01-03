@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { ArrowLeft, ArrowRight, Database, ChevronLeft, ChevronRight, FileSpreadsheet, Search, Copy, Check, BarChart2, MessageSquare, Download, Activity, LayoutGrid, FileText, Pin, AlertCircle, Info, MoreHorizontal, FileJson, FileCode, Hash, Type, Filter, Plus, X, Trash2, SlidersHorizontal, Clock, Maximize2, Minimize2, ExternalLink, Braces, PenTool, Save, Eye, Anchor, Link as LinkIcon, Settings2, Loader2, Folder, Terminal as TerminalIcon, ChevronDown, ChevronUp, Layers, Target, CornerDownRight, AlertTriangle, Undo2, ShieldAlert, Pencil } from 'lucide-react';
-import { AppSettings, DashboardItem, ExplainNode, DatabaseSchema, Table } from '../../types';
+import { AppSettings, ExplainNode, DatabaseSchema, Table } from '../../types';
 import DataVisualizer from '../DataVisualizer';
 import DataAnalysisChat from '../DataAnalysisChat';
 import CodeSnippetModal from '../CodeSnippetModal';
@@ -152,11 +152,11 @@ const HoverPreviewTooltip: React.FC<{
             <div className="flex items-center justify-between mb-1 w-full">
                <div className="flex items-center gap-1.5 overflow-hidden">
                   <Database className="w-3 h-3 text-indigo-400 shrink-0" />
-                  <span className={`text-[9px] font-extrabold uppercase tracking-widest truncate ${isPersistent ? 'group-hover/item:text-indigo-300' : 'text-slate-500'}`}>{link.table.split('.').pop()}</span>
+                  <span className={`text-[9px] font-extrabold uppercase tracking-widest truncate ${isPersistent ? 'group-hover:text-indigo-300' : 'text-slate-500'}`}>{link.table.split('.').pop()}</span>
                </div>
                <div className="flex items-center gap-1.5">
                   <span className="text-[9px] font-bold text-slate-400 bg-slate-800 px-1 rounded">{link.previewCol}</span>
-                  {isPersistent && <ArrowRight className="w-2.5 h-2.5 text-slate-600 opacity-0 group-hover/item:opacity-100 group-hover/item:translate-x-0.5 transition-all" />}
+                  {isPersistent && <ArrowRight className="w-2.5 h-2.5 text-slate-600 opacity-0 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all" />}
                </div>
             </div>
             {state?.loading ? (
@@ -164,7 +164,7 @@ const HoverPreviewTooltip: React.FC<{
             ) : state?.error ? (
               <span className="text-xs text-red-400 italic">Erro na consulta</span>
             ) : (
-              <span className={`text-sm font-bold whitespace-pre-wrap block transition-colors ${isPersistent ? 'text-indigo-100 group-hover/item:text-white' : 'text-indigo-100'}`}>{state?.data || '---'}</span>
+              <span className={`text-sm font-bold whitespace-pre-wrap block transition-colors ${isPersistent ? 'text-indigo-100 group-hover:text-white' : 'text-indigo-100'}`}>{state?.data || '---'}</span>
             )}
           </button>
         );
@@ -786,7 +786,6 @@ interface ResultsStepProps {
   onBackToBuilder: () => void;
   onNewConnection: () => void;
   settings?: AppSettings;
-  onAddToDashboard?: (item: Omit<DashboardItem, 'id' | 'createdAt'>) => void; 
   onShowToast: (message: string, type?: 'success' | 'error' | 'info') => void;
   credentials?: any; 
   executionDuration?: number;
@@ -795,7 +794,7 @@ interface ResultsStepProps {
 
 type ResultTab = 'table' | 'chart' | 'terminal' | 'analysis' | 'explain';
 
-const ResultsStep: React.FC<ResultsStepProps> = ({ data, sql, onBackToBuilder, onNewConnection, settings, onAddToDashboard, onShowToast, credentials, executionDuration, schema }) => {
+const ResultsStep: React.FC<ResultsStepProps> = ({ data, sql, onBackToBuilder, onNewConnection, settings, onShowToast, credentials, executionDuration, schema }) => {
   const [activeTab, setActiveTab] = useState<ResultTab>('table');
   const [localData, setLocalData] = useState(data); 
   const columns = localData.length > 0 ? Object.keys(localData[0]) : [];

@@ -95,7 +95,6 @@ const Sidebar: React.FC<SidebarProps> = ({
           {navItem('builder', 'Construtor', <Layers className="w-4.5 h-4.5" />, !schema, "Construir queries")}
           {navItem('preview', 'Visualização', <Terminal className="w-4.5 h-4.5" />, currentStep === 'connection' || currentStep === 'builder', "Visualizar SQL")}
           {navItem('results', 'Resultados', <Table className="w-4.5 h-4.5" />, currentStep !== 'results', "Ver resultados")}
-          {navItem('dashboard', 'Dashboard', <LayoutGrid className="w-4.5 h-4.5" />, !schema, "Painel de Gráficos")}
           
           <div className="my-4 border-t border-slate-100 dark:border-slate-800/50"></div>
           

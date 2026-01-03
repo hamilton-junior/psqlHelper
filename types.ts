@@ -63,7 +63,10 @@ export interface QueryResult {
   optimization?: OptimizationAnalysis;
 }
 
-export type AppStep = 'connection' | 'builder' | 'preview' | 'results' | 'dashboard' | 'datadiff';
+/**
+ * Fixed: Added 'dashboard' to AppStep to match the existence of DashboardStep.tsx component
+ */
+export type AppStep = 'connection' | 'builder' | 'preview' | 'results' | 'datadiff' | 'dashboard';
 
 export type Operator = '=' | '!=' | '>' | '<' | '>=' | '<=' | 'LIKE' | 'ILIKE' | 'IN' | 'IS NULL' | 'IS NOT NULL';
 export type JoinType = 'INNER' | 'LEFT' | 'RIGHT' | 'FULL';
@@ -162,19 +165,6 @@ export const DEFAULT_SETTINGS: AppSettings = {
   theme: 'dark'
 };
 
-export interface DashboardItem {
-  id: string;
-  title: string;
-  type: 'bar' | 'line' | 'area';
-  data: any[];
-  config: {
-    xAxis: string;
-    yKeys: string[];
-  };
-  sql: string;
-  createdAt: number;
-}
-
 export interface SavedQuery {
   id: string;
   name: string;
@@ -228,6 +218,21 @@ export interface VirtualRelation {
   targetTable: string; 
   targetColumn: string;
   confidence?: number; 
+}
+
+/**
+ * Fixed: Added DashboardItem interface missing in types.ts but used in DashboardStep.tsx
+ */
+export interface DashboardItem {
+  id: string;
+  title: string;
+  type: 'bar' | 'line' | 'area';
+  data: any[];
+  config: {
+    xAxis: string;
+    yKeys: string[];
+  };
+  createdAt: number;
 }
 
 export const SAMPLE_SCHEMA: DatabaseSchema = {

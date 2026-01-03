@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { 
   DatabaseSchema, AppStep, BuilderState, QueryResult, DbCredentials, 
-  AppSettings, DEFAULT_SETTINGS, DashboardItem, VirtualRelation,
+  AppSettings, DEFAULT_SETTINGS, VirtualRelation,
   DiffRow
 } from './types';
 import Sidebar from './components/Sidebar';
@@ -10,7 +10,6 @@ import ConnectionStep from './components/steps/ConnectionStep';
 import BuilderStep from './components/steps/BuilderStep';
 import PreviewStep from './components/steps/PreviewStep';
 import ResultsStep from './components/steps/ResultsStep';
-import DashboardStep from './components/steps/DashboardStep';
 import DataDiffStep from './components/steps/DataDiffStep';
 import SettingsModal from './components/SettingsModal';
 import SchemaDiagramModal from './components/SchemaDiagramModal';
@@ -65,13 +64,6 @@ const App: React.FC = () => {
   const [isValidating, setIsValidating] = useState(false);
   const [executionDuration, setExecutionDuration] = useState(0);
 
-  const [dashboardItems, setDashboardItems] = useState<DashboardItem[]>(() => {
-    try {
-      const stored = localStorage.getItem('psql-buddy-dashboard');
-      return stored ? JSON.parse(stored) : [];
-    } catch { return []; }
-  });
-
   const [settings, setSettings] = useState<AppSettings>(() => {
     try {
       const stored = localStorage.getItem('psql-buddy-settings');
@@ -102,10 +94,6 @@ const App: React.FC = () => {
     }
     localStorage.setItem('psql-buddy-settings', JSON.stringify(settings));
   }, [settings.theme]);
-
-  useEffect(() => {
-    localStorage.setItem('psql-buddy-dashboard', JSON.stringify(dashboardItems));
-  }, [dashboardItems]);
 
   const handleSchemaLoaded = (loadedSchema: DatabaseSchema, creds: DbCredentials) => {
     setSchema(loadedSchema);
@@ -253,15 +241,6 @@ const App: React.FC = () => {
      return parseInt(res[0].count);
   };
 
-  const handleAddToDashboard = (item: Omit<DashboardItem, 'id' | 'createdAt'>) => {
-     const newItem: DashboardItem = {
-        ...item,
-        id: crypto.randomUUID(),
-        createdAt: Date.now()
-     };
-     setDashboardItems(prev => [newItem, ...prev]);
-  };
-
   const handlePreviewTable = async (tableName: string) => {
      setTablePreview({ name: tableName, data: [], loading: true, error: null });
      try {
@@ -362,19 +341,10 @@ const App: React.FC = () => {
                  onBackToBuilder={() => setCurrentStep('builder')}
                  onNewConnection={() => { setSchema(null); setCurrentStep('connection'); }}
                  settings={settings}
-                 onAddToDashboard={handleAddToDashboard}
                  onShowToast={handleShowToast}
                  credentials={credentials}
                  executionDuration={executionDuration}
                  schema={schema || undefined}
-              />
-           )}
-
-           {currentStep === 'dashboard' && (
-              <DashboardStep 
-                 items={dashboardItems} 
-                 onRemoveItem={(id) => setDashboardItems(prev => prev.filter(i => i.id !== id))}
-                 onClearAll={() => setDashboardItems([])}
               />
            )}
 
