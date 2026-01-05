@@ -1,5 +1,4 @@
 
-
 export interface Column {
   name: string;
   type: string;
@@ -141,6 +140,7 @@ export interface AppSettings {
   defaultDbUser: string;
   defaultDbName: string;
   defaultLimit: number;
+  defaultDiffLimit: number; // Nova configuração para limite de comparação
   defaultRowsPerPage: number;
   theme: 'light' | 'dark';
 }
@@ -158,6 +158,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   defaultDbUser: 'postgres',
   defaultDbName: '',
   defaultLimit: 100,
+  defaultDiffLimit: 500, // Valor padrão inicial
   defaultRowsPerPage: 10,
   theme: 'dark'
 };

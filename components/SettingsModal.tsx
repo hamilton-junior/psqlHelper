@@ -6,7 +6,7 @@ import {
   AlertCircle, GraduationCap, PenTool, DatabaseZap, HeartPulse, 
   Activity, CheckCircle2, XCircle, RefreshCw, Play, 
   Bug, Loader2, Database, User, Server, Hash, Shield, Terminal, ZapOff, ActivitySquare,
-  LayoutGrid, Monitor, Moon, Sun, ChevronRight, Gauge
+  LayoutGrid, Monitor, Moon, Sun, ChevronRight, Gauge, GitCompare
 } from 'lucide-react';
 import { AppSettings, DatabaseSchema, DbCredentials } from '../types';
 import { runFullHealthCheck, HealthStatus, runRandomizedStressTest, StressTestLog } from '../services/healthService';
@@ -332,11 +332,11 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                          />
                       </div>
 
-                      <div className="col-span-2 p-6 bg-indigo-50/50 dark:bg-indigo-950/20 border border-indigo-100/50 dark:border-indigo-900/30 rounded-[2rem]">
+                      <div className="p-6 bg-indigo-50/50 dark:bg-indigo-950/20 border border-indigo-100/50 dark:border-indigo-900/30 rounded-[2rem]">
                          <div className="flex items-center justify-between mb-4">
                             <div className="flex items-center gap-2">
                                <ListFilter className="w-4 h-4 text-indigo-500" />
-                               <span className="text-xs font-black uppercase tracking-widest text-indigo-900 dark:text-indigo-200">Limite Global de Resultados</span>
+                               <span className="text-xs font-black uppercase tracking-widest text-indigo-900 dark:text-indigo-200">Limite SQL Builder</span>
                             </div>
                          </div>
                          <div className="flex items-center gap-6">
@@ -344,12 +344,32 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                                type="number" 
                                value={formData.defaultLimit} 
                                onChange={e => setFormData({...formData, defaultLimit: parseInt(e.target.value) || 100})} 
-                               className="w-32 p-4 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl text-lg font-black text-center text-indigo-600 dark:text-indigo-400 shadow-sm" 
+                               className="w-full p-4 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl text-lg font-black text-center text-indigo-600 dark:text-indigo-400 shadow-sm" 
                             />
-                            <p className="text-xs text-indigo-700/60 dark:text-indigo-300/60 leading-tight">
-                               Este valor define o sufixo <code>LIMIT</code> padrão para todas as consultas manuais ou geradas pela IA para evitar travamentos em bases grandes.
-                            </p>
                          </div>
+                         <p className="text-[10px] text-indigo-700/60 dark:text-indigo-300/60 mt-3 font-medium">
+                            Sufixo <code>LIMIT</code> padrão para novas queries do builder.
+                         </p>
+                      </div>
+
+                      <div className="p-6 bg-indigo-50/50 dark:bg-indigo-950/20 border border-indigo-100/50 dark:border-indigo-900/30 rounded-[2rem]">
+                         <div className="flex items-center justify-between mb-4">
+                            <div className="flex items-center gap-2">
+                               <GitCompare className="w-4 h-4 text-indigo-500" />
+                               <span className="text-xs font-black uppercase tracking-widest text-indigo-900 dark:text-indigo-200">Limite Comparador</span>
+                            </div>
+                         </div>
+                         <div className="flex items-center gap-6">
+                            <input 
+                               type="number" 
+                               value={formData.defaultDiffLimit} 
+                               onChange={e => setFormData({...formData, defaultDiffLimit: parseInt(e.target.value) || 500})} 
+                               className="w-full p-4 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl text-lg font-black text-center text-indigo-600 dark:text-indigo-400 shadow-sm" 
+                            />
+                         </div>
+                         <p className="text-[10px] text-indigo-700/60 dark:text-indigo-300/60 mt-3 font-medium">
+                            Amostra de registros a carregar para auditoria.
+                         </p>
                       </div>
                    </div>
                 </div>

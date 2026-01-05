@@ -363,10 +363,12 @@ const App: React.FC = () => {
            )}
 
            {currentStep === 'datadiff' && schema && (
+              /* Fix: Added missing 'settings' prop to DataDiffStep component */
               <DataDiffStep 
                  schema={schema} 
                  credentials={credentials}
                  simulationData={simulationData}
+                 settings={settings}
               />
            )}
         </div>
