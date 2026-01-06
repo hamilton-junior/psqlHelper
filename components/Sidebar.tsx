@@ -100,7 +100,6 @@ const Sidebar: React.FC<SidebarProps> = ({
           <div className="my-4 border-t border-slate-100 dark:border-slate-800/50"></div>
           
           {navItem('datadiff', 'Comparador', <GitCompare className="w-4.5 h-4.5" />, !schema, "Comparar dados entre tabelas")}
-          {navItem('roadmap', 'Roadmap', <Rocket className="w-4.5 h-4.5 text-orange-500" />, false, "Sugestões de melhorias")}
         </div>
         
         {/* Support Tools Section */}
@@ -153,6 +152,9 @@ const Sidebar: React.FC<SidebarProps> = ({
               {!isCollapsed && <span>Guia SQL</span>}
            </button>
         )}
+        
+        {navItem('roadmap', 'Roadmap', <Rocket className={`w-4.5 h-4.5 ${currentStep === 'roadmap' ? 'text-white' : 'text-orange-500'}`} />, false, "Sugestões de melhorias")}
+
         <button 
            onClick={onOpenSettings}
            title={isCollapsed ? "Configurações" : "Abrir configurações gerais e de IA"}
