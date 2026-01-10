@@ -54,7 +54,6 @@
       "output": "release"
     },
     "asar": true,
-    "nativeRebuild": true,
     "mac": {
       "category": "public.app-category.developer-tools"
     },
