@@ -43,7 +43,7 @@ const Sidebar: React.FC<SidebarProps> = ({
       <button
         onClick={() => !disabled && onNavigate(step)}
         disabled={disabled}
-        className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 text-sm font-bold group
+        className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 text-xs font-bold group
           ${isActive 
             ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-900/40' 
             : disabled 
@@ -64,7 +64,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     return (
       <button
         onClick={onClick}
-        className={`w-full flex items-center gap-3 px-4 py-2 rounded-lg text-sm font-bold text-slate-400 transition-all
+        className={`w-full flex items-center gap-3 px-4 py-2 rounded-lg text-xs font-bold text-slate-400 transition-all
           hover:bg-slate-800/50 hover:text-indigo-400
           ${isCollapsed ? 'justify-center px-2' : ''}
         `}
@@ -129,7 +129,7 @@ const Sidebar: React.FC<SidebarProps> = ({
         <div className="mt-auto pt-6 space-y-1">
           <button 
             onClick={onOpenCheatSheet}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 text-sm font-bold text-emerald-500 hover:bg-emerald-500/5 ${isCollapsed ? 'justify-center px-2' : ''}`}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 text-xs font-bold text-emerald-500 hover:bg-emerald-500/5 ${isCollapsed ? 'justify-center px-2' : ''}`}
           >
              <BookOpen className="w-5 h-5" />
              {!isCollapsed && <span>Guia SQL</span>}
@@ -137,7 +137,7 @@ const Sidebar: React.FC<SidebarProps> = ({
 
           <button 
             onClick={onCheckUpdate} 
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 text-sm font-bold text-indigo-400 hover:bg-indigo-400/5 ${isCollapsed ? 'justify-center px-2' : ''}`}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 text-xs font-bold text-indigo-400 hover:bg-indigo-400/5 ${isCollapsed ? 'justify-center px-2' : ''}`}
           >
              <CloudDownload className="w-5 h-5" />
              {!isCollapsed && <span>Atualizar App</span>}
@@ -145,7 +145,7 @@ const Sidebar: React.FC<SidebarProps> = ({
 
           <button 
             onClick={onOpenSettings} 
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 text-sm font-bold text-slate-400 hover:bg-slate-800/50 hover:text-white ${isCollapsed ? 'justify-center px-2' : ''}`}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 text-xs font-bold text-slate-400 hover:bg-slate-800/50 hover:text-white ${isCollapsed ? 'justify-center px-2' : ''}`}
           >
              <Settings className="w-5 h-5" />
              {!isCollapsed && <span>Configurações</span>}
