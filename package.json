@@ -9,8 +9,8 @@
     "dev": "vite",
     "server": "node server.js",
     "electron": "electron .",
-    "start": "npm run dev & npm run server & npm run electron",
-    "dev:all": "cross-env SKIP_BACKEND=1 vite & node server.js & electron .",
+    "start": "npm run dev:all",
+    "dev:all": "concurrently -n \"VITE,SERVER,APP\" -c \"blue,green,magenta\" \"npm run dev\" \"npm run server\" \"cross-env SKIP_BACKEND=1 npm run electron\"",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "dist": "npm run build && electron-builder"
@@ -34,6 +34,7 @@
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.1",
     "autoprefixer": "^10.4.19",
+    "concurrently": "^8.2.2",
     "electron": "^31.0.0",
     "electron-builder": "^24.13.3",
     "postcss": "^8.4.38",

@@ -13,8 +13,6 @@ let serverProcess;
 function startBackend() {
   const isDev = !app.isPackaged;
   
-  // Se estivermos em dev e o usuário estiver rodando o server manualmente, 
-  // podemos pular o spawn automático para evitar EADDRINUSE.
   if (isDev && process.env.SKIP_BACKEND === '1') {
     console.log(`[MAIN] SKIP_BACKEND ativo. Assumindo que o servidor já está rodando na porta 3000.`);
     return;
@@ -60,7 +58,11 @@ function createWindow() {
 
   const isDev = !app.isPackaged;
   if (isDev) {
-    mainWindow.loadURL('http://127.0.0.1:5173');
+    const url = 'http://127.0.0.1:5173';
+    mainWindow.loadURL(url).catch(() => {
+      console.log("[MAIN] Vite ainda não está pronto, tentando novamente em 2s...");
+      setTimeout(() => mainWindow.loadURL(url), 2000);
+    });
   } else {
     mainWindow.loadFile(path.join(__dirname, 'dist/index.html'));
   }
