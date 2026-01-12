@@ -1,7 +1,7 @@
 
 import React, { useState, useRef, useEffect, useMemo, useCallback, memo } from 'react';
 import { DatabaseSchema, Table, VirtualRelation, DbCredentials } from '../types';
-import { X, ZoomIn, ZoomOut, Maximize, Loader2, Search, Key, Link, Target, CornerDownRight, Copy, Eye, Download, Map as MapIcon, Palette, FileCode, Upload, Save, Trash2, Tag, Filter, Eraser, Route, PlayCircle, StopCircle, ArrowRight, ChevronDown, ChevronUp, Sparkles, CheckCircle2 } from 'lucide-react';
+import { X, ZoomIn, ZoomOut, Maximize, Loader2, Search, Key, Link, Target, CornerDownRight, Copy, Eye, Download, Map as MapIcon, Palette, FileCode, Upload, Save, Trash2, Tag, Filter, Eraser, Route, PlayCircle, StopCircle, ArrowRight, ChevronDown, ChevronUp, Sparkles, CheckCircle2, ListFilter } from 'lucide-react';
 import html2canvas from 'html2canvas';
 import IntersectionValidatorModal from './IntersectionValidatorModal';
 
@@ -143,7 +143,7 @@ const CanvasMinimap = memo(({
 
 const DiagramNode = memo(({
   table, pos, lodLevel, isHovered, opacity, isSelected, ringClass, 
-  tableColors, columnColors, hasTags, 
+  tableColors, columnColors, hasTags, searchTerm, searchColumns,
   onMouseDown, onMouseEnter, onMouseLeave, onContextMenu, onDoubleClick, onClearTableColor,
   onColumnEnter, onColumnLeave, onColumnClick, selectedColumn, secondSelectedColumn
 }: any) => {
@@ -214,12 +214,15 @@ const DiagramNode = memo(({
                            const colStyle = colColorId ? TABLE_COLORS.find(c => c.id === colColorId) : null;
                            const isKey = col.isPrimaryKey || col.isForeignKey;
                            
+                           // Coluna dá match se a busca estiver ativa e o toggle ligado
+                           const isMatch = searchColumns && searchTerm && col.name.toLowerCase().includes(searchTerm.toLowerCase());
+
                            return (
                              <div key={col.name} className={`px-4 flex items-center justify-between text-xs h-[30px] transition-all border-b border-transparent hover:border-slate-100 dark:hover:border-slate-700 cursor-pointer
                                    ${isSelectedCol ? 'bg-indigo-100 dark:bg-indigo-900/40 ring-1 ring-inset ring-indigo-500 font-bold shadow-inner' : ''}
                                    ${isSecondSelectedCol ? 'bg-emerald-100 dark:bg-emerald-900/40 ring-1 ring-inset ring-emerald-500 font-bold shadow-inner' : ''}
-                                   ${colStyle ? colStyle.bg : 'hover:bg-slate-50 dark:hover:bg-slate-700/50'}
-                                   ${isKey && !isSelectedCol && !isSecondSelectedCol ? 'bg-slate-50/50 dark:bg-slate-800/80' : ''}
+                                   ${isMatch && !isSelectedCol && !isSecondSelectedCol ? 'bg-yellow-50 dark:bg-yellow-900/20' : colStyle ? colStyle.bg : 'hover:bg-slate-50 dark:hover:bg-slate-700/50'}
+                                   ${isKey && !isSelectedCol && !isSecondSelectedCol && !isMatch ? 'bg-slate-50/50 dark:bg-slate-800/80' : ''}
                                 `}
                                 onContextMenu={(e) => onContextMenu(e, tableId, col.name)}
                                 onMouseEnter={() => onColumnEnter(tableId, col.name, col.references)}
@@ -231,7 +234,7 @@ const DiagramNode = memo(({
                                       {col.isPrimaryKey && <Key className="w-3 h-3 text-amber-500 fill-amber-500/20" />}
                                       {col.isForeignKey && <Link className="w-3 h-3 text-blue-500" />}
                                    </div>
-                                   <span className={`truncate font-mono ${isKey ? 'font-semibold' : ''}`} title={col.name}>{col.name}</span>
+                                   <span className={`truncate font-mono ${isKey ? 'font-semibold' : ''} ${isMatch ? 'text-indigo-600 dark:text-indigo-400 font-bold' : ''}`} title={col.name}>{col.name}</span>
                                 </div>
                                 <div className="flex items-center gap-1 pl-2">
                                    {(isSelectedCol || isSecondSelectedCol) && <CheckCircle2 className={`w-3 h-3 ${isSelectedCol ? 'text-indigo-500' : 'text-emerald-500'}`} />}
@@ -273,6 +276,7 @@ const SchemaDiagramModal: React.FC<SchemaDiagramModalProps> = ({ schema, onClose
   const interactionStartRef = useRef<any>(null);
   const [inputValue, setInputValue] = useState('');
   const [debouncedTerm, setDebouncedTerm] = useState('');
+  const [searchColumns, setSearchColumns] = useState(false); // Toggle para busca em colunas
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
   const [hoveredColumn, setHoveredColumn] = useState<HoveredColumnState | null>(null);
   const [selectedColumn, setSelectedColumn] = useState<HoveredColumnState | null>(null);
@@ -350,7 +354,23 @@ const SchemaDiagramModal: React.FC<SchemaDiagramModalProps> = ({ schema, onClose
       let tablesToRender = schema.tables;
       if (debouncedTerm.trim()) {
         const term = debouncedTerm.toLowerCase();
-        tablesToRender = schema.tables.filter(t => t.name.toLowerCase().includes(term));
+        tablesToRender = schema.tables.filter(t => {
+          const tableMatch = t.name.toLowerCase().includes(term);
+          const columnMatch = searchColumns && t.columns.some(c => c.name.toLowerCase().includes(term));
+          return tableMatch || columnMatch;
+        });
+        
+        // Ordenação por relevância similar ao SchemaViewer
+        tablesToRender = [...tablesToRender].sort((a, b) => {
+           const nameA = a.name.toLowerCase();
+           const nameB = b.name.toLowerCase();
+           if (nameA === term && nameB !== term) return -1;
+           if (nameB === term && nameA !== term) return 1;
+           if (nameA.startsWith(term) && !nameB.startsWith(term)) return -1;
+           if (nameB.startsWith(term) && !nameA.startsWith(term)) return 1;
+           return nameA.localeCompare(nameB);
+        });
+
       } else if (activeColorFilter) {
          tablesToRender = schema.tables.filter(t => tableColors[getTableId(t)] === activeColorFilter);
       }
@@ -363,7 +383,7 @@ const SchemaDiagramModal: React.FC<SchemaDiagramModalProps> = ({ schema, onClose
       }
       setIsLayoutReady(true);
     }, 10);
-  }, [schema.tables, debouncedTerm, activeColorFilter, calculateLayout]);
+  }, [schema.tables, debouncedTerm, searchColumns, activeColorFilter, calculateLayout]);
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedTerm(inputValue), 400); 
@@ -734,11 +754,22 @@ const SchemaDiagramModal: React.FC<SchemaDiagramModalProps> = ({ schema, onClose
               <button onClick={handleSaveLayout} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded text-slate-600 dark:text-slate-300"><Save className="w-5 h-5" /></button>
               <button onClick={handleExportImage} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded text-slate-600 dark:text-slate-300"><Download className="w-5 h-5" /></button>
            </div>
-           <div className="bg-white dark:bg-slate-800 p-2 rounded-lg shadow-md border border-slate-200 dark:border-slate-700 flex items-center gap-2 pointer-events-auto w-64">
-              <Search className="w-4 h-4 text-slate-400" />
-              <input type="text" placeholder="Buscar tabela..." value={inputValue} onChange={(e) => setInputValue(e.target.value)} className="bg-transparent border-none outline-none text-xs text-slate-700 dark:text-slate-200 w-full" />
-              {inputValue && <button onClick={() => setInputValue('')}><X className="w-3 h-3 text-slate-400" /></button>}
+           
+           <div className="bg-white dark:bg-slate-800 p-2 rounded-lg shadow-md border border-slate-200 dark:border-slate-700 pointer-events-auto w-64 space-y-2">
+              <div className="flex items-center gap-2">
+                 <Search className="w-4 h-4 text-slate-400" />
+                 <input type="text" placeholder="Buscar no schema..." value={inputValue} onChange={(e) => setInputValue(e.target.value)} className="bg-transparent border-none outline-none text-xs text-slate-700 dark:text-slate-200 w-full" />
+                 {inputValue && <button onClick={() => setInputValue('')}><X className="w-3 h-3 text-slate-400" /></button>}
+              </div>
+              <div className="flex items-center justify-between pt-1 border-t border-slate-100 dark:border-slate-700">
+                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-tight">Buscar em Colunas</span>
+                 <label className="relative inline-flex items-center cursor-pointer scale-75 origin-right">
+                    <input type="checkbox" checked={searchColumns} onChange={e => setSearchColumns(e.target.checked)} className="sr-only peer" />
+                    <div className="w-9 h-5 bg-slate-200 dark:bg-slate-700 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600"></div>
+                 </label>
+              </div>
            </div>
+
            <div className="bg-white dark:bg-slate-800 p-2 rounded-lg shadow-md border border-slate-200 dark:border-slate-700 pointer-events-auto w-64">
               <button onClick={() => { setPathMode(!pathMode); setFoundPathIds([]); setPathStartNodeId(null); setPathEndNodeId(null); }} className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold w-full transition-colors ${pathMode ? 'bg-cyan-100 text-cyan-800' : 'bg-slate-100 text-slate-600'}`}><Route className="w-4 h-4" /> {pathMode ? 'Modo Rota Ativo' : 'Buscar Caminho'}</button>
               {pathMode && <div className="mt-2 text-[10px] text-slate-500 text-center">Clique em duas tabelas para achar a rota.</div>}
@@ -773,6 +804,8 @@ const SchemaDiagramModal: React.FC<SchemaDiagramModalProps> = ({ schema, onClose
                      tableColors={tableColors} 
                      columnColors={columnColors} 
                      hasTags={!!tableColors[tId]} 
+                     searchTerm={debouncedTerm}
+                     searchColumns={searchColumns}
                      onMouseDown={handleMouseDown} 
                      onMouseEnter={(id: string) => !isInteracting && setHoveredNodeId(id)} 
                      onMouseLeave={() => setHoveredNodeId(null)} 
