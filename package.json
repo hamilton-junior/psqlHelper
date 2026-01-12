@@ -6,7 +6,7 @@
   "type": "module",
   "main": "main.js",
   "scripts": {
-    "dev": "vite",
+    "dev": "vite --host 127.0.0.1",
     "server": "node server.js",
     "electron": "electron .",
     "start": "npm run dev:all",

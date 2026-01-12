@@ -59,10 +59,15 @@ function createWindow() {
   const isDev = !app.isPackaged;
   if (isDev) {
     const url = 'http://127.0.0.1:5173';
-    mainWindow.loadURL(url).catch(() => {
-      console.log("[MAIN] Vite ainda não está pronto, tentando novamente em 2s...");
-      setTimeout(() => mainWindow.loadURL(url), 2000);
-    });
+    
+    const loadWithRetry = () => {
+      mainWindow.loadURL(url).catch(() => {
+        console.log("[MAIN] Aguardando o Vite compilar... Tentando novamente em 1.5s");
+        setTimeout(loadWithRetry, 1500);
+      });
+    };
+
+    loadWithRetry();
   } else {
     mainWindow.loadFile(path.join(__dirname, 'dist/index.html'));
   }
@@ -76,9 +81,11 @@ ipcMain.on('check-update', (event, branch = 'stable') => {
     : { version: '0.2.0', notes: 'Atualização Estável: Versão consolidada.', branch: 'Stable' };
 
   setTimeout(() => {
-    mainWindow.webContents.send('update-available', updateData);
-    setTimeout(() => mainWindow.webContents.send('update-downloading', { percent: 100 }), 2000);
-    setTimeout(() => mainWindow.webContents.send('update-ready'), 3000);
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('update-available', updateData);
+      setTimeout(() => mainWindow.webContents.send('update-downloading', { percent: 100 }), 2000);
+      setTimeout(() => mainWindow.webContents.send('update-ready'), 3000);
+    }
   }, 1000);
 });
 
