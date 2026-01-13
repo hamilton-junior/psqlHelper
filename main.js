@@ -14,11 +14,7 @@ const GITHUB_REPO = "Hamilton-Junior/psql-buddy";
 
 function startBackend() {
   const isDev = !app.isPackaged;
-  if (isDev && process.env.SKIP_BACKEND === '1') {
-    console.log(`[MAIN] SKIP_BACKEND ativo. Assumindo que o servidor já está rodando na porta 3000.`);
-    return;
-  }
-
+  if (isDev && process.env.SKIP_BACKEND === '1') return;
   const serverPath = path.join(__dirname, 'server.js');
   serverProcess = spawn(process.execPath, [serverPath], {
     env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
@@ -41,7 +37,6 @@ function createWindow() {
     const url = 'http://127.0.0.1:5173';
     const loadWithRetry = () => {
       mainWindow.loadURL(url).catch(() => {
-        console.log("[MAIN] Vite ainda não está pronto, tentando novamente em 2s...");
         setTimeout(loadWithRetry, 2000);
       });
     };
@@ -75,37 +70,39 @@ async function fetchGitHubData(path) {
   });
 }
 
-// Calcula versão baseada em commits (Lógica idêntica ao vite.config: 0.1.10 = 110 commits)
-async function getCalculatedMainVersion() {
+// Retorna o total de commits e a mensagem do último
+async function getGitHubCommitStatus() {
   try {
-    const { json, headers } = await fetchGitHubData(`/repos/${GITHUB_REPO}/commits?per_page=1`);
+    const { json: commits, headers } = await fetchGitHubData(`/repos/${GITHUB_REPO}/commits?per_page=1`);
     const link = headers['link'];
     let count = 0;
 
-    // A API do GitHub retorna o total de commits através do link de paginação "last"
     if (link && Array.isArray(link)) {
       const lastPageMatch = link[0].match(/&page=(\d+)>; rel="last"/);
-      if (lastPageMatch) {
-        count = parseInt(lastPageMatch[1], 10);
-      }
-    } else if (Array.isArray(json)) {
-       count = json.length;
+      if (lastPageMatch) count = parseInt(lastPageMatch[1], 10);
+    } else if (Array.isArray(commits)) {
+       count = commits.length;
     }
 
     const major = Math.floor(count / 1000);
     const minor = Math.floor((count % 1000) / 100);
     const patch = count % 100;
-    return `${major}.${minor}.${patch}`;
+
+    return {
+      version: `${major}.${minor}.${patch}`,
+      commitCount: count,
+      lastMessage: commits[0]?.commit?.message || "Sem descrição de commit.",
+      url: `https://github.com/${GITHUB_REPO}/archive/refs/heads/main.zip`
+    };
   } catch (e) { 
-    return "0.0.0"; 
+    return null; 
   }
 }
 
 ipcMain.on('check-update', async (event, branch = 'stable') => {
   try {
-    console.log(`[UPDATE] Verificando GitHub para canal: ${branch}`);
+    const commitStatus = await getGitHubCommitStatus();
     const { json: releases } = await fetchGitHubData(`/repos/${GITHUB_REPO}/releases`);
-    const mainVer = await getCalculatedMainVersion();
     
     const releaseList = Array.isArray(releases) ? releases : [];
     const latestRelease = releaseList.find(r => !r.prerelease && !r.draft);
@@ -113,27 +110,35 @@ ipcMain.on('check-update', async (event, branch = 'stable') => {
 
     const versionsInfo = {
       stable: stableVer,
-      main: mainVer
+      main: commitStatus?.version || "0.0.0"
     };
 
-    // Notifica o renderer sobre as versões disponíveis para o SettingsModal
     if (mainWindow && !mainWindow.isDestroyed()) {
        mainWindow.webContents.send('sync-versions', versionsInfo);
     }
 
-    // Lógica de notificação de atualização (exibe modal se houver nova versão)
-    let targetRelease = branch === 'stable' ? latestRelease : releaseList[0];
-    if (targetRelease) {
-      const latestVersion = targetRelease.tag_name.replace('v', '');
-      const currentAppVersion = app.getVersion();
-      
-      // Se a versão do GitHub for diferente da local, avisa
+    const currentAppVersion = app.getVersion();
+
+    // Se o canal for Main, compararemos commits. Se for Stable, compararemos Releases.
+    if (branch === 'main' && commitStatus) {
+      if (commitStatus.version !== currentAppVersion) {
+        mainWindow.webContents.send('update-available', {
+          version: commitStatus.version,
+          notes: `[Commit Update]\n${commitStatus.lastMessage}`,
+          branch: 'Main (Git)',
+          isPrerelease: true,
+          allVersions: versionsInfo,
+          downloadUrl: commitStatus.url
+        });
+      }
+    } else if (branch === 'stable' && latestRelease) {
+      const latestVersion = latestRelease.tag_name.replace('v', '');
       if (latestVersion !== currentAppVersion) {
         mainWindow.webContents.send('update-available', {
           version: latestVersion,
-          notes: targetRelease.body,
-          branch: branch === 'main' ? 'Main' : 'Stable',
-          isPrerelease: targetRelease.prerelease,
+          notes: latestRelease.body,
+          branch: 'Stable (Release)',
+          isPrerelease: false,
           allVersions: versionsInfo
         });
       }
@@ -146,13 +151,13 @@ ipcMain.on('check-update', async (event, branch = 'stable') => {
 ipcMain.on('start-download', () => {
   let progress = 0;
   const interval = setInterval(() => {
-    progress += 20;
+    progress += 10;
     mainWindow.webContents.send('update-downloading', { percent: Math.min(progress, 100) });
     if (progress >= 100) {
       clearInterval(interval);
       setTimeout(() => mainWindow.webContents.send('update-ready'), 500);
     }
-  }, 400);
+  }, 200);
 });
 
 ipcMain.on('install-update', () => { app.relaunch(); app.exit(); });
