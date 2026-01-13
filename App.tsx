@@ -95,7 +95,11 @@ const App: React.FC = () => {
   useEffect(() => {
     const electron = (window as any).electron;
     if (electron) {
-      electron.on('update-available', (info: any) => setUpdateInfo(info));
+      electron.on('update-available', (info: any) => {
+        setUpdateInfo(info);
+        setDownloadProgress(null);
+        setUpdateReady(false);
+      });
       electron.on('update-downloading', (progress: any) => setDownloadProgress(progress.percent));
       electron.on('update-ready', () => setUpdateReady(true));
     }
@@ -103,8 +107,19 @@ const App: React.FC = () => {
 
   const handleCheckUpdate = () => {
     const electron = (window as any).electron;
-    if (electron) electron.send('check-update', settings.updateBranch);
-    else toast("Atualizações só estão disponíveis na versão Desktop.");
+    if (electron) {
+      toast.loading("Verificando atualizações...", { id: 'upd-check' });
+      electron.send('check-update', settings.updateBranch);
+      // O listener em useEffect capturará se houver algo
+      setTimeout(() => toast.dismiss('upd-check'), 1500);
+    } else {
+      toast.error("Atualizações disponíveis apenas na versão desktop.");
+    }
+  };
+
+  const handleStartDownload = () => {
+    const electron = (window as any).electron;
+    if (electron) electron.send('start-download');
   };
 
   const handleInstallUpdate = () => {
@@ -260,8 +275,12 @@ const App: React.FC = () => {
       
       {updateInfo && (
         <UpdateModal 
-          updateInfo={updateInfo} downloadProgress={downloadProgress} isReady={updateReady} 
-          onClose={() => setUpdateInfo(null)} onInstall={handleInstallUpdate} 
+          updateInfo={updateInfo} 
+          downloadProgress={downloadProgress} 
+          isReady={updateReady} 
+          onClose={() => setUpdateInfo(null)} 
+          onStartDownload={handleStartDownload}
+          onInstall={handleInstallUpdate} 
         />
       )}
     </div>

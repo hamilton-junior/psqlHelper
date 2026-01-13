@@ -1,17 +1,20 @@
 
 import React from 'react';
-import { Download, Rocket, RefreshCw, X, CheckCircle2, Sparkles, Loader2, GitBranch, FlaskConical } from 'lucide-react';
+import { Download, Rocket, RefreshCw, X, CheckCircle2, Sparkles, Loader2, GitBranch, FlaskConical, BellRing } from 'lucide-react';
 
 interface UpdateModalProps {
   updateInfo: { version: string, notes: string, branch?: string } | null;
   downloadProgress: number | null;
   isReady: boolean;
   onClose: () => void;
+  onStartDownload: () => void;
   onInstall: () => void;
 }
 
-const UpdateModal: React.FC<UpdateModalProps> = ({ updateInfo, downloadProgress, isReady, onClose, onInstall }) => {
+const UpdateModal: React.FC<UpdateModalProps> = ({ updateInfo, downloadProgress, isReady, onClose, onStartDownload, onInstall }) => {
   if (!updateInfo) return null;
+
+  const isDownloading = downloadProgress !== null && !isReady;
 
   return (
     <div className="fixed inset-0 z-[150] bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-300">
@@ -23,8 +26,10 @@ const UpdateModal: React.FC<UpdateModalProps> = ({ updateInfo, downloadProgress,
            <div className="w-20 h-20 bg-indigo-50 dark:bg-indigo-900/30 rounded-3xl flex items-center justify-center mx-auto mb-6">
               {isReady ? (
                  <Rocket className="w-10 h-10 text-indigo-600 animate-bounce" />
-              ) : (
+              ) : isDownloading ? (
                  <Download className="w-10 h-10 text-indigo-600 animate-pulse" />
+              ) : (
+                 <BellRing className="w-10 h-10 text-indigo-600" />
               )}
            </div>
 
@@ -55,8 +60,8 @@ const UpdateModal: React.FC<UpdateModalProps> = ({ updateInfo, downloadProgress,
               </p>
            </div>
 
-           {downloadProgress !== null && !isReady && (
-              <div className="space-y-3">
+           {isDownloading && (
+              <div className="space-y-3 animate-in slide-in-from-top-2">
                  <div className="flex justify-between items-end">
                     <span className="text-xs font-bold text-slate-500">Baixando arquivos...</span>
                     <span className="text-sm font-black text-indigo-600">{Math.round(downloadProgress)}%</span>
@@ -73,29 +78,40 @@ const UpdateModal: React.FC<UpdateModalProps> = ({ updateInfo, downloadProgress,
            {isReady && (
               <div className="bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 p-4 rounded-2xl flex items-center gap-3 text-emerald-800 dark:text-emerald-400 animate-in slide-in-from-bottom-2">
                  <CheckCircle2 className="w-6 h-6 shrink-0" />
-                 <span className="text-xs font-bold">Download concluído! Reinicie para aplicar.</span>
+                 <span className="text-xs font-bold">Download concluído! Reinicie para aplicar as mudanças.</span>
               </div>
            )}
 
            <div className="flex gap-3">
-              {!isReady && (
-                <button onClick={onClose} className="flex-1 py-4 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-600 dark:text-slate-300 rounded-2xl text-sm font-bold transition-all">
-                   Lembrar depois
+              {!isDownloading && !isReady && (
+                <>
+                  <button onClick={onClose} className="flex-1 py-4 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-600 dark:text-slate-300 rounded-2xl text-sm font-bold transition-all">
+                     Lembrar depois
+                  </button>
+                  <button 
+                    onClick={onStartDownload}
+                    className="flex-[2] py-4 bg-indigo-600 hover:bg-indigo-700 rounded-2xl text-sm font-black text-white shadow-xl shadow-indigo-900/20 transition-all active:scale-95 flex items-center justify-center gap-2"
+                  >
+                    <Download className="w-4 h-4" /> Baixar Agora
+                  </button>
+                </>
+              )}
+
+              {isDownloading && (
+                <div className="flex-1 py-4 bg-slate-50 dark:bg-slate-800 rounded-2xl text-sm font-bold text-slate-400 flex items-center justify-center gap-3 cursor-wait">
+                   <Loader2 className="w-4 h-4 animate-spin" />
+                   Preparando pacotes...
+                </div>
+              )}
+
+              {isReady && (
+                <button 
+                  onClick={onInstall}
+                  className="w-full py-4 bg-indigo-600 hover:bg-indigo-700 rounded-2xl text-sm font-black text-white shadow-xl shadow-indigo-900/20 transition-all active:scale-95 flex items-center justify-center gap-2"
+                >
+                  <RefreshCw className="w-4 h-4" /> Instalar e Reiniciar
                 </button>
               )}
-              <button 
-                onClick={isReady ? onInstall : undefined}
-                disabled={!isReady && downloadProgress !== null}
-                className={`flex-[2] py-4 rounded-2xl text-sm font-black text-white shadow-xl transition-all active:scale-95 flex items-center justify-center gap-2
-                   ${isReady ? 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-900/20' : 'bg-slate-300 dark:bg-slate-700 cursor-wait'}
-                `}
-              >
-                 {isReady ? (
-                    <><RefreshCw className="w-4 h-4" /> Instalar e Reiniciar</>
-                 ) : (
-                    <><Loader2 className="w-4 h-4 animate-spin" /> Atualizando...</>
-                 )}
-              </button>
            </div>
         </div>
       </div>

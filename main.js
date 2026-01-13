@@ -19,7 +19,6 @@ function startBackend() {
   }
 
   const serverPath = path.join(__dirname, 'server.js');
-  console.log(`[MAIN] Iniciando backend em:`, serverPath);
   
   serverProcess = spawn(process.execPath, [serverPath], {
     env: { 
@@ -28,10 +27,6 @@ function startBackend() {
       NODE_ENV: isDev ? 'development' : 'production'
     },
     stdio: 'inherit'
-  });
-
-  serverProcess.on('error', (err) => {
-    console.error('[MAIN] Falha ao iniciar processo do servidor:', err);
   });
 }
 
@@ -59,38 +54,55 @@ function createWindow() {
   const isDev = !app.isPackaged;
   if (isDev) {
     const url = 'http://127.0.0.1:5173';
-    
     const loadWithRetry = () => {
       mainWindow.loadURL(url).catch(() => {
-        console.log("[MAIN] Aguardando o Vite compilar... Tentando novamente em 1.5s");
         setTimeout(loadWithRetry, 1500);
       });
     };
-
     loadWithRetry();
   } else {
     mainWindow.loadFile(path.join(__dirname, 'dist/index.html'));
   }
 }
 
-// IPC para Atualizações
-ipcMain.on('check-update', (event, branch = 'stable') => {
-  console.log(`[UPDATE] Verificando atualizações na branch: ${branch}...`);
-  const updateData = branch === 'main' 
-    ? { version: '0.3.0-nightly', notes: 'Atualização WIP (branch main): Novas funcionalidades experimentais.', branch: 'Main' }
-    : { version: '0.2.0', notes: 'Atualização Estável: Versão consolidada.', branch: 'Stable' };
+// --- LOGICA DE ATUALIZAÇÃO ---
 
+ipcMain.on('check-update', (event, branch = 'stable') => {
+  console.log(`[UPDATE] Verificando branch: ${branch}...`);
+  
+  // Simula metadados da atualização
+  const updateData = branch === 'main' 
+    ? { version: '0.3.0-nightly', notes: 'Recursos experimentais: Novo Canvas de Diagrama e exportação para PDF.', branch: 'Main' }
+    : { version: '0.2.0', notes: 'Melhorias de estabilidade, suporte a SSL e novo visual para o Comparador de Dados.', branch: 'Stable' };
+
+  // Retorna apenas a disponibilidade
   setTimeout(() => {
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('update-available', updateData);
-      setTimeout(() => mainWindow.webContents.send('update-downloading', { percent: 100 }), 2000);
-      setTimeout(() => mainWindow.webContents.send('update-ready'), 3000);
     }
-  }, 1000);
+  }, 1200);
+});
+
+ipcMain.on('start-download', () => {
+  console.log('[UPDATE] Usuário iniciou o download...');
+  let progress = 0;
+  const interval = setInterval(() => {
+    progress += Math.random() * 15;
+    if (progress >= 100) {
+      progress = 100;
+      clearInterval(interval);
+      mainWindow.webContents.send('update-downloading', { percent: 100 });
+      setTimeout(() => mainWindow.webContents.send('update-ready'), 500);
+    } else {
+      mainWindow.webContents.send('update-downloading', { percent: progress });
+    }
+  }, 400);
 });
 
 ipcMain.on('install-update', () => {
-  console.log('[UPDATE] Reiniciando para instalar atualização...');
+  console.log('[UPDATE] Reiniciando para "instalar"...');
+  app.relaunch();
+  app.exit();
 });
 
 app.whenReady().then(() => {
