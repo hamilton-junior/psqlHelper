@@ -9,7 +9,7 @@ contextBridge.exposeInMainWorld('electron', {
     }
   },
   on: (channel, func) => {
-    let validChannels = ['update-available', 'update-downloading', 'update-ready', 'sync-versions'];
+    let validChannels = ['update-available', 'update-not-available', 'update-downloading', 'update-ready', 'sync-versions'];
     if (validChannels.includes(channel)) {
       ipcRenderer.on(channel, (event, ...args) => func(...args));
     }

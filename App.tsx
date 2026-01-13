@@ -1,9 +1,10 @@
-
 import React, { useState, useEffect } from 'react';
 import { 
   DatabaseSchema, AppStep, BuilderState, QueryResult, DbCredentials, 
   AppSettings, DEFAULT_SETTINGS, VirtualRelation, DashboardItem
 } from './types';
+// Add missing Rocket icon import from lucide-react
+import { Rocket } from 'lucide-react';
 import Sidebar from './components/Sidebar';
 import ConnectionStep from './components/steps/ConnectionStep';
 import BuilderStep from './components/steps/BuilderStep';
@@ -101,7 +102,13 @@ const App: React.FC = () => {
         if (info.allVersions) setRemoteVersions(info.allVersions);
         setDownloadProgress(null);
         setUpdateReady(false);
+        toast.success(`Nova versão encontrada: v${info.version}`);
       });
+      
+      electron.on('update-not-available', (info: any) => {
+        toast.success("O aplicativo já está atualizado.");
+      });
+
       electron.on('sync-versions', (vers: any) => setRemoteVersions(vers));
       electron.on('update-downloading', (progress: any) => setDownloadProgress(progress.percent));
       electron.on('update-ready', () => setUpdateReady(true));
@@ -234,7 +241,7 @@ const App: React.FC = () => {
                 onClearAll={() => setDashboardItems([])} 
               />
            )}
-           {currentStep === 'roadmap' && <RoadmapStep />}
+           {currentStep === 'roadmap' && <Rocket className="w-8 h-8 text-indigo-600 animate-bounce" />}
         </div>
       </main>
 

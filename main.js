@@ -46,8 +46,6 @@ function createWindow() {
   }
 }
 
-// --- LOGICA DE VERSÃO E ATUALIZAÇÃO ---
-
 async function fetchGitHubData(path) {
   return new Promise((resolve, reject) => {
     const request = net.request({
@@ -70,10 +68,10 @@ async function fetchGitHubData(path) {
   });
 }
 
-// Retorna o total de commits e a mensagem do último
-async function getGitHubCommitStatus() {
+// Retorna o status de commits de uma branch específica
+async function getGitHubBranchStatus(branch) {
   try {
-    const { json: commits, headers } = await fetchGitHubData(`/repos/${GITHUB_REPO}/commits?per_page=1`);
+    const { json: commits, headers } = await fetchGitHubData(`/repos/${GITHUB_REPO}/commits?sha=${branch}&per_page=1`);
     const link = headers['link'];
     let count = 0;
 
@@ -92,7 +90,7 @@ async function getGitHubCommitStatus() {
       version: `${major}.${minor}.${patch}`,
       commitCount: count,
       lastMessage: commits[0]?.commit?.message || "Sem descrição de commit.",
-      url: `https://github.com/${GITHUB_REPO}/archive/refs/heads/main.zip`
+      url: `https://github.com/${GITHUB_REPO}/archive/refs/heads/${branch}.zip`
     };
   } catch (e) { 
     return null; 
@@ -101,16 +99,15 @@ async function getGitHubCommitStatus() {
 
 ipcMain.on('check-update', async (event, branch = 'stable') => {
   try {
-    const commitStatus = await getGitHubCommitStatus();
-    const { json: releases } = await fetchGitHubData(`/repos/${GITHUB_REPO}/releases`);
-    
-    const releaseList = Array.isArray(releases) ? releases : [];
-    const latestRelease = releaseList.find(r => !r.prerelease && !r.draft);
-    const stableVer = latestRelease ? latestRelease.tag_name.replace('v', '') : "0.1.0";
+    // Busca informações de ambas as branches para o seletor de versões
+    const [mainStatus, stableStatus] = await Promise.all([
+      getGitHubBranchStatus('main'),
+      getGitHubBranchStatus('stable')
+    ]);
 
     const versionsInfo = {
-      stable: stableVer,
-      main: commitStatus?.version || "0.0.0"
+      stable: stableStatus?.version || "0.0.0",
+      main: mainStatus?.version || "0.0.0"
     };
 
     if (mainWindow && !mainWindow.isDestroyed()) {
@@ -118,29 +115,20 @@ ipcMain.on('check-update', async (event, branch = 'stable') => {
     }
 
     const currentAppVersion = app.getVersion();
+    const targetStatus = branch === 'main' ? mainStatus : stableStatus;
 
-    // Se o canal for Main, compararemos commits. Se for Stable, compararemos Releases.
-    if (branch === 'main' && commitStatus) {
-      if (commitStatus.version !== currentAppVersion) {
+    if (targetStatus) {
+      if (targetStatus.version !== currentAppVersion) {
         mainWindow.webContents.send('update-available', {
-          version: commitStatus.version,
-          notes: `[Commit Update]\n${commitStatus.lastMessage}`,
-          branch: 'Main (Git)',
-          isPrerelease: true,
+          version: targetStatus.version,
+          notes: `[Branch: ${branch}]\n${targetStatus.lastMessage}`,
+          branch: branch === 'main' ? 'Main (Nightly)' : 'Stable',
+          isPrerelease: branch === 'main',
           allVersions: versionsInfo,
-          downloadUrl: commitStatus.url
+          downloadUrl: targetStatus.url
         });
-      }
-    } else if (branch === 'stable' && latestRelease) {
-      const latestVersion = latestRelease.tag_name.replace('v', '');
-      if (latestVersion !== currentAppVersion) {
-        mainWindow.webContents.send('update-available', {
-          version: latestVersion,
-          notes: latestRelease.body,
-          branch: 'Stable (Release)',
-          isPrerelease: false,
-          allVersions: versionsInfo
-        });
+      } else {
+        mainWindow.webContents.send('update-not-available', { version: currentAppVersion });
       }
     }
   } catch (error) {
