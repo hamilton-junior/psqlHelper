@@ -11,6 +11,7 @@ const __dirname = path.dirname(__filename);
 let mainWindow;
 let serverProcess;
 let updateUrl = "";
+let downloadedZipPath = "";
 
 const GITHUB_REPO = "Hamilton-Junior/psqlBuddy";
 
@@ -99,47 +100,49 @@ async function fetchGitHubData(apiPath) {
 function parseTotalCommitsFromLink(linkHeader) {
   if (!linkHeader) return 0;
   const links = Array.isArray(linkHeader) ? linkHeader[0] : linkHeader;
-  // O GitHub retorna no header 'link' a URL da última página. No nosso caso (per_page=1), o número da página é o total.
   const match = links.match(/[?&]page=(\d+)[^>]*>;\s*rel="last"/);
   return match ? parseInt(match[1], 10) : 0;
 }
 
 function compareVersions(vRemote, vLocal) {
-  console.log(`[UPDATE:Compare] Verificando: Remota(${vRemote}) vs Local(${vLocal})`);
+  console.log(`[UPDATE:Compare] Iniciando comparação: Remota(${vRemote}) vs Local(${vLocal})`);
   
+  if (!vRemote || !vLocal) return 'equal';
+
   const parse = (v) => String(v).trim().replace(/^v/, '').split('.').map(n => parseInt(n, 10) || 0);
   const r = parse(vRemote);
   const l = parse(vLocal);
   
+  // Garante que ambos tenham 3 partes
+  while (r.length < 3) r.push(0);
+  while (l.length < 3) l.push(0);
+
   for (let i = 0; i < 3; i++) {
     if (r[i] > l[i]) {
-      console.log(`[UPDATE:Compare] Resultado: NOVA VERSÃO DETECTADA (índice ${i}: ${r[i]} > ${l[i]})`);
+      console.log(`[UPDATE:Compare] Resultado: NEWER (Remoto ${vRemote} > Local ${vLocal})`);
       return 'newer';
     }
     if (r[i] < l[i]) {
-      console.log(`[UPDATE:Compare] Resultado: DOWNGRADE DETECTADO (índice ${i}: ${r[i]} < ${l[i]})`);
+      console.log(`[UPDATE:Compare] Resultado: OLDER (Remoto ${vRemote} < Local ${vLocal})`);
       return 'older';
     }
   }
   
-  console.log(`[UPDATE:Compare] Resultado: VERSÕES IGUAIS`);
+  console.log(`[UPDATE:Compare] Resultado: EQUAL`);
   return 'equal';
 }
 
 async function getGitHubBranchStatus(branch) {
   try {
-    // Buscamos apenas 1 por página para pegar o total de commits via Link Header de forma performática
     const response = await fetchGitHubData(`/repos/${GITHUB_REPO}/commits?sha=${branch}&per_page=1`);
     if (!response.ok) return { error: true, status: response.status, branch };
     
     const commits = response.json;
     const linkHeader = response.headers['link'];
     
-    // Se não houver link header, significa que só há 1 commit ou falha na API
     let count = parseTotalCommitsFromLink(linkHeader);
     if (count === 0 && Array.isArray(commits)) count = commits.length;
 
-    // Lógica de versão sincronizada com o workflow (0.1.X)
     const major = Math.floor(count / 1000);
     const minor = Math.floor((count % 1000) / 100);
     const patch = count % 100;
@@ -160,7 +163,6 @@ function getAppVersion() {
   try {
     if (app.isPackaged) return app.getVersion();
     
-    // Em desenvolvimento, tentamos ler via Git para bater com a lógica do build
     const commitCount = execSync('git rev-list --count HEAD').toString().trim();
     const count = parseInt(commitCount, 10) || 0;
     const major = Math.floor(count / 1000);
@@ -168,7 +170,6 @@ function getAppVersion() {
     const patch = count % 100;
     return `${major}.${minor}.${patch}`;
   } catch (e) { 
-    // Fallback para package.json se git falhar
     try {
       const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf8'));
       return pkg.version;
@@ -180,9 +181,7 @@ ipcMain.on('check-update', async (event, branch = 'stable') => {
   console.log(`[IPC] Verificando atualização canal: ${branch}`);
   try {
     const currentAppVersion = getAppVersion();
-    const targetStatus = await getGitHubBranchStatus(branch === 'main' ? 'main' : 'stable');
-
-    // Sincronizar versões das abas de settings
+    
     const [mainS, stableS] = await Promise.all([
       getGitHubBranchStatus('main'),
       getGitHubBranchStatus('stable')
@@ -194,6 +193,8 @@ ipcMain.on('check-update', async (event, branch = 'stable') => {
           main: mainS.ok ? mainS.version : "Erro",
        });
     }
+
+    const targetStatus = branch === 'main' ? mainS : stableS;
 
     if (targetStatus && targetStatus.ok) {
       updateUrl = targetStatus.url;
@@ -220,7 +221,8 @@ ipcMain.on('start-download', () => {
   request.on('response', (response) => {
     const totalBytes = parseInt(response.headers['content-length'], 10) || 0;
     let receivedBytes = 0;
-    const tempFilePath = path.join(os.tmpdir(), 'psqlbuddy-update.zip');
+    const tempFileName = `psqlbuddy-update-${Date.now()}.zip`;
+    const tempFilePath = path.join(os.tmpdir(), tempFileName);
     const fileStream = fs.createWriteStream(tempFilePath);
 
     response.on('data', (chunk) => {
@@ -234,27 +236,80 @@ ipcMain.on('start-download', () => {
 
     response.on('end', () => {
       fileStream.end();
-      console.log(`[UPDATE] Arquivo salvo em: ${tempFilePath}`);
+      downloadedZipPath = tempFilePath;
+      console.log(`[UPDATE] Arquivo baixado em: ${tempFilePath}`);
       mainWindow.webContents.send('update-ready', { path: tempFilePath });
     });
+  });
+  request.on('error', (err) => {
+     console.error("[UPDATE] Erro no download:", err);
+     mainWindow.webContents.send('update-error', { message: err.message });
   });
   request.end();
 });
 
 ipcMain.on('install-update', () => { 
   const isDev = !app.isPackaged;
-  console.log(`[UPDATE] Executando rotina de instalação final...`);
+  const appPath = app.getAppPath();
+  const exePath = process.execPath;
   
-  if (isDev) {
-    console.warn("[DEV MODE] O binário não será substituído automaticamente. Em produção, os arquivos do ASAR seriam trocados.");
-    console.info("[INFO] Para atualizar o código-fonte, execute 'git pull' no terminal.");
-  } else {
-    // Aqui em uma implementação real de prod usaríamos electron-updater ou fs.rename no ASAR
-    console.log("[PROD MODE] Reiniciando para aplicar alterações pendentes.");
+  console.log(`[UPDATE] Iniciando instalação real...`);
+  console.log(`[UPDATE] Path da App: ${appPath}`);
+  console.log(`[UPDATE] Zip Path: ${downloadedZipPath}`);
+
+  if (!downloadedZipPath || !fs.existsSync(downloadedZipPath)) {
+    console.error("[UPDATE] Arquivo de atualização não encontrado.");
+    return;
   }
 
-  app.relaunch(); 
-  app.exit(); 
+  if (isDev) {
+    console.warn("[DEV MODE] Relaunch simulado. Em produção, os arquivos seriam extraídos.");
+    app.relaunch(); 
+    app.exit();
+    return;
+  }
+
+  // Lógica de atualização "Real" em produção via script externo
+  // Este script espera o processo morrer, extrai o zip por cima do app e reinicia.
+  const isWin = process.platform === 'win32';
+  const scriptPath = path.join(os.tmpdir(), isWin ? 'updater.bat' : 'updater.sh');
+  
+  let scriptContent = "";
+  if (isWin) {
+    // Windows Batch + PowerShell para extração
+    scriptContent = `@echo off
+echo Instalando atualizacao do PSQL Buddy...
+timeout /t 2 /nobreak > nul
+powershell -Command "Expand-Archive -Path '${downloadedZipPath}' -DestinationPath '${path.dirname(appPath)}' -Force"
+start "" "${exePath}"
+del "%~f0"
+`;
+  } else {
+    // Linux/Mac Shell Script
+    scriptContent = `#!/bin/bash
+sleep 2
+unzip -o "${downloadedZipPath}" -d "${path.dirname(appPath)}"
+open "${exePath}" || "${exePath}" &
+rm "$0"
+`;
+  }
+
+  try {
+    fs.writeFileSync(scriptPath, scriptContent, { mode: 0o755 });
+    
+    // Executa o script de forma independente e fecha o app
+    const child = spawn(isWin ? 'cmd.exe' : '/bin/sh', [isWin ? '/c' : '', scriptPath], {
+      detached: true,
+      stdio: 'ignore'
+    });
+    child.unref();
+    
+    app.quit();
+  } catch (e) {
+    console.error("[UPDATE] Erro ao criar script de atualização:", e);
+    app.relaunch();
+    app.exit();
+  }
 });
 
 app.whenReady().then(() => { startBackend(); createWindow(); });

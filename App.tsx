@@ -103,32 +103,23 @@ const App: React.FC = () => {
         const isManual = manualCheckRef.current;
         manualCheckRef.current = false;
 
-        // Verifica se esta versão de downgrade já foi ignorada anteriormente
         const ignoredVersionsStr = localStorage.getItem('psqlBuddy-ignored-downgrades') || '[]';
         const ignoredVersions = JSON.parse(ignoredVersionsStr);
 
         if (comparison === 'newer') {
-          console.log("[UPDATE] Versão superior disponível.");
           setUpdateInfo({ version: remoteVersion, notes, branch, updateType: 'upgrade', currentVersion: localVersion });
           toast.success(`Nova versão disponível: v${remoteVersion}`, { id: 'update-toast' });
         } else if (comparison === 'older') {
-          console.log("[UPDATE] Versão local é superior à do GitHub.");
-          
-          // Se for uma verificação automática e a versão estiver na lista de ignoradas, não mostramos nada
           if (!isManual && ignoredVersions.includes(remoteVersion)) {
-            console.log(`[UPDATE] Downgrade para v${remoteVersion} ignorado conforme preferência do usuário.`);
+            console.log(`[UPDATE] Downgrade para v${remoteVersion} ignorado.`);
             return;
           }
-
-          if (isManual || !ignoredVersions.includes(remoteVersion)) {
-            setUpdateInfo({ version: remoteVersion, notes, branch, updateType: 'downgrade', currentVersion: localVersion });
-          }
-          
+          setUpdateInfo({ version: remoteVersion, notes, branch, updateType: 'downgrade', currentVersion: localVersion });
           if (isManual) {
             toast(`Versão local (v${localVersion}) é mais recente que v${remoteVersion}.`, { id: 'update-toast', icon: '✅' });
           }
         } else {
-          console.log("[UPDATE] O app já está sincronizado.");
+          setUpdateInfo(null);
           if (isManual) {
             toast.success("O aplicativo já está atualizado.", { id: 'update-toast' });
           } else {
@@ -146,16 +137,13 @@ const App: React.FC = () => {
       electron.on('update-check-result', handleUpdateResult);
       electron.on('update-error', handleUpdateError);
       electron.on('sync-versions', (v: any) => {
-        console.log("[UPDATE-IPC] Sincronização de versões:", v);
         setRemoteVersions(v);
       });
       electron.on('update-downloading', (p: any) => {
-        console.log(`[UPDATE] Download: ${Math.round(p.percent)}%`);
         setDownloadProgress(p.percent);
       });
       electron.on('update-ready', () => {
         setUpdateReady(true);
-        console.log("[UPDATE] Instalação pendente de reinício.");
         toast.success("Download concluído! Pronto para instalar.", { id: 'update-toast' });
       });
       
@@ -183,7 +171,6 @@ const App: React.FC = () => {
   };
 
   const handleIgnoreUpdate = (version: string) => {
-    console.log(`[USER] Ignorando versão ${version} para downgrades futuros.`);
     const ignoredVersionsStr = localStorage.getItem('psqlBuddy-ignored-downgrades') || '[]';
     const ignoredVersions = JSON.parse(ignoredVersionsStr);
     if (!ignoredVersions.includes(version)) {
@@ -196,7 +183,7 @@ const App: React.FC = () => {
   const handleStartDownload = () => {
     const electron = (window as any).electron;
     if (electron) {
-      console.log("[USER] Iniciando download do pacote...");
+      setDownloadProgress(0);
       electron.send('start-download');
     }
   };
@@ -204,10 +191,6 @@ const App: React.FC = () => {
   const handleInstallUpdate = () => {
     const electron = (window as any).electron;
     if (electron) {
-      console.log("[USER] Solicitando reinício para aplicação da atualização.");
-      if (process.env.NODE_ENV === 'development') {
-         console.warn("[INFO] Você está em modo DEV. O reinício apenas recarregará os mesmos arquivos locais.");
-      }
       electron.send('install-update');
     }
   };
