@@ -104,17 +104,16 @@ const App: React.FC = () => {
         if (info.allVersions) setRemoteVersions(info.allVersions);
         setDownloadProgress(null);
         setUpdateReady(false);
-        toast.success(`Nova versão: v${info.version}`, { id: 'upd-found' });
+        toast.success(`Nova versão encontrada: v${info.version}`);
       });
       
       electron.on('update-not-available', (info: any) => {
         console.log("[UPDATE] Sistema atualizado.");
-        // Opcional: Feedback visual de "atualizado" só se a busca foi manual
       });
 
       electron.on('update-error', (err: any) => {
         console.warn("[UPDATE] Erro na verificação:", err.message);
-        toast.error(`Falha ao buscar versão: ${err.message}`, { id: 'upd-error' });
+        toast.error(`Falha ao buscar versão: ${err.message}`, { duration: 5000 });
       });
 
       electron.on('sync-versions', (vers: any) => {
