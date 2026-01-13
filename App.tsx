@@ -97,41 +97,50 @@ const App: React.FC = () => {
   useEffect(() => {
     const electron = (window as any).electron;
     if (electron) {
-      electron.on('update-available', (info: any) => {
-        setUpdateInfo(info);
+      const handleUpdateAvailable = (info: any) => {
+        // Só atualiza o estado se for uma versão diferente da que já sabemos,
+        // evitando que o modal apareça novamente em re-renders.
+        setUpdateInfo(prev => {
+           if (prev?.version === info.version) return prev;
+           return info;
+        });
+        
         if (info.allVersions) setRemoteVersions(info.allVersions);
         setDownloadProgress(null);
         setUpdateReady(false);
-        // Uso de ID único para evitar repetição do toast
-        toast.success(`Nova versão encontrada: v${info.version}`, { id: 'update-available-toast' });
-      });
+        
+        // Uso de ID fixo impede que múltiplos toasts de atualização se empilhem
+        toast.success(`Nova versão disponível: v${info.version}`, { id: 'update-toast' });
+      };
+
+      const handleUpdateNotAvailable = (info: any) => {
+        console.log("App está atualizado:", info.version);
+      };
+
+      const handleUpdateError = (err: any) => {
+        toast.error(`Falha na atualização: ${err.message}`, { id: 'update-toast' });
+      };
+
+      const handleSyncVersions = (vers: any) => setRemoteVersions(vers);
       
-      electron.on('update-not-available', (info: any) => {
-        // Silencioso ou log
-      });
-
-      electron.on('update-error', (err: any) => {
-        toast.error(`Falha ao buscar versão: ${err.message}`, { id: 'update-error-toast' });
-      });
-
-      electron.on('sync-versions', (vers: any) => {
-        setRemoteVersions(vers);
-      });
-
-      electron.on('update-downloading', (progress: any) => {
-        setDownloadProgress(progress.percent);
-      });
-
-      electron.on('update-ready', () => {
+      const handleDownloading = (progress: any) => setDownloadProgress(progress.percent);
+      
+      const handleUpdateReady = () => {
         setUpdateReady(true);
-        toast.success("Download concluído! Pronto para instalar.", { id: 'update-ready-toast' });
-      });
+        toast.success("Download concluído! Pronto para instalar.", { id: 'update-toast' });
+      };
+
+      electron.on('update-available', handleUpdateAvailable);
+      electron.on('update-not-available', handleUpdateNotAvailable);
+      electron.on('update-error', handleUpdateError);
+      electron.on('sync-versions', handleSyncVersions);
+      electron.on('update-downloading', handleDownloading);
+      electron.on('update-ready', handleUpdateReady);
       
-      // Busca inicial silenciosa
+      // Busca inicial silenciosa ao montar o componente ou trocar de branch
       electron.send('check-update', settings.updateBranch);
 
       return () => {
-         // Limpeza de listeners para evitar duplicação em re-renders
          electron.removeAllListeners('update-available');
          electron.removeAllListeners('update-not-available');
          electron.removeAllListeners('update-error');
@@ -145,11 +154,12 @@ const App: React.FC = () => {
   const handleCheckUpdate = () => {
     const electron = (window as any).electron;
     if (electron) {
-      toast.loading("Consultando GitHub...", { id: 'upd-check' });
+      toast.loading("Buscando atualizações...", { id: 'update-check-manual' });
       electron.send('check-update', settings.updateBranch);
-      setTimeout(() => toast.dismiss('upd-check'), 2000);
+      // O toast de loading será substituído pelo de sucesso ou erro via ID se houver algo novo
+      setTimeout(() => toast.dismiss('update-check-manual'), 1500);
     } else {
-      toast.error("Atualizações disponíveis apenas no App Desktop.");
+      toast.error("Atualizações automáticas não disponíveis via navegador.");
     }
   };
 
@@ -244,7 +254,7 @@ const App: React.FC = () => {
               <BuilderStep schema={schema} state={builderState} onStateChange={setBuilderState} onGenerate={handleGenerateSql} isGenerating={isGenerating} settings={settings} />
            )}
            {currentStep === 'preview' && queryResult && (
-              <PreviewStep queryResult={queryResult} onExecute={handleExecuteQuery} onBack={() => setCurrentStep('builder')} isExecuting={isExecuting} isValidating={false} />
+              <PreviewStep queryResult={queryResult} onExecute={handleExecuteQuery} onBack={() => setCurrentStep('builder')} isExecuting={isExecuting} isValidating={false} schema={schema || undefined} />
            )}
            {currentStep === 'results' && (
               <ResultsStep data={executionResult} sql={queryResult?.sql || ''} onBackToBuilder={() => setCurrentStep('builder')} onNewConnection={() => setCurrentStep('connection')} settings={settings} onShowToast={(m) => toast(m)} credentials={credentials} schema={schema || undefined} />

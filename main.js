@@ -2,6 +2,7 @@ import { app, BrowserWindow, ipcMain, net } from 'electron';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { spawn } from 'child_process';
+import fs from 'fs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -98,10 +99,16 @@ function parseTotalCommitsFromLink(linkHeader) {
   return match ? parseInt(match[1], 10) : 0;
 }
 
-// Função para comparar versões semânticas (v1 > v2)
+// Função para comparar versões semânticas de forma robusta (v1 > v2)
 function isNewer(vRemote, vLocal) {
-  const r = vRemote.split('.').map(Number);
-  const l = vLocal.split('.').map(Number);
+  if (!vRemote || !vLocal) return false;
+  
+  // Normaliza removendo 'v' e caracteres não numéricos extras
+  const clean = (v) => String(v).replace(/^v/, '').split('.').map(n => parseInt(n, 10) || 0);
+  
+  const r = clean(vRemote);
+  const l = clean(vLocal);
+
   for (let i = 0; i < 3; i++) {
     const remotePart = r[i] || 0;
     const localPart = l[i] || 0;
@@ -127,7 +134,7 @@ async function getGitHubBranchStatus(branch) {
       count = commits.length;
     }
 
-    // Versão gerada dinamicamente: 159 commits = 0.1.59
+    // Versão gerada dinamicamente baseada em commits: 110 commits = 0.1.10
     const major = Math.floor(count / 1000);
     const minor = Math.floor((count % 1000) / 100);
     const patch = count % 100;
@@ -142,6 +149,17 @@ async function getGitHubBranchStatus(branch) {
     };
   } catch (e) { 
     return { error: true, message: e.message }; 
+  }
+}
+
+// Obter versão do package.json de forma segura
+function getAppVersion() {
+  try {
+    if (app.isPackaged) return app.getVersion();
+    const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf8'));
+    return pkg.version;
+  } catch (e) {
+    return '0.1.10';
   }
 }
 
@@ -161,11 +179,11 @@ ipcMain.on('check-update', async (event, branch = 'stable') => {
        mainWindow.webContents.send('sync-versions', versionsInfo);
     }
 
-    const currentAppVersion = app.isPackaged ? app.getVersion() : '0.1.10'; 
+    const currentAppVersion = getAppVersion();
     const targetStatus = branch === 'main' ? mainStatus : stableStatus;
 
     if (targetStatus && targetStatus.ok) {
-      // Ajuste: Só informa se a versão encontrada for MAIOR que a atual
+      // Ajuste crucial: SÓ envia se a versão remota for estritamente MAIOR que a local
       if (isNewer(targetStatus.version, currentAppVersion)) {
         mainWindow.webContents.send('update-available', {
           version: targetStatus.version,
@@ -176,6 +194,7 @@ ipcMain.on('check-update', async (event, branch = 'stable') => {
           downloadUrl: targetStatus.url
         });
       } else {
+        // Envia apenas informativo silencioso
         mainWindow.webContents.send('update-not-available', { version: currentAppVersion });
       }
     } else if (targetStatus && targetStatus.error) {
