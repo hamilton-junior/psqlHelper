@@ -22,9 +22,9 @@
     "@google/genai": "1.35.0",
     "@monaco-editor/react": "4.7.0",
     "cors": "2.8.5",
-    "express": "5.0.1",
+    "express": "^5.2.1",
     "html2canvas": "1.4.1",
-    "jspdf": "2.5.2",
+    "jspdf": "^4.0.0",
     "lucide-react": "0.475.0",
     "pg": "8.13.1",
     "react": "19.0.0",
@@ -40,12 +40,12 @@
     "autoprefixer": "10.4.20",
     "concurrently": "9.1.2",
     "cross-env": "7.0.3",
-    "electron": "34.0.0",
+    "electron": "^39.2.7",
     "electron-builder": "26.0.0",
     "postcss": "8.5.1",
     "tailwindcss": "4.0.0",
     "typescript": "5.7.3",
-    "vite": "6.0.7"
+    "vite": "^6.4.1"
   },
   "build": {
     "appId": "com.psqlbuddy.app",

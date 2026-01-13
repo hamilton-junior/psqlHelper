@@ -4,3 +4,6 @@ release/
 .env
 *.log
 .DS_Store
+psqlHelper.code-workspace
+.gitignore
+.env.local
