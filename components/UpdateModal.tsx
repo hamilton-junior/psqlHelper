@@ -16,9 +16,10 @@ interface UpdateModalProps {
   onClose: () => void;
   onStartDownload: () => void;
   onInstall: () => void;
+  onIgnore?: () => void;
 }
 
-const UpdateModal: React.FC<UpdateModalProps> = ({ updateInfo, downloadProgress, isReady, onClose, onStartDownload, onInstall }) => {
+const UpdateModal: React.FC<UpdateModalProps> = ({ updateInfo, downloadProgress, isReady, onClose, onStartDownload, onInstall, onIgnore }) => {
   const [showDowngradeConfirm, setShowDowngradeConfirm] = useState(false);
 
   if (!updateInfo) return null;
@@ -31,6 +32,14 @@ const UpdateModal: React.FC<UpdateModalProps> = ({ updateInfo, downloadProgress,
       setShowDowngradeConfirm(true);
     } else {
       onStartDownload();
+    }
+  };
+
+  const handleCancelDowngrade = () => {
+    if (onIgnore) {
+      onIgnore(); // Salva no localStorage que esta versão foi rejeitada
+    } else {
+      onClose();
     }
   };
 
@@ -94,14 +103,14 @@ const UpdateModal: React.FC<UpdateModalProps> = ({ updateInfo, downloadProgress,
                     Você está prestes a instalar a versão <strong>v{updateInfo.version}</strong>, que é inferior à sua atual (v{updateInfo.currentVersion}). Deseja prosseguir com a reinstalação?
                  </p>
                  <div className="flex gap-2">
-                    <button onClick={() => setShowDowngradeConfirm(false)} className="flex-1 py-2 bg-white dark:bg-slate-800 text-xs font-bold rounded-lg border border-amber-200 dark:border-amber-700">Não, cancelar</button>
+                    <button onClick={handleCancelDowngrade} className="flex-1 py-2 bg-white dark:bg-slate-800 text-xs font-bold rounded-lg border border-amber-200 dark:border-amber-700">Não, cancelar</button>
                     <button onClick={onStartDownload} className="flex-1 py-2 bg-amber-600 text-white text-xs font-black rounded-lg shadow-md">Sim, instalar v{updateInfo.version}</button>
                  </div>
               </div>
            ) : (
               <div className="bg-slate-50 dark:bg-slate-950/50 rounded-2xl p-4 border border-slate-100 dark:border-slate-800 max-h-40 overflow-y-auto custom-scrollbar">
                  <span className="text-[10px] font-black uppercase text-slate-400 tracking-widest block mb-2 flex items-center gap-1.5">
-                    <Sparkles className="w-3 h-3 text-amber-500" /> Notas da Versão
+                    <Sparkles className="w-3 h-3 text-amber-50" /> Notas da Versão
                  </span>
                  <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed italic whitespace-pre-wrap">
                     {updateInfo.notes}
@@ -134,7 +143,7 @@ const UpdateModal: React.FC<UpdateModalProps> = ({ updateInfo, downloadProgress,
            <div className="flex gap-3">
               {!isDownloading && !isReady && !showDowngradeConfirm && (
                 <>
-                  <button onClick={onClose} className="flex-1 py-4 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-600 dark:text-slate-300 rounded-2xl text-sm font-bold transition-all">
+                  <button onClick={handleCancelDowngrade} className="flex-1 py-4 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-600 dark:text-slate-300 rounded-2xl text-sm font-bold transition-all">
                      Depois
                   </button>
                   <button 
