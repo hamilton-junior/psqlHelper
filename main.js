@@ -93,15 +93,18 @@ function parseTotalCommitsFromLink(linkHeader) {
   return match ? parseInt(match[1], 10) : 0;
 }
 
-// Retorna 'newer', 'older' ou 'equal'
+// Retorna 'newer' (git > local), 'older' (git < local) ou 'equal'
 function compareVersions(vRemote, vLocal) {
   if (!vRemote || !vLocal) return 'equal';
   const clean = (v) => String(v).replace(/^v/, '').split('.').map(n => parseInt(n, 10) || 0);
   const r = clean(vRemote);
   const l = clean(vLocal);
+  
   for (let i = 0; i < 3; i++) {
-    if ((r[i] || 0) > (l[i] || 0)) return 'newer';
-    if ((r[i] || 0) < (l[i] || 0)) return 'older';
+    const remoteVal = r[i] || 0;
+    const localVal = l[i] || 0;
+    if (remoteVal > localVal) return 'newer';
+    if (remoteVal < localVal) return 'older';
   }
   return 'equal';
 }
@@ -140,42 +143,35 @@ ipcMain.on('check-update', async (event, branch = 'stable') => {
       getGitHubBranchStatus('main'),
       getGitHubBranchStatus('stable')
     ]);
+    
     const versionsInfo = {
       stable: (stableStatus && stableStatus.ok) ? stableStatus.version : "Erro",
       main: (mainStatus && mainStatus.ok) ? mainStatus.version : "Erro",
     };
+    
     if (mainWindow && !mainWindow.isDestroyed()) {
        mainWindow.webContents.send('sync-versions', versionsInfo);
     }
+    
     const currentAppVersion = getAppVersion();
     const targetStatus = branch === 'main' ? mainStatus : stableStatus;
 
     if (targetStatus && targetStatus.ok) {
-      const comparison = compareVersions(targetStatus.version, currentAppVersion);
+      const result = compareVersions(targetStatus.version, currentAppVersion);
       
-      if (comparison === 'newer') {
-        mainWindow.webContents.send('update-available', {
-          version: targetStatus.version,
-          notes: targetStatus.lastMessage,
-          branch: branch === 'main' ? 'Main' : 'Stable',
-          downloadUrl: targetStatus.url,
-          updateType: 'upgrade'
-        });
-      } else if (comparison === 'older') {
-        mainWindow.webContents.send('update-available', {
-          version: targetStatus.version,
-          currentVersion: currentAppVersion,
-          notes: targetStatus.lastMessage,
-          branch: branch === 'main' ? 'Main' : 'Stable',
-          downloadUrl: targetStatus.url,
-          updateType: 'downgrade'
-        });
-      } else {
-        mainWindow.webContents.send('update-not-available', { version: currentAppVersion });
-      }
+      mainWindow.webContents.send('update-check-result', {
+        comparison: result,
+        remoteVersion: targetStatus.version,
+        localVersion: currentAppVersion,
+        notes: targetStatus.lastMessage,
+        url: targetStatus.url,
+        branch: branch === 'main' ? 'Main' : 'Stable'
+      });
+    } else {
+       mainWindow.webContents.send('update-error', { message: "Falha ao obter dados do GitHub." });
     }
   } catch (error) {
-    mainWindow.webContents.send('update-error', { message: "Erro ao consultar GitHub." });
+    mainWindow.webContents.send('update-error', { message: "Erro na verificação." });
   }
 });
 

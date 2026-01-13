@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { AppStep, DatabaseSchema } from '../types';
 import { 
@@ -141,7 +140,7 @@ const Sidebar: React.FC<SidebarProps> = ({
             className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 text-xs font-bold text-indigo-400 hover:bg-indigo-400/5 ${isCollapsed ? 'justify-center px-2' : ''}`}
           >
              <CloudDownload className="w-5 h-5" />
-             {!isCollapsed && <span>Buscar Atualizações</span>}
+             {!isCollapsed && <span>Atualizações</span>}
           </button>
 
           <button 
@@ -154,7 +153,7 @@ const Sidebar: React.FC<SidebarProps> = ({
 
            {!isCollapsed && (
               <div className="px-4 pt-4 flex items-center justify-between mt-2 border-t border-slate-900">
-                 <div className="flex items-center gap-2 text-[9px] font-black text-slate-600 uppercase tracking-widest" title="Versão atualmente em uso">
+                 <div className="flex items-center gap-2 text-[9px] font-black text-slate-600 uppercase tracking-widest" title="Versão atual do aplicativo">
                     <Tag className="w-3 h-3 opacity-50" /> v{CURRENT_APP_VERSION}
                  </div>
                  <button 

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   DatabaseSchema, AppStep, BuilderState, QueryResult, DbCredentials, 
   AppSettings, DEFAULT_SETTINGS, VirtualRelation, DashboardItem
@@ -81,6 +81,7 @@ const App: React.FC = () => {
   const [remoteVersions, setRemoteVersions] = useState<{stable: string, main: string} | null>(null);
   const [downloadProgress, setDownloadProgress] = useState<number | null>(null);
   const [updateReady, setUpdateReady] = useState(false);
+  const manualCheckRef = useRef(false);
 
   useEffect(() => {
     if (settings.theme === 'dark') document.documentElement.classList.add('dark');
@@ -92,48 +93,51 @@ const App: React.FC = () => {
     localStorage.setItem('psqlBuddy-dashboard', JSON.stringify(dashboardItems));
   }, [dashboardItems]);
 
+  // Listener para IPC do Electron (Atualização)
   useEffect(() => {
     const electron = (window as any).electron;
     if (electron) {
-      const handleUpdateAvailable = (info: any) => {
-        setUpdateInfo(prev => {
-           if (prev?.version === info.version && prev?.updateType === info.updateType) return prev;
-           return info;
-        });
-        if (info.allVersions) setRemoteVersions(info.allVersions);
-        setDownloadProgress(null);
-        setUpdateReady(false);
-        
-        if (info.updateType === 'upgrade') {
-           toast.success(`Nova versão disponível: v${info.version}`, { id: 'update-toast' });
+      const handleUpdateResult = (res: any) => {
+        const { comparison, remoteVersion, localVersion, notes, branch } = res;
+        const isManual = manualCheckRef.current;
+        manualCheckRef.current = false; // Reset
+
+        if (comparison === 'newer') {
+          // Versão nova encontrada: Sempre notifica e permite modal
+          setUpdateInfo({ version: remoteVersion, notes, branch, updateType: 'upgrade', currentVersion: localVersion });
+          toast.success(`Nova versão disponível: v${remoteVersion}`, { id: 'update-toast' });
+        } else if (comparison === 'older') {
+          // Versão atual é maior que a do Git: Notifica apenas que a atual é mais recente
+          if (isManual) {
+            setUpdateInfo({ version: remoteVersion, notes, branch, updateType: 'downgrade', currentVersion: localVersion });
+          }
+          toast(`Sua versão (v${localVersion}) já é a mais recente.`, { id: 'update-toast', icon: '✅' });
         } else {
-           toast.success(`Versão atual é a mais recente. (GitHub: v${info.version})`, { id: 'update-toast' });
+          // Versões iguais
+          if (isManual) {
+            toast.success("O aplicativo já está atualizado.", { id: 'update-toast' });
+          }
         }
       };
 
-      const handleUpdateNotAvailable = (info: any) => {
-        console.log("App está atualizado.");
-      };
-
       const handleUpdateError = (err: any) => {
-        toast.error(`Erro ao verificar: ${err.message}`, { id: 'update-toast' });
+        toast.error(`Falha ao buscar atualizações: ${err.message}`, { id: 'update-toast' });
       };
 
-      electron.on('update-available', handleUpdateAvailable);
-      electron.on('update-not-available', handleUpdateNotAvailable);
+      electron.on('update-check-result', handleUpdateResult);
       electron.on('update-error', handleUpdateError);
       electron.on('sync-versions', (v: any) => setRemoteVersions(v));
       electron.on('update-downloading', (p: any) => setDownloadProgress(p.percent));
       electron.on('update-ready', () => {
         setUpdateReady(true);
-        toast.success("Download concluído!", { id: 'update-toast' });
+        toast.success("Arquivos prontos para instalação!", { id: 'update-toast' });
       });
       
+      // Busca inicial silenciosa
       electron.send('check-update', settings.updateBranch);
 
       return () => {
-         electron.removeAllListeners('update-available');
-         electron.removeAllListeners('update-not-available');
+         electron.removeAllListeners('update-check-result');
          electron.removeAllListeners('update-error');
          electron.removeAllListeners('sync-versions');
          electron.removeAllListeners('update-downloading');
@@ -145,11 +149,11 @@ const App: React.FC = () => {
   const handleCheckUpdate = () => {
     const electron = (window as any).electron;
     if (electron) {
-      toast.loading("Verificando...", { id: 'manual-update-check' });
+      manualCheckRef.current = true;
+      toast.loading("Verificando GitHub...", { id: 'update-toast' });
       electron.send('check-update', settings.updateBranch);
-      setTimeout(() => toast.dismiss('manual-update-check'), 1000);
     } else {
-      toast.error("Disponível apenas na versão Desktop.");
+      toast.error("Atualizações automáticas disponíveis apenas no Desktop.");
     }
   };
 
