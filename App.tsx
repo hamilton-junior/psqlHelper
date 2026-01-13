@@ -98,36 +98,44 @@ const App: React.FC = () => {
     const electron = (window as any).electron;
     if (electron) {
       const handleUpdateResult = (res: any) => {
+        console.log("%c[UPDATE-IPC] Objeto recebido:", "color: #6366f1; font-weight: bold;", res);
         const { comparison, remoteVersion, localVersion, notes, branch } = res;
         const isManual = manualCheckRef.current;
-        manualCheckRef.current = false; // Reset
+        manualCheckRef.current = false; // Reset do flag de carregamento
 
         if (comparison === 'newer') {
-          // Versão nova encontrada: Sempre notifica e permite modal
+          console.log("[UPDATE] Versão superior detectada.");
           setUpdateInfo({ version: remoteVersion, notes, branch, updateType: 'upgrade', currentVersion: localVersion });
           toast.success(`Nova versão disponível: v${remoteVersion}`, { id: 'update-toast' });
         } else if (comparison === 'older') {
-          // Versão atual é maior que a do Git: Notifica apenas que a atual é mais recente
+          console.log("[UPDATE] Versão do GitHub é anterior à local.");
           if (isManual) {
             setUpdateInfo({ version: remoteVersion, notes, branch, updateType: 'downgrade', currentVersion: localVersion });
           }
-          toast(`Sua versão (v${localVersion}) é mais recente que a do canal ${branch} (v${remoteVersion}).`, { id: 'update-toast', icon: '✅' });
+          toast(`Versão local (v${localVersion}) é mais recente que v${remoteVersion}.`, { id: 'update-toast', icon: '✅' });
         } else {
-          // Versões iguais
+          console.log("[UPDATE] Aplicativo já está na versão idêntica do canal.");
           if (isManual) {
             toast.success("O aplicativo já está atualizado.", { id: 'update-toast' });
+          } else {
+            // Fecha o toast de carregamento automático se houver
+            toast.dismiss('update-toast');
           }
         }
       };
 
       const handleUpdateError = (err: any) => {
+        console.error("[UPDATE-IPC] Erro:", err);
         manualCheckRef.current = false;
         toast.error(`Falha ao buscar atualizações: ${err.message}`, { id: 'update-toast' });
       };
 
       electron.on('update-check-result', handleUpdateResult);
       electron.on('update-error', handleUpdateError);
-      electron.on('sync-versions', (v: any) => setRemoteVersions(v));
+      electron.on('sync-versions', (v: any) => {
+        console.log("[UPDATE-IPC] Sincronização de versões:", v);
+        setRemoteVersions(v);
+      });
       electron.on('update-downloading', (p: any) => setDownloadProgress(p.percent));
       electron.on('update-ready', () => {
         setUpdateReady(true);
@@ -151,7 +159,8 @@ const App: React.FC = () => {
     const electron = (window as any).electron;
     if (electron) {
       manualCheckRef.current = true;
-      // Define um timeout de segurança para o toast caso o backend não responda
+      console.log(`[USER] Iniciando verificação manual para o canal: ${settings.updateBranch}`);
+      
       const safetyTimeout = setTimeout(() => {
         if (manualCheckRef.current) {
           manualCheckRef.current = false;

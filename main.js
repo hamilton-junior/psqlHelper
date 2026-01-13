@@ -95,17 +95,27 @@ function parseTotalCommitsFromLink(linkHeader) {
 
 // Retorna 'newer' (git > local), 'older' (git < local) ou 'equal'
 function compareVersions(vRemote, vLocal) {
+  console.log(`[DEBUG:Version] Iniciando comparação. Remota: "${vRemote}" | Local: "${vLocal}"`);
   if (!vRemote || !vLocal) return 'equal';
-  const clean = (v) => String(v).replace(/^v/, '').split('.').map(n => parseInt(n, 10) || 0);
+  
+  const clean = (v) => String(v).trim().replace(/^v/, '').split('.').map(n => parseInt(n, 10) || 0);
   const r = clean(vRemote);
   const l = clean(vLocal);
   
   for (let i = 0; i < 3; i++) {
     const remoteVal = r[i] || 0;
     const localVal = l[i] || 0;
-    if (remoteVal > localVal) return 'newer';
-    if (remoteVal < localVal) return 'older';
+    if (remoteVal > localVal) {
+      console.log(`[DEBUG:Version] Resultado: NEWER (Remoto ${remoteVal} > Local ${localVal} na posição ${i})`);
+      return 'newer';
+    }
+    if (remoteVal < localVal) {
+      console.log(`[DEBUG:Version] Resultado: OLDER (Remoto ${remoteVal} < Local ${localVal} na posição ${i})`);
+      return 'older';
+    }
   }
+  
+  console.log(`[DEBUG:Version] Resultado: EQUAL`);
   return 'equal';
 }
 
@@ -138,6 +148,7 @@ function getAppVersion() {
 }
 
 ipcMain.on('check-update', async (event, branch = 'stable') => {
+  console.log(`[IPC] Recebido check-update para o canal: ${branch}`);
   try {
     const [mainStatus, stableStatus] = await Promise.all([
       getGitHubBranchStatus('main'),
@@ -159,6 +170,7 @@ ipcMain.on('check-update', async (event, branch = 'stable') => {
     if (targetStatus && targetStatus.ok) {
       const result = compareVersions(targetStatus.version, currentAppVersion);
       
+      console.log(`[IPC] Enviando update-check-result. Comparação: ${result}`);
       mainWindow.webContents.send('update-check-result', {
         comparison: result,
         remoteVersion: targetStatus.version,
@@ -168,9 +180,11 @@ ipcMain.on('check-update', async (event, branch = 'stable') => {
         branch: branch === 'main' ? 'Main' : 'Stable'
       });
     } else {
+       console.error(`[IPC] Erro ao buscar status do GitHub para o branch ${branch}`);
        mainWindow.webContents.send('update-error', { message: "Falha ao obter dados do GitHub." });
     }
   } catch (error) {
+    console.error(`[IPC] Erro geral na verificação de atualização:`, error);
     mainWindow.webContents.send('update-error', { message: "Erro na verificação." });
   }
 });
