@@ -111,9 +111,32 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
     </button>
   );
 
-  const getLatestForBranch = () => {
-    if (!remoteVersions) return "Consultando...";
-    return formData.updateBranch === 'stable' ? remoteVersions.stable : remoteVersions.main;
+  const getLatestVersionDisplay = () => {
+    const latest = formData.updateBranch === 'stable' ? remoteVersions?.stable : remoteVersions?.main;
+    
+    if (!remoteVersions || latest === undefined) {
+       return (
+          <div className="flex items-center gap-2 text-slate-400">
+             <Loader2 className="w-4 h-4 animate-spin" />
+             <span className="text-xs font-bold uppercase tracking-tighter">Consultando...</span>
+          </div>
+       );
+    }
+    
+    if (latest === "Erro") {
+       return (
+          <div className="flex items-center gap-2 text-rose-500">
+             <XCircle className="w-4 h-4" />
+             <span className="text-xs font-bold uppercase tracking-tighter">Falha na API</span>
+          </div>
+       );
+    }
+
+    return (
+       <div className="text-3xl font-black text-emerald-600 dark:text-emerald-400">
+          v{latest}
+       </div>
+    );
   };
 
   return (
@@ -127,7 +150,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
              </div>
              <div>
                 <h3 className="text-xl font-black text-slate-800 dark:text-white tracking-tight">Preferências do Sistema</h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400">Personalize sua experiênca e monitore a saúde do banco.</p>
+                <p className="text-xs text-slate-500 dark:text-slate-400">Personalize sua experiência e monitore a saúde do banco.</p>
              </div>
           </div>
           <button onClick={onClose} className="p-2.5 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-xl text-slate-500 transition-all">
@@ -405,8 +428,10 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                             </p>
                          </div>
                          <div className="bg-slate-50 dark:bg-slate-900 p-6 rounded-3xl border border-slate-100 dark:border-slate-800 flex flex-col items-center text-center">
-                            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Última Disponível ({formData.updateBranch})</span>
-                            <div className="text-3xl font-black text-emerald-600 dark:text-emerald-400">v{getLatestForBranch()}</div>
+                            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Última Disponível ({formData.updateBranch === 'stable' ? 'Stable' : 'Main'})</span>
+                            <div className="flex items-center justify-center min-h-[45px]">
+                               {getLatestVersionDisplay()}
+                            </div>
                             <p className="text-[10px] text-slate-500 mt-2 font-bold uppercase tracking-tight flex items-center gap-1">
                                <RefreshCw className="w-3 h-3" /> Consulta em Nuvem
                             </p>
@@ -428,7 +453,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                                `}
                             >
                                <span className="flex items-center gap-2 font-black uppercase"><CheckCircle2 className="w-4 h-4" /> Estável</span>
-                               <span className="text-[9px] opacity-70 font-mono">v{remoteVersions?.stable || '---'}</span>
+                               <span className="text-[9px] opacity-70 font-mono">v{remoteVersions?.stable || '...'}</span>
                             </button>
                             <button 
                                type="button"
@@ -440,7 +465,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                                `}
                             >
                                <span className="flex items-center gap-2 font-black uppercase"><FlaskConical className="w-4 h-4" /> Main / Dev</span>
-                               <span className="text-[9px] opacity-70 font-mono">v{remoteVersions?.main || '---'}</span>
+                               <span className="text-[9px] opacity-70 font-mono">v{remoteVersions?.main || '...'}</span>
                             </button>
                          </div>
                          <div className="mt-2 p-4 bg-slate-50 dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-700">
