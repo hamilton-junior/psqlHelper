@@ -99,21 +99,26 @@ const App: React.FC = () => {
     const electron = (window as any).electron;
     if (electron) {
       electron.on('update-available', (info: any) => {
-        console.log("[APP] Evento: update-available", info);
+        console.log("[UPDATE] Nova versão disponível:", info);
         setUpdateInfo(info);
         if (info.allVersions) setRemoteVersions(info.allVersions);
         setDownloadProgress(null);
         setUpdateReady(false);
-        toast.success(`Nova versão encontrada: v${info.version}`);
+        toast.success(`Nova versão: v${info.version}`, { id: 'upd-found' });
       });
       
       electron.on('update-not-available', (info: any) => {
-        console.log("[APP] Evento: update-not-available", info);
-        toast.success("O aplicativo já está atualizado.");
+        console.log("[UPDATE] Sistema atualizado.");
+        // Opcional: Feedback visual de "atualizado" só se a busca foi manual
+      });
+
+      electron.on('update-error', (err: any) => {
+        console.warn("[UPDATE] Erro na verificação:", err.message);
+        toast.error(`Falha ao buscar versão: ${err.message}`, { id: 'upd-error' });
       });
 
       electron.on('sync-versions', (vers: any) => {
-        console.log("[APP] Evento: sync-versions", vers);
+        console.log("[UPDATE] Sincronizando versões:", vers);
         setRemoteVersions(vers);
       });
 
@@ -122,8 +127,8 @@ const App: React.FC = () => {
       });
 
       electron.on('update-ready', () => {
-        console.log("[APP] Evento: update-ready");
         setUpdateReady(true);
+        toast.success("Download concluído! Pronto para instalar.");
       });
       
       // Busca inicial silenciosa
@@ -135,7 +140,6 @@ const App: React.FC = () => {
   useEffect(() => {
     const electron = (window as any).electron;
     if (electron) {
-      console.log("[APP] Solicitando check-update para canal:", settings.updateBranch);
       electron.send('check-update', settings.updateBranch);
     }
   }, [settings.updateBranch]);
@@ -143,11 +147,11 @@ const App: React.FC = () => {
   const handleCheckUpdate = () => {
     const electron = (window as any).electron;
     if (electron) {
-      toast.loading("Verificando GitHub...", { id: 'upd-check' });
+      toast.loading("Consultando GitHub...", { id: 'upd-check' });
       electron.send('check-update', settings.updateBranch);
-      setTimeout(() => toast.dismiss('upd-check'), 1500);
+      setTimeout(() => toast.dismiss('upd-check'), 2000);
     } else {
-      toast.error("Atualizações disponíveis apenas na versão desktop.");
+      toast.error("Atualizações disponíveis apenas no App Desktop.");
     }
   };
 

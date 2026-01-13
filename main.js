@@ -48,99 +48,115 @@ function createWindow() {
 
 // --- LOGICA DE VERSÃO E ATUALIZAÇÃO ---
 
+/**
+ * Realiza requisição para a API do GitHub com tratamento de erros
+ */
 async function fetchGitHubData(apiPath) {
-  console.log(`[UPDATE] Consultando GitHub: ${apiPath}`);
   return new Promise((resolve, reject) => {
     const request = net.request({
-      method: 'GET', protocol: 'https:', hostname: 'api.github.com', path: apiPath,
-      headers: { 'User-Agent': 'PSQL-Buddy-App' }
+      method: 'GET',
+      protocol: 'https:',
+      hostname: 'api.github.com',
+      path: apiPath,
+      headers: { 
+        'User-Agent': 'PSQL-Buddy-App',
+        'Accept': 'application/vnd.github.v3+json'
+      }
     });
     
     request.on('response', (response) => {
       let data = '';
-      console.log(`[UPDATE] Status Resposta: ${response.statusCode}`);
-      
       response.on('data', (chunk) => { data += chunk; });
       response.on('end', () => {
         try {
           const json = data ? JSON.parse(data) : {};
-          resolve({ json, headers: response.headers });
+          resolve({ 
+            json, 
+            headers: response.headers, 
+            status: response.statusCode,
+            ok: response.statusCode >= 200 && response.statusCode < 300
+          });
         } catch (e) {
-          console.error("[UPDATE] Erro ao parsear JSON do GitHub");
-          resolve({ json: {}, headers: response.headers });
+          resolve({ json: {}, headers: response.headers, status: response.statusCode, ok: false });
         }
       });
     });
     
-    request.on('error', (err) => {
-      console.error(`[UPDATE] Erro na requisição net: ${err.message}`);
-      reject(err);
-    });
+    request.on('error', (err) => reject(err));
     request.end();
   });
 }
 
-// Retorna o status de commits de uma branch específica
+/**
+ * Extrai o total de commits baseado no header 'link' do GitHub
+ */
+function parseTotalCommitsFromLink(linkHeader) {
+  if (!linkHeader) return 0;
+  const links = Array.isArray(linkHeader) ? linkHeader[0] : linkHeader;
+  
+  // O link com rel="last" contém o número da última página
+  // Ex: <...&page=159>; rel="last"
+  const match = links.match(/[?&]page=(\d+)>; rel="last"/);
+  return match ? parseInt(match[1], 10) : 0;
+}
+
+/**
+ * Retorna o status de commits de uma branch específica convertendo para SemVer
+ */
 async function getGitHubBranchStatus(branch) {
   try {
-    const { json: commits, headers } = await fetchGitHubData(`/repos/${GITHUB_REPO}/commits?sha=${branch}&per_page=1`);
+    const response = await fetchGitHubData(`/repos/${GITHUB_REPO}/commits?sha=${branch}&per_page=1`);
     
-    const link = headers['link'];
-    let count = 0;
-
-    // A API do GitHub usa o header 'link' para paginação. O total de commits é a última página.
-    if (link) {
-      const linkStr = Array.isArray(link) ? link[0] : link;
-      console.log(`[UPDATE] Header Link (${branch}): ${linkStr}`);
-      
-      // Regex para capturar o número da última página
-      const lastPageMatch = linkStr.match(/page=(\d+)>; rel="last"/);
-      if (lastPageMatch) {
-        count = parseInt(lastPageMatch[1], 10);
-      } else {
-        // Se não houver "last", mas houver dados, assumimos o tamanho do array retornado (geralmente 1 devido ao per_page)
-        count = Array.isArray(commits) ? commits.length : 0;
-      }
-    } else {
-      // Sem header link significa que só existe 1 página de resultados
-      count = (Array.isArray(commits) && commits.length > 0) ? 1 : 0;
+    if (!response.ok) {
+      console.error(`[UPDATE] Branch '${branch}' não encontrada ou erro na API (Status: ${response.status})`);
+      return null;
     }
 
+    const commits = response.json;
+    const linkHeader = response.headers['link'];
+    let count = parseTotalCommitsFromLink(linkHeader);
+
+    // Fallback: Se não houver paginação, o count é o tamanho do array (normalmente 1)
+    if (count === 0 && Array.isArray(commits)) {
+      count = commits.length;
+    }
+
+    // Conversão SemVer baseada em commits (0.1.59 = 159 commits)
     const major = Math.floor(count / 1000);
     const minor = Math.floor((count % 1000) / 100);
     const patch = count % 100;
-    const version = `${major}.${minor}.${patch}`;
+    const versionString = `${major}.${minor}.${patch}`;
 
-    console.log(`[UPDATE] Branch: ${branch} | Commits: ${count} | Versão Calculada: ${version}`);
+    console.log(`[UPDATE] Sincronizado '${branch}': v${versionString} (${count} commits)`);
 
     return {
-      version,
+      version: versionString,
       commitCount: count,
       lastMessage: commits[0]?.commit?.message || "Sem descrição.",
       url: `https://github.com/${GITHUB_REPO}/archive/refs/heads/${branch}.zip`
     };
   } catch (e) { 
-    console.error(`[UPDATE] Falha crítica ao obter status da branch ${branch}:`, e.message);
+    console.error(`[UPDATE] Falha na branch ${branch}:`, e.message);
     return null; 
   }
 }
 
 ipcMain.on('check-update', async (event, branch = 'stable') => {
   try {
-    console.log(`[UPDATE] Verificação iniciada para canal: ${branch}`);
+    console.log(`[UPDATE] Verificação solicitada para canal: ${branch}`);
     
-    // Busca informações de ambas as branches para o seletor de versões
+    // Busca status das duas branches principais
     const [mainStatus, stableStatus] = await Promise.all([
       getGitHubBranchStatus('main'),
       getGitHubBranchStatus('stable')
     ]);
 
+    // Prepara objeto de versões para a UI
     const versionsInfo = {
       stable: stableStatus?.version || "0.0.0",
-      main: mainStatus?.version || "0.0.0"
+      main: mainStatus?.version || "0.0.0",
+      error: (!mainStatus && !stableStatus) ? "Erro ao consultar GitHub" : null
     };
-
-    console.log(`[UPDATE] Sincronizando versões com UI:`, versionsInfo);
 
     if (mainWindow && !mainWindow.isDestroyed()) {
        mainWindow.webContents.send('sync-versions', versionsInfo);
@@ -151,41 +167,42 @@ ipcMain.on('check-update', async (event, branch = 'stable') => {
 
     if (targetStatus) {
       if (targetStatus.version !== currentAppVersion) {
-        console.log(`[UPDATE] Nova versão disponível! Local: ${currentAppVersion} | Remota: ${targetStatus.version}`);
+        console.log(`[UPDATE] Nova versão disponível! ${currentAppVersion} -> ${targetStatus.version}`);
         mainWindow.webContents.send('update-available', {
           version: targetStatus.version,
-          notes: `[Branch: ${branch}]\n${targetStatus.lastMessage}`,
-          branch: branch === 'main' ? 'Main (Nightly)' : 'Stable',
+          notes: targetStatus.lastMessage,
+          branch: branch === 'main' ? 'Nightly' : 'Stable',
           isPrerelease: branch === 'main',
           allVersions: versionsInfo,
           downloadUrl: targetStatus.url
         });
       } else {
-        console.log(`[UPDATE] Aplicativo já está na última versão (${currentAppVersion}).`);
         mainWindow.webContents.send('update-not-available', { version: currentAppVersion });
       }
+    } else {
+       // Se o targetStatus for null, a branch não existe ou a API falhou
+       mainWindow.webContents.send('update-error', { 
+         message: `Branch '${branch}' não disponível no repositório.` 
+       });
     }
   } catch (error) {
-    console.error("[UPDATE] Erro geral no check-update:", error.message);
+    console.error("[UPDATE] Erro fatal no check-update:", error.message);
   }
 });
 
 ipcMain.on('start-download', () => {
-  console.log("[UPDATE] Iniciando simulação de download...");
   let progress = 0;
   const interval = setInterval(() => {
     progress += 10;
     mainWindow.webContents.send('update-downloading', { percent: Math.min(progress, 100) });
     if (progress >= 100) {
       clearInterval(interval);
-      console.log("[UPDATE] Download concluído.");
       setTimeout(() => mainWindow.webContents.send('update-ready'), 500);
     }
   }, 200);
 });
 
 ipcMain.on('install-update', () => { 
-  console.log("[UPDATE] Instalando atualização e reiniciando...");
   app.relaunch(); 
   app.exit(); 
 });
