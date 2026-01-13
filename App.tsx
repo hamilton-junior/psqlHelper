@@ -110,8 +110,10 @@ const App: React.FC = () => {
           setUpdateInfo({ version: remoteVersion, notes, branch, updateType: 'upgrade', currentVersion: localVersion });
           toast.success(`Nova versão disponível: v${remoteVersion}`, { id: 'update-toast' });
         } else if (comparison === 'older') {
+          // Se o usuário já rejeitou essa versão específica de downgrade, não mostramos novamente a não ser que seja manual
           if (!isManual && ignoredVersions.includes(remoteVersion)) {
-            console.log(`[UPDATE] Downgrade para v${remoteVersion} ignorado.`);
+            console.log(`[UPDATE] Downgrade para v${remoteVersion} ignorado pelo usuário.`);
+            setUpdateInfo(null);
             return;
           }
           setUpdateInfo({ version: remoteVersion, notes, branch, updateType: 'downgrade', currentVersion: localVersion });
@@ -119,6 +121,7 @@ const App: React.FC = () => {
             toast(`Versão local (v${localVersion}) é mais recente que v${remoteVersion}.`, { id: 'update-toast', icon: '✅' });
           }
         } else {
+          // Versões iguais
           setUpdateInfo(null);
           if (isManual) {
             toast.success("O aplicativo já está atualizado.", { id: 'update-toast' });
@@ -147,6 +150,7 @@ const App: React.FC = () => {
         toast.success("Download concluído! Pronto para instalar.", { id: 'update-toast' });
       });
       
+      // Auto-check on mount
       electron.send('check-update', settings.updateBranch);
 
       return () => {
@@ -171,6 +175,7 @@ const App: React.FC = () => {
   };
 
   const handleIgnoreUpdate = (version: string) => {
+    console.log(`[UPDATE] Ignorando versão ${version}.`);
     const ignoredVersionsStr = localStorage.getItem('psqlBuddy-ignored-downgrades') || '[]';
     const ignoredVersions = JSON.parse(ignoredVersionsStr);
     if (!ignoredVersions.includes(version)) {
@@ -191,6 +196,7 @@ const App: React.FC = () => {
   const handleInstallUpdate = () => {
     const electron = (window as any).electron;
     if (electron) {
+      console.log("[UPDATE] Iniciando reinício para instalação...");
       electron.send('install-update');
     }
   };

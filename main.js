@@ -113,7 +113,7 @@ function compareVersions(vRemote, vLocal) {
   const r = parse(vRemote);
   const l = parse(vLocal);
   
-  // Garante que ambos tenham 3 partes
+  // Normaliza para arrays de 3 posições
   while (r.length < 3) r.push(0);
   while (l.length < 3) l.push(0);
 
@@ -138,11 +138,13 @@ async function getGitHubBranchStatus(branch) {
     if (!response.ok) return { error: true, status: response.status, branch };
     
     const commits = response.json;
-    const linkHeader = response.headers['link'];
+    const linkHeader = response.headers['link'] || response.headers['Link'];
     
     let count = parseTotalCommitsFromLink(linkHeader);
+    // Fallback caso não haja header link (ex: apenas 1 commit)
     if (count === 0 && Array.isArray(commits)) count = commits.length;
 
+    // Lógica 0.1.X baseada em commits
     const major = Math.floor(count / 1000);
     const minor = Math.floor((count % 1000) / 100);
     const patch = count % 100;
@@ -171,7 +173,7 @@ function getAppVersion() {
     return `${major}.${minor}.${patch}`;
   } catch (e) { 
     try {
-      const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf8'));
+      const pkg = JSON.parse(fs.readFileSync(path.join(app.getAppPath(), 'package.json'), 'utf8'));
       return pkg.version;
     } catch (e2) { return '0.1.10'; }
   }
@@ -250,12 +252,13 @@ ipcMain.on('start-download', () => {
 
 ipcMain.on('install-update', () => { 
   const isDev = !app.isPackaged;
+  // O appPath em produção aponta para resources/app.asar ou a pasta da aplicação
   const appPath = app.getAppPath();
   const exePath = process.execPath;
+  const destinationDir = path.dirname(appPath);
   
   console.log(`[UPDATE] Iniciando instalação real...`);
-  console.log(`[UPDATE] Path da App: ${appPath}`);
-  console.log(`[UPDATE] Zip Path: ${downloadedZipPath}`);
+  console.log(`[UPDATE] Destino: ${destinationDir}`);
 
   if (!downloadedZipPath || !fs.existsSync(downloadedZipPath)) {
     console.error("[UPDATE] Arquivo de atualização não encontrado.");
@@ -263,32 +266,31 @@ ipcMain.on('install-update', () => {
   }
 
   if (isDev) {
-    console.warn("[DEV MODE] Relaunch simulado. Em produção, os arquivos seriam extraídos.");
+    console.warn("[DEV MODE] Relaunch simples.");
     app.relaunch(); 
     app.exit();
     return;
   }
 
-  // Lógica de atualização "Real" em produção via script externo
-  // Este script espera o processo morrer, extrai o zip por cima do app e reinicia.
   const isWin = process.platform === 'win32';
-  const scriptPath = path.join(os.tmpdir(), isWin ? 'updater.bat' : 'updater.sh');
+  const scriptPath = path.join(os.tmpdir(), isWin ? 'psql_updater.bat' : 'psql_updater.sh');
   
   let scriptContent = "";
   if (isWin) {
-    // Windows Batch + PowerShell para extração
+    // Windows: Espera o app fechar, extrai via PS e limpa o script
     scriptContent = `@echo off
-echo Instalando atualizacao do PSQL Buddy...
-timeout /t 2 /nobreak > nul
-powershell -Command "Expand-Archive -Path '${downloadedZipPath}' -DestinationPath '${path.dirname(appPath)}' -Force"
+echo Finalizando PSQL Buddy para atualizacao...
+timeout /t 3 /nobreak > nul
+powershell -Command "Expand-Archive -Path '${downloadedZipPath}' -DestinationPath '${destinationDir}' -Force"
+echo Concluido. Reiniciando...
 start "" "${exePath}"
 del "%~f0"
 `;
   } else {
-    // Linux/Mac Shell Script
+    // Unix: Espera o app fechar, extrai via unzip e limpa o script
     scriptContent = `#!/bin/bash
-sleep 2
-unzip -o "${downloadedZipPath}" -d "${path.dirname(appPath)}"
+sleep 3
+unzip -o "${downloadedZipPath}" -d "${destinationDir}"
 open "${exePath}" || "${exePath}" &
 rm "$0"
 `;
@@ -297,7 +299,6 @@ rm "$0"
   try {
     fs.writeFileSync(scriptPath, scriptContent, { mode: 0o755 });
     
-    // Executa o script de forma independente e fecha o app
     const child = spawn(isWin ? 'cmd.exe' : '/bin/sh', [isWin ? '/c' : '', scriptPath], {
       detached: true,
       stdio: 'ignore'
@@ -306,7 +307,7 @@ rm "$0"
     
     app.quit();
   } catch (e) {
-    console.error("[UPDATE] Erro ao criar script de atualização:", e);
+    console.error("[UPDATE] Erro ao disparar script externo:", e);
     app.relaunch();
     app.exit();
   }
