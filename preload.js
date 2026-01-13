@@ -1,5 +1,7 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
+console.log("[PRELOAD] Script carregado com sucesso. Expondo API 'electron' no escopo global.");
+
 contextBridge.exposeInMainWorld('electron', {
   getVersion: () => process.env.npm_package_version || '0.1.10',
   send: (channel, data) => {

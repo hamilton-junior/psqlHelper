@@ -18,6 +18,7 @@ function startBackend() {
   const isDev = !app.isPackaged;
   if (isDev && process.env.SKIP_BACKEND === '1') return;
   const serverPath = path.join(__dirname, 'server.js');
+  console.log(`[MAIN] Iniciando servidor backend em: ${serverPath}`);
   serverProcess = spawn(process.execPath, [serverPath], {
     env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
     stdio: 'inherit'
@@ -25,6 +26,13 @@ function startBackend() {
 }
 
 function createWindow() {
+  const preloadPath = path.join(__dirname, 'preload.js');
+  console.log(`[MAIN] Criando janela principal. Preload path: ${preloadPath}`);
+  
+  if (!fs.existsSync(preloadPath)) {
+    console.error(`[CRITICAL] Arquivo de preload NÃO encontrado no caminho: ${preloadPath}`);
+  }
+
   mainWindow = new BrowserWindow({
     width: 1280, height: 850, minWidth: 1000, minHeight: 700,
     title: "PSQL Buddy",
@@ -34,7 +42,7 @@ function createWindow() {
     webPreferences: { 
       nodeIntegration: false, 
       contextIsolation: true, 
-      preload: path.join(__dirname, 'preload.js') 
+      preload: preloadPath 
     },
   });
 

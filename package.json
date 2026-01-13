@@ -55,6 +55,7 @@
       "dist/**/*",
       "main.js",
       "server.js",
+      "preload.js",
       "package.json",
       "node_modules/**/*"
     ],
