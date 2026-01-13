@@ -1,4 +1,3 @@
-
 {
   "name": "psql-buddy",
   "version": "0.1.10",
@@ -14,7 +13,7 @@
     "server": "node server.js",
     "electron": "electron .",
     "start": "npm run dev:all",
-    "dev:all": "concurrently -n \"VITE,SERVER,APP\" -c \"blue,green,magenta\" \"npm run dev\" \"npm run server\" \"cross-env SKIP_BACKEND=1 npm run electron\"",
+    "dev:all": "concurrently -n \"VITE,API,APP\" -c \"blue,green,magenta\" \"npm run dev\" \"npm run server\" \"cross-env SKIP_BACKEND=1 npm run electron\"",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "dist": "npm run build && electron-builder"

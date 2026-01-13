@@ -1,4 +1,3 @@
-
 import { app, BrowserWindow, ipcMain, net } from 'electron';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -10,16 +9,22 @@ const __dirname = path.dirname(__filename);
 let mainWindow;
 let serverProcess;
 
-// Repositório oficial para conferência de versão
+// ATENÇÃO: Verifique se este caminho está correto no seu GitHub
 const GITHUB_REPO = "Hamilton-Junior/psql-buddy";
 
 function startBackend() {
   const isDev = !app.isPackaged;
   if (isDev && process.env.SKIP_BACKEND === '1') return;
-  const serverPath = path.join(__dirname, 'server.js');
-  serverProcess = spawn(process.execPath, [serverPath], {
+  
+  const nodeServerPath = path.join(__dirname, 'server.js');
+  
+  serverProcess = spawn(process.execPath, [nodeServerPath], {
     env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
     stdio: 'inherit'
+  });
+
+  serverProcess.on('error', (err) => {
+    console.error("[BACKEND] Falha ao iniciar servidor Node.js:", err.message);
   });
 }
 
@@ -51,7 +56,7 @@ function createWindow() {
   }
 }
 
-// --- LOGICA DE VERSÃO E ATUALIZAÇÃO ---
+// --- LOGICA DE VERSÃO E ATUALIZAÇÃO MELHORADA ---
 
 async function fetchGitHubData(apiPath) {
   return new Promise((resolve, reject) => {
@@ -62,8 +67,7 @@ async function fetchGitHubData(apiPath) {
       path: apiPath,
       headers: { 
         'User-Agent': 'PSQL-Buddy-App',
-        'Accept': 'application/vnd.github.v3+json',
-        'Cache-Control': 'no-cache'
+        'Accept': 'application/vnd.github.v3+json'
       }
     });
     
@@ -85,9 +89,7 @@ async function fetchGitHubData(apiPath) {
       });
     });
     
-    request.on('error', (err) => {
-      reject(err);
-    });
+    request.on('error', (err) => reject(err));
     request.end();
   });
 }
@@ -95,27 +97,28 @@ async function fetchGitHubData(apiPath) {
 function parseTotalCommitsFromLink(linkHeader) {
   if (!linkHeader) return 0;
   const links = Array.isArray(linkHeader) ? linkHeader[0] : linkHeader;
-  
-  // Captura o número da última página (total de commits quando per_page=1)
   const match = links.match(/[?&]page=(\d+)[^>]*>;\s*rel="last"/);
   return match ? parseInt(match[1], 10) : 0;
 }
 
 async function getGitHubBranchStatus(branch) {
   try {
-    const response = await fetchGitHubData(`/repos/${GITHUB_REPO}/commits?sha=${branch}&per_page=1`);
-    
-    if (!response.ok) {
-      return { error: true, status: response.status, branch };
+    // Busca informações da branch para validar existência
+    const branchCheck = await fetchGitHubData(`/repos/${GITHUB_REPO}/branches/${branch}`);
+    if (!branchCheck.ok) {
+       return { error: true, status: branchCheck.status, branch, ok: false };
     }
+
+    // Busca o contador de commits
+    const response = await fetchGitHubData(`/repos/${GITHUB_REPO}/commits?sha=${branch}&per_page=1`);
+    if (!response.ok) return { error: true, status: response.status, ok: false };
 
     const commits = response.json;
     const linkHeader = response.headers['link'];
     let count = parseTotalCommitsFromLink(linkHeader);
 
-    if (count === 0 && Array.isArray(commits)) {
-      count = commits.length;
-    }
+    // Se não houver link header, mas houver commits, o contador é a quantidade retornada (repos muito pequenos)
+    if (count === 0 && Array.isArray(commits)) count = commits.length;
 
     const major = Math.floor(count / 1000);
     const minor = Math.floor((count % 1000) / 100);
@@ -127,45 +130,47 @@ async function getGitHubBranchStatus(branch) {
       commitCount: count,
       lastMessage: (Array.isArray(commits) && commits[0]?.commit?.message) || "Sem descrição.",
       url: `https://github.com/${GITHUB_REPO}/archive/refs/heads/${branch}.zip`,
-      ok: true
+      ok: true,
+      branch
     };
   } catch (e) { 
-    return { error: true, message: e.message }; 
+    return { error: true, message: e.message, ok: false }; 
   }
 }
 
 ipcMain.on('check-update', async (event, requestedBranch = 'stable') => {
   try {
-    // Tenta obter status de ambas as principais branches
-    const [mainStatus, stableStatus] = await Promise.all([
+    // Tenta as 3 branches mais comuns para garantir que teremos algo para comparar
+    const [mainStatus, stableStatus, masterStatus] = await Promise.all([
       getGitHubBranchStatus('main'),
-      getGitHubBranchStatus('stable')
+      getGitHubBranchStatus('stable'),
+      getGitHubBranchStatus('master')
     ]);
 
     const versionsInfo = {
-      stable: (stableStatus && stableStatus.ok) ? stableStatus.version : (mainStatus.ok ? mainStatus.version : "Erro"),
-      main: (mainStatus && mainStatus.ok) ? mainStatus.version : "Erro",
+      stable: stableStatus.ok ? stableStatus.version : (mainStatus.ok ? mainStatus.version : (masterStatus.ok ? masterStatus.version : "N/A")),
+      main: mainStatus.ok ? mainStatus.version : (masterStatus.ok ? masterStatus.version : "N/A"),
     };
 
     if (mainWindow && !mainWindow.isDestroyed()) {
        mainWindow.webContents.send('sync-versions', versionsInfo);
     }
 
+    // Pega a versão LOCAL (injetada no build)
     const currentAppVersion = app.isPackaged ? app.getVersion() : '0.1.10'; 
     
-    // Fallback inteligente: se pediu stable mas não existe, usa main
-    let targetStatus = requestedBranch === 'main' ? mainStatus : stableStatus;
-    if (!targetStatus.ok && requestedBranch === 'stable' && mainStatus.ok) {
-      targetStatus = mainStatus;
-    }
+    // Define qual status remoto usar para comparação de atualização
+    let targetStatus = null;
+    if (requestedBranch === 'stable' && stableStatus.ok) targetStatus = stableStatus;
+    else if (mainStatus.ok) targetStatus = mainStatus;
+    else if (masterStatus.ok) targetStatus = masterStatus;
 
     if (targetStatus && targetStatus.ok) {
       if (targetStatus.version !== currentAppVersion) {
         mainWindow.webContents.send('update-available', {
           version: targetStatus.version,
           notes: targetStatus.lastMessage,
-          branch: targetStatus.branch === 'main' ? 'Main' : 'Stable',
-          isPrerelease: targetStatus.branch === 'main',
+          branch: targetStatus.branch,
           allVersions: versionsInfo,
           downloadUrl: targetStatus.url
         });
@@ -173,12 +178,12 @@ ipcMain.on('check-update', async (event, requestedBranch = 'stable') => {
         mainWindow.webContents.send('update-not-available', { version: currentAppVersion });
       }
     } else {
-       mainWindow.webContents.send('update-error', { 
-         message: `Repositório ou branch indisponível no GitHub.` 
-       });
+       // Se chegamos aqui, o repositório ou as branches não foram encontrados
+       const errorMsg = `GitHub respondeu 404 para o repositório ${GITHUB_REPO}. Verifique se o nome do repositório no main.js está idêntico ao do seu GitHub (Case Sensitive).`;
+       mainWindow.webContents.send('update-error', { message: errorMsg });
     }
   } catch (error) {
-    mainWindow.webContents.send('update-error', { message: "Erro ao consultar GitHub." });
+    mainWindow.webContents.send('update-error', { message: "Erro de conexão ao consultar GitHub." });
   }
 });
 
