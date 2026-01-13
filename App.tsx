@@ -101,24 +101,23 @@ const App: React.FC = () => {
         console.log("%c[UPDATE-IPC] Objeto recebido:", "color: #6366f1; font-weight: bold;", res);
         const { comparison, remoteVersion, localVersion, notes, branch } = res;
         const isManual = manualCheckRef.current;
-        manualCheckRef.current = false; // Reset do flag de carregamento
+        manualCheckRef.current = false;
 
         if (comparison === 'newer') {
-          console.log("[UPDATE] Versão superior detectada.");
+          console.log("[UPDATE] Versão superior disponível.");
           setUpdateInfo({ version: remoteVersion, notes, branch, updateType: 'upgrade', currentVersion: localVersion });
           toast.success(`Nova versão disponível: v${remoteVersion}`, { id: 'update-toast' });
         } else if (comparison === 'older') {
-          console.log("[UPDATE] Versão do GitHub é anterior à local.");
+          console.log("[UPDATE] Versão local é superior à do GitHub.");
           if (isManual) {
             setUpdateInfo({ version: remoteVersion, notes, branch, updateType: 'downgrade', currentVersion: localVersion });
           }
           toast(`Versão local (v${localVersion}) é mais recente que v${remoteVersion}.`, { id: 'update-toast', icon: '✅' });
         } else {
-          console.log("[UPDATE] Aplicativo já está na versão idêntica do canal.");
+          console.log("[UPDATE] O app já está sincronizado.");
           if (isManual) {
             toast.success("O aplicativo já está atualizado.", { id: 'update-toast' });
           } else {
-            // Fecha o toast de carregamento automático se houver
             toast.dismiss('update-toast');
           }
         }
@@ -136,13 +135,16 @@ const App: React.FC = () => {
         console.log("[UPDATE-IPC] Sincronização de versões:", v);
         setRemoteVersions(v);
       });
-      electron.on('update-downloading', (p: any) => setDownloadProgress(p.percent));
+      electron.on('update-downloading', (p: any) => {
+        console.log(`[UPDATE] Download: ${Math.round(p.percent)}%`);
+        setDownloadProgress(p.percent);
+      });
       electron.on('update-ready', () => {
         setUpdateReady(true);
-        toast.success("Arquivos prontos para instalação!", { id: 'update-toast' });
+        console.log("[UPDATE] Instalação pendente de reinício.");
+        toast.success("Download concluído! Pronto para instalar.", { id: 'update-toast' });
       });
       
-      // Busca inicial silenciosa
       electron.send('check-update', settings.updateBranch);
 
       return () => {
@@ -159,19 +161,8 @@ const App: React.FC = () => {
     const electron = (window as any).electron;
     if (electron) {
       manualCheckRef.current = true;
-      console.log(`[USER] Iniciando verificação manual para o canal: ${settings.updateBranch}`);
-      
-      const safetyTimeout = setTimeout(() => {
-        if (manualCheckRef.current) {
-          manualCheckRef.current = false;
-          toast.error("O servidor de atualização demorou a responder.", { id: 'update-toast' });
-        }
-      }, 10000);
-
       toast.loading("Verificando GitHub...", { id: 'update-toast' });
       electron.send('check-update', settings.updateBranch);
-      
-      return () => clearTimeout(safetyTimeout);
     } else {
       toast.error("Atualizações automáticas disponíveis apenas no Desktop.");
     }
@@ -179,12 +170,22 @@ const App: React.FC = () => {
 
   const handleStartDownload = () => {
     const electron = (window as any).electron;
-    if (electron) electron.send('start-download');
+    if (electron) {
+      console.log("[USER] Iniciando download do pacote...");
+      electron.send('start-download');
+    }
   };
 
   const handleInstallUpdate = () => {
     const electron = (window as any).electron;
-    if (electron) electron.send('install-update');
+    if (electron) {
+      console.log("[USER] Solicitando reinício para aplicação da atualização.");
+      // Exibe um último aviso se estiver em dev mode via log
+      if (process.env.NODE_ENV === 'development') {
+         console.warn("[INFO] Você está em modo DEV. O reinício apenas recarregará os mesmos arquivos locais.");
+      }
+      electron.send('install-update');
+    }
   };
 
   const handleSchemaLoaded = (loadedSchema: DatabaseSchema, creds: DbCredentials) => {

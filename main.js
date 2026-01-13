@@ -3,12 +3,14 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { spawn, execSync } from 'child_process';
 import fs from 'fs';
+import os from 'os';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 let mainWindow;
 let serverProcess;
+let updateUrl = "";
 
 const GITHUB_REPO = "Hamilton-Junior/psqlBuddy";
 
@@ -93,7 +95,6 @@ function parseTotalCommitsFromLink(linkHeader) {
   return match ? parseInt(match[1], 10) : 0;
 }
 
-// Retorna 'newer' (git > local), 'older' (git < local) ou 'equal'
 function compareVersions(vRemote, vLocal) {
   console.log(`[DEBUG:Version] Iniciando comparação. Remota: "${vRemote}" | Local: "${vLocal}"`);
   if (!vRemote || !vLocal) return 'equal';
@@ -106,16 +107,14 @@ function compareVersions(vRemote, vLocal) {
     const remoteVal = r[i] || 0;
     const localVal = l[i] || 0;
     if (remoteVal > localVal) {
-      console.log(`[DEBUG:Version] Resultado: NEWER (Remoto ${remoteVal} > Local ${localVal} na posição ${i})`);
+      console.log(`[DEBUG:Version] Resultado: NEWER (Remoto ${remoteVal} > Local ${localVal})`);
       return 'newer';
     }
     if (remoteVal < localVal) {
-      console.log(`[DEBUG:Version] Resultado: OLDER (Remoto ${remoteVal} < Local ${localVal} na posição ${i})`);
+      console.log(`[DEBUG:Version] Resultado: OLDER (Remoto ${remoteVal} < Local ${localVal})`);
       return 'older';
     }
   }
-  
-  console.log(`[DEBUG:Version] Resultado: EQUAL`);
   return 'equal';
 }
 
@@ -142,52 +141,41 @@ async function getGitHubBranchStatus(branch) {
 function getAppVersion() {
   try {
     if (app.isPackaged) return app.getVersion();
-    
-    // Em desenvolvimento, tenta ler a contagem de commits local para bater com a lógica do GitHub
     const commitCount = execSync('git rev-list --count HEAD').toString().trim();
     const count = parseInt(commitCount, 10) || 0;
     const major = Math.floor(count / 1000);
     const minor = Math.floor((count % 1000) / 100);
     const patch = count % 100;
-    const versionString = `${major}.${minor}.${patch}`;
-    
-    console.log(`[DEBUG:LocalVersion] Calculada via Git: ${versionString} (Total Commits: ${count})`);
-    return versionString;
+    return `${major}.${minor}.${patch}`;
   } catch (e) { 
-    // Fallback para package.json se não estiver em um repo git
     try {
       const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf8'));
       return pkg.version;
-    } catch (e2) {
-      return '0.1.10'; 
-    }
+    } catch (e2) { return '0.1.10'; }
   }
 }
 
 ipcMain.on('check-update', async (event, branch = 'stable') => {
-  console.log(`[IPC] Recebido check-update para o canal: ${branch}`);
+  console.log(`[IPC] Verificando atualização canal: ${branch}`);
   try {
     const [mainStatus, stableStatus] = await Promise.all([
       getGitHubBranchStatus('main'),
       getGitHubBranchStatus('stable')
     ]);
     
-    const versionsInfo = {
-      stable: (stableStatus && stableStatus.ok) ? stableStatus.version : "Erro",
-      main: (mainStatus && mainStatus.ok) ? mainStatus.version : "Erro",
-    };
-    
-    if (mainWindow && !mainWindow.isDestroyed()) {
-       mainWindow.webContents.send('sync-versions', versionsInfo);
+    if (mainWindow) {
+       mainWindow.webContents.send('sync-versions', {
+          stable: stableStatus.ok ? stableStatus.version : "Erro",
+          main: mainStatus.ok ? mainStatus.version : "Erro",
+       });
     }
     
     const currentAppVersion = getAppVersion();
     const targetStatus = branch === 'main' ? mainStatus : stableStatus;
 
     if (targetStatus && targetStatus.ok) {
+      updateUrl = targetStatus.url;
       const result = compareVersions(targetStatus.version, currentAppVersion);
-      
-      console.log(`[IPC] Enviando update-check-result. Comparação: ${result}`);
       mainWindow.webContents.send('update-check-result', {
         comparison: result,
         remoteVersion: targetStatus.version,
@@ -196,29 +184,69 @@ ipcMain.on('check-update', async (event, branch = 'stable') => {
         url: targetStatus.url,
         branch: branch === 'main' ? 'Main' : 'Stable'
       });
-    } else {
-       console.error(`[IPC] Erro ao buscar status do GitHub para o branch ${branch}`);
-       mainWindow.webContents.send('update-error', { message: "Falha ao obter dados do GitHub." });
     }
   } catch (error) {
-    console.error(`[IPC] Erro geral na verificação de atualização:`, error);
-    mainWindow.webContents.send('update-error', { message: "Erro na verificação." });
+    console.error(`[IPC] Erro na verificação:`, error);
   }
 });
 
 ipcMain.on('start-download', () => {
-  let progress = 0;
-  const interval = setInterval(() => {
-    progress += 10;
-    mainWindow.webContents.send('update-downloading', { percent: Math.min(progress, 100) });
-    if (progress >= 100) {
-      clearInterval(interval);
-      setTimeout(() => mainWindow.webContents.send('update-ready'), 500);
-    }
-  }, 200);
+  console.log(`[UPDATE] Iniciando download real: ${updateUrl}`);
+  
+  if (!updateUrl) {
+    console.error("[UPDATE] URL de download não definida.");
+    return;
+  }
+
+  // No Electron, para baixar arquivos grandes de forma robusta e mostrar progresso real:
+  const request = net.request(updateUrl);
+  
+  request.on('response', (response) => {
+    const totalBytes = parseInt(response.headers['content-length'], 10) || 0;
+    let receivedBytes = 0;
+    const tempFilePath = path.join(os.tmpdir(), 'psqlbuddy-update.zip');
+    const fileStream = fs.createWriteStream(tempFilePath);
+
+    console.log(`[UPDATE] Tamanho total: ${totalBytes} bytes`);
+
+    response.on('data', (chunk) => {
+      receivedBytes += chunk.length;
+      fileStream.write(chunk);
+      
+      if (totalBytes > 0) {
+        const percent = (receivedBytes / totalBytes) * 100;
+        mainWindow.webContents.send('update-downloading', { percent });
+      }
+    });
+
+    response.on('end', () => {
+      fileStream.end();
+      console.log(`[UPDATE] Download concluído em: ${tempFilePath}`);
+      mainWindow.webContents.send('update-ready');
+    });
+  });
+
+  request.on('error', (err) => {
+    console.error(`[UPDATE] Erro no download: ${err.message}`);
+  });
+
+  request.end();
 });
 
-ipcMain.on('install-update', () => { app.relaunch(); app.exit(); });
+ipcMain.on('install-update', () => { 
+  const isDev = !app.isPackaged;
+  console.log(`[UPDATE] Solicitada instalação. Modo: ${isDev ? 'DESENVOLVIMENTO' : 'PRODUÇÃO'}`);
+  
+  if (isDev) {
+    console.log("%c[AVISO] No modo dev (npm dev:all), o reinício não altera a versão.", "color: orange; font-weight: bold;");
+    console.log("[DICA] Para atualizar o código-fonte realmente, utilize 'git pull'.");
+    console.log("[INFO] O reinício simula o ciclo completo de atualização de um binário real.");
+  }
+
+  app.relaunch(); 
+  app.exit(); 
+});
+
 app.whenReady().then(() => { startBackend(); createWindow(); });
 app.on('window-all-closed', () => {
   if (serverProcess) serverProcess.kill();
