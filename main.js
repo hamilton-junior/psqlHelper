@@ -15,43 +15,57 @@ let serverProcess;
 autoUpdater.autoDownload = false;
 autoUpdater.logger = console;
 
-// Função para buscar versões reais do GitHub (funciona em DEV e PROD)
+// Função aprimorada para buscar versões reais do GitHub
 async function fetchGitHubVersions() {
   const repo = "Hamilton-Junior/psqlBuddy";
-  console.log(`[MAIN] Buscando versões no GitHub: ${repo}`);
+  const timestamp = new Date().getTime();
+  console.log(`[MAIN] Buscando versões no GitHub: ${repo} (cb=${timestamp})`);
   
   try {
-    // A API do GitHub EXIGE um User-Agent. Sem ele, retorna 403.
-    const headers = { 'User-Agent': 'PSQL-Buddy-App' };
+    const headers = { 
+      'User-Agent': 'PSQL-Buddy-App',
+      'Accept': 'application/vnd.github.v3+json',
+      'Cache-Control': 'no-cache'
+    };
 
-    // Buscar última tag/release (Stable)
-    const releaseRes = await fetch(`https://api.github.com/repos/${repo}/releases/latest`, { headers });
-    
-    // Buscar último commit da main (para quem usa canal Beta/Main)
-    const branchRes = await fetch(`https://api.github.com/repos/${repo}/branches/main`, { headers });
-
+    // 1. Tentar buscar a última release estável
     let stable = '---';
-    let main = '---';
-
-    if (releaseRes.ok) {
-      const releaseData = await releaseRes.json();
-      stable = releaseData.tag_name ? releaseData.tag_name.replace('v', '') : '---';
-    } else {
-      console.error(`[GITHUB API] Erro Release: ${releaseRes.status}`);
+    try {
+      const releaseRes = await fetch(`https://api.github.com/repos/${repo}/releases/latest?t=${timestamp}`, { headers });
+      if (releaseRes.ok) {
+        const data = await releaseRes.json();
+        stable = data.tag_name ? data.tag_name.replace('v', '') : '---';
+      } else if (releaseRes.status === 404) {
+        // Fallback: Se não houver "Latest Release", buscar a última Tag
+        const tagsRes = await fetch(`https://api.github.com/repos/${repo}/tags?t=${timestamp}`, { headers });
+        if (tagsRes.ok) {
+          const tags = await tagsRes.json();
+          if (tags && tags.length > 0) {
+            stable = tags[0].name.replace('v', '');
+          }
+        }
+      }
+    } catch (e) {
+      console.error("[GITHUB API] Erro ao buscar estável:", e.message);
     }
 
-    if (branchRes.ok) {
-      const branchData = await branchRes.json();
-      // Em canais de dev, usamos uma nomenclatura de versão aproximada ou o hash do commit
-      main = branchData.commit ? '0.1.X' : '---';
-    } else {
-      console.error(`[GITHUB API] Erro Branch: ${branchRes.status}`);
+    // 2. Buscar informações da branch main (canal Dev/Beta)
+    let main = '---';
+    try {
+      const branchRes = await fetch(`https://api.github.com/repos/${repo}/branches/main?t=${timestamp}`, { headers });
+      if (branchRes.ok) {
+        const data = await branchRes.json();
+        // Usamos os primeiros 7 caracteres do SHA do commit como "versão" de desenvolvimento
+        main = data.commit && data.commit.sha ? data.commit.sha.substring(0, 7) : '---';
+      }
+    } catch (e) {
+      console.error("[GITHUB API] Erro ao buscar main:", e.message);
     }
 
     console.log(`[MAIN] Versões recuperadas - Stable: ${stable}, Main: ${main}`);
     return { stable, main };
   } catch (error) {
-    console.error('[GITHUB API] Falha na conexão:', error.message);
+    console.error('[GITHUB API] Falha crítica na conexão:', error.message);
     return { stable: 'Erro', main: 'Erro' };
   }
 }
@@ -89,9 +103,10 @@ function createWindow() {
   }
 
   mainWindow.webContents.on('did-finish-load', async () => {
-    mainWindow.webContents.send('app-version', app.getVersion());
+    const currentVersion = app.getVersion();
+    mainWindow.webContents.send('app-version', currentVersion);
     
-    // Envia as versões do GitHub para o SettingsModal
+    // Busca versões e sincroniza com a UI
     const versions = await fetchGitHubVersions();
     mainWindow.webContents.send('sync-versions', versions);
   });
