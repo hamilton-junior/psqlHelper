@@ -28,15 +28,14 @@ async function fetchGitHubVersions() {
       'Cache-Control': 'no-cache'
     };
 
-    // 1. Tentar buscar a última release estável
+    // 1. Tentar buscar a última release estável via tags/releases
     let stable = '---';
     try {
       const releaseRes = await fetch(`https://api.github.com/repos/${repo}/releases/latest?t=${timestamp}`, { headers });
       if (releaseRes.ok) {
         const data = await releaseRes.json();
         stable = data.tag_name ? data.tag_name.replace('v', '') : '---';
-      } else if (releaseRes.status === 404) {
-        // Fallback: Se não houver "Latest Release", buscar a última Tag
+      } else {
         const tagsRes = await fetch(`https://api.github.com/repos/${repo}/tags?t=${timestamp}`, { headers });
         if (tagsRes.ok) {
           const tags = await tagsRes.json();
@@ -50,14 +49,27 @@ async function fetchGitHubVersions() {
     }
 
     // 2. Buscar informações da branch main (canal Dev/Beta)
+    // Em vez de apenas o SHA, tentamos ler o package.json da branch main para ter a versão real
     let main = '---';
     try {
-      const branchRes = await fetch(`https://api.github.com/repos/${repo}/branches/main?t=${timestamp}`, { headers });
-      if (branchRes.ok) {
-        const data = await branchRes.json();
-        // Usamos os primeiros 7 caracteres do SHA do commit como "versão" de desenvolvimento
-        main = data.commit && data.commit.sha ? data.commit.sha.substring(0, 7) : '---';
+      const pkgRes = await fetch(`https://raw.githubusercontent.com/${repo}/main/package.json?t=${timestamp}`);
+      const branchInfoRes = await fetch(`https://api.github.com/repos/${repo}/branches/main?t=${timestamp}`, { headers });
+      
+      let version = '0.0.0';
+      let sha = '';
+
+      if (pkgRes.ok) {
+        const pkgData = await pkgRes.json();
+        version = pkgData.version || '0.0.0';
       }
+
+      if (branchInfoRes.ok) {
+        const branchData = await branchInfoRes.json();
+        sha = branchData.commit && branchData.commit.sha ? branchData.commit.sha.substring(0, 7) : '';
+      }
+
+      // Formata como "0.2.5 (sha)" ou apenas a versão se o sha falhar
+      main = sha ? `${version} (${sha})` : version;
     } catch (e) {
       console.error("[GITHUB API] Erro ao buscar main:", e.message);
     }

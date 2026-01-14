@@ -1,4 +1,3 @@
-
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { 
   Settings, Save, X, Bot, Zap, 
@@ -28,10 +27,10 @@ type TabId = 'interface' | 'ai' | 'database' | 'diagnostics';
 declare const __APP_VERSION__: string;
 const CURRENT_APP_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.1.10';
 
-const SettingsModal: React.FC<SettingsModalProps> = ({ 
+export default function SettingsModal({ 
   settings, onSave, onClose, quotaExhausted,
   schema, credentials, simulationData = {}, remoteVersions
-}) => {
+}: SettingsModalProps) {
   const [formData, setFormData] = useState<AppSettings>({ ...settings });
   const [activeTab, setActiveTab] = useState<TabId>('interface');
   const [healthResults, setHealthResults] = useState<HealthStatus[] | null>(null);
@@ -62,7 +61,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
       const results = await runFullHealthCheck(credentials, schema);
       setHealthResults(results);
     } catch (e) {
-      console.error("Health Check failed", e);
+      console.error("[SETTINGS] Health Check failed", e);
     } finally {
       setIsChecking(false);
     }
@@ -76,7 +75,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
         setStressLogs(prev => [...prev, newLog]);
       });
     } catch (e) {
-      console.error("Stress test failed", e);
+      console.error("[SETTINGS] Stress test failed", e);
     } finally {
       setIsStressing(false);
     }
@@ -132,9 +131,11 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
        );
     }
 
+    const prefix = (latest.startsWith('v') || latest.includes('(')) ? '' : 'v';
+
     return (
        <div className="text-3xl font-black text-emerald-600 dark:text-emerald-400">
-          v{latest}
+          {prefix}{latest}
        </div>
     );
   };
@@ -465,7 +466,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                                `}
                             >
                                <span className="flex items-center gap-2 font-black uppercase"><FlaskConical className="w-4 h-4" /> Main / Dev</span>
-                               <span className="text-[9px] opacity-70 font-mono">v{remoteVersions?.main || '...'}</span>
+                               <span className="text-[9px] opacity-70 font-mono">v{remoteVersions?.main ? (remoteVersions.main.includes('(') ? remoteVersions.main.split(' ')[0] : remoteVersions.main) : '...'}</span>
                             </button>
                          </div>
                          <div className="mt-2 p-4 bg-slate-50 dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-700">
@@ -595,6 +596,4 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
       </div>
     </div>
   );
-};
-
-export default SettingsModal;
+}
