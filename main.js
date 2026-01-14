@@ -105,7 +105,7 @@ function parseTotalCommitsFromLink(linkHeader) {
 }
 
 function compareVersions(vRemote, vLocal) {
-  console.log(`[UPDATE:Compare] Iniciando comparação: Remota(${vRemote}) vs Local(${vLocal})`);
+  console.log(`[UPDATE:Compare] Verificando: Remota(${vRemote}) vs Local(${vLocal})`);
   
   if (!vRemote || !vLocal) return 'equal';
 
@@ -113,22 +113,14 @@ function compareVersions(vRemote, vLocal) {
   const r = parse(vRemote);
   const l = parse(vLocal);
   
-  // Normaliza para arrays de 3 posições
   while (r.length < 3) r.push(0);
   while (l.length < 3) l.push(0);
 
   for (let i = 0; i < 3; i++) {
-    if (r[i] > l[i]) {
-      console.log(`[UPDATE:Compare] Resultado: NEWER (Remoto ${vRemote} > Local ${vLocal})`);
-      return 'newer';
-    }
-    if (r[i] < l[i]) {
-      console.log(`[UPDATE:Compare] Resultado: OLDER (Remoto ${vRemote} < Local ${vLocal})`);
-      return 'older';
-    }
+    if (r[i] > l[i]) return 'newer';
+    if (r[i] < l[i]) return 'older';
   }
   
-  console.log(`[UPDATE:Compare] Resultado: EQUAL`);
   return 'equal';
 }
 
@@ -141,10 +133,8 @@ async function getGitHubBranchStatus(branch) {
     const linkHeader = response.headers['link'] || response.headers['Link'];
     
     let count = parseTotalCommitsFromLink(linkHeader);
-    // Fallback caso não haja header link (ex: apenas 1 commit)
     if (count === 0 && Array.isArray(commits)) count = commits.length;
 
-    // Lógica 0.1.X baseada em commits
     const major = Math.floor(count / 1000);
     const minor = Math.floor((count % 1000) / 100);
     const patch = count % 100;
@@ -162,25 +152,26 @@ async function getGitHubBranchStatus(branch) {
 }
 
 function getAppVersion() {
+  // Tenta SEMPRE calcular via git primeiro para manter consistência com o check remoto (baseado em commits)
   try {
-    if (app.isPackaged) return app.getVersion();
-    
     const commitCount = execSync('git rev-list --count HEAD').toString().trim();
     const count = parseInt(commitCount, 10) || 0;
     const major = Math.floor(count / 1000);
     const minor = Math.floor((count % 1000) / 100);
     const patch = count % 100;
-    return `${major}.${minor}.${patch}`;
+    const dynamicVersion = `${major}.${minor}.${patch}`;
+    console.log(`[VERSION] Versão dinâmica calculada via Git: ${dynamicVersion}`);
+    return dynamicVersion;
   } catch (e) { 
-    try {
-      const pkg = JSON.parse(fs.readFileSync(path.join(app.getAppPath(), 'package.json'), 'utf8'));
-      return pkg.version;
-    } catch (e2) { return '0.1.10'; }
+    // Se falhar (ex: app instalado sem pasta .git), usa a versão do package ou do electron
+    const version = app.getVersion();
+    console.log(`[VERSION] Git indisponível. Usando versão do executável: ${version}`);
+    return version;
   }
 }
 
 ipcMain.on('check-update', async (event, branch = 'stable') => {
-  console.log(`[IPC] Verificando atualização canal: ${branch}`);
+  console.log(`[IPC] Verificando atualização no canal: ${branch}`);
   try {
     const currentAppVersion = getAppVersion();
     
@@ -202,6 +193,8 @@ ipcMain.on('check-update', async (event, branch = 'stable') => {
       updateUrl = targetStatus.url;
       const result = compareVersions(targetStatus.version, currentAppVersion);
       
+      console.log(`[UPDATE] Resultado da comparação: ${result} (Remoto: ${targetStatus.version} vs Local: ${currentAppVersion})`);
+
       mainWindow.webContents.send('update-check-result', {
         comparison: result,
         remoteVersion: targetStatus.version,
@@ -239,7 +232,7 @@ ipcMain.on('start-download', () => {
     response.on('end', () => {
       fileStream.end();
       downloadedZipPath = tempFilePath;
-      console.log(`[UPDATE] Arquivo baixado em: ${tempFilePath}`);
+      console.log(`[UPDATE] Download concluído: ${tempFilePath}`);
       mainWindow.webContents.send('update-ready', { path: tempFilePath });
     });
   });
@@ -252,45 +245,54 @@ ipcMain.on('start-download', () => {
 
 ipcMain.on('install-update', () => { 
   const isDev = !app.isPackaged;
-  // O appPath em produção aponta para resources/app.asar ou a pasta da aplicação
-  const appPath = app.getAppPath();
+  const appPath = app.getAppPath(); // resources/app.asar ou pasta do app
   const exePath = process.execPath;
-  const destinationDir = path.dirname(appPath);
+  const appDir = path.dirname(exePath); // Pasta onde está o .exe
   
   console.log(`[UPDATE] Iniciando instalação real...`);
-  console.log(`[UPDATE] Destino: ${destinationDir}`);
+  console.log(`[UPDATE] Pasta da aplicação: ${appDir}`);
 
   if (!downloadedZipPath || !fs.existsSync(downloadedZipPath)) {
-    console.error("[UPDATE] Arquivo de atualização não encontrado.");
+    console.error("[UPDATE] Arquivo de atualização não localizado.");
     return;
   }
 
   if (isDev) {
-    console.warn("[DEV MODE] Relaunch simples.");
+    console.warn("[DEV MODE] Relaunch simulado. Em produção o ZIP seria extraído.");
     app.relaunch(); 
     app.exit();
     return;
   }
 
   const isWin = process.platform === 'win32';
-  const scriptPath = path.join(os.tmpdir(), isWin ? 'psql_updater.bat' : 'psql_updater.sh');
-  
+  const scriptPath = path.join(os.tmpdir(), isWin ? `updater_${Date.now()}.bat` : `updater_${Date.now()}.sh`);
+  const branchName = updateUrl.includes('/main.zip') ? 'main' : 'stable';
+  const zipFolderName = `psqlBuddy-${branchName}`;
+
   let scriptContent = "";
   if (isWin) {
-    // Windows: Espera o app fechar, extrai via PS e limpa o script
+    // Windows: Espera 3s, extrai o ZIP para uma pasta temporária, move o conteúdo para a raiz e reinicia
     scriptContent = `@echo off
-echo Finalizando PSQL Buddy para atualizacao...
+echo Atualizando PSQL Buddy... Por favor, aguarde.
 timeout /t 3 /nobreak > nul
-powershell -Command "Expand-Archive -Path '${downloadedZipPath}' -DestinationPath '${destinationDir}' -Force"
-echo Concluido. Reiniciando...
+set "TEMP_EXTRACT=%TEMP%\psql_extract_%RANDOM%"
+mkdir "%TEMP_EXTRACT%"
+powershell -Command "Expand-Archive -Path '${downloadedZipPath.replace(/\\/g, '\\\\')}' -DestinationPath '%TEMP_EXTRACT%' -Force"
+xcopy /s /y "%TEMP_EXTRACT%\\${zipFolderName}\\*" "${appDir}"
+rmdir /s /q "%TEMP_EXTRACT%"
+echo Instalacao concluida. Reiniciando...
 start "" "${exePath}"
 del "%~f0"
 `;
   } else {
-    // Unix: Espera o app fechar, extrai via unzip e limpa o script
+    // Unix: Mesma lógica usando unzip e sleep
     scriptContent = `#!/bin/bash
 sleep 3
-unzip -o "${downloadedZipPath}" -d "${destinationDir}"
+TEMP_EXTRACT="/tmp/psql_extract_$RANDOM"
+mkdir -p "$TEMP_EXTRACT"
+unzip -o "${downloadedZipPath}" -d "$TEMP_EXTRACT"
+cp -R "$TEMP_EXTRACT/${zipFolderName}/"* "${appDir}/"
+rm -rf "$TEMP_EXTRACT"
 open "${exePath}" || "${exePath}" &
 rm "$0"
 `;
@@ -298,6 +300,7 @@ rm "$0"
 
   try {
     fs.writeFileSync(scriptPath, scriptContent, { mode: 0o755 });
+    console.log(`[UPDATE] Script de atualização gerado em: ${scriptPath}`);
     
     const child = spawn(isWin ? 'cmd.exe' : '/bin/sh', [isWin ? '/c' : '', scriptPath], {
       detached: true,
@@ -307,7 +310,7 @@ rm "$0"
     
     app.quit();
   } catch (e) {
-    console.error("[UPDATE] Erro ao disparar script externo:", e);
+    console.error("[UPDATE] Erro ao disparar script de atualização:", e);
     app.relaunch();
     app.exit();
   }

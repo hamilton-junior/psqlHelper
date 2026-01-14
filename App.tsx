@@ -98,33 +98,31 @@ const App: React.FC = () => {
     const electron = (window as any).electron;
     if (electron) {
       const handleUpdateResult = (res: any) => {
-        console.log("%c[UPDATE-IPC] Objeto recebido:", "color: #6366f1; font-weight: bold;", res);
         const { comparison, remoteVersion, localVersion, notes, branch } = res;
         const isManual = manualCheckRef.current;
         manualCheckRef.current = false;
 
-        const ignoredVersionsStr = localStorage.getItem('psqlBuddy-ignored-downgrades') || '[]';
+        const ignoredVersionsStr = localStorage.getItem('psqlBuddy-ignored-versions') || '[]';
         const ignoredVersions = JSON.parse(ignoredVersionsStr);
 
+        console.log(`[UPDATE] Check Result: ${comparison} (Remote: ${remoteVersion}, Local: ${localVersion})`);
+
         if (comparison === 'newer') {
-          setUpdateInfo({ version: remoteVersion, notes, branch, updateType: 'upgrade', currentVersion: localVersion });
-          toast.success(`Nova versão disponível: v${remoteVersion}`, { id: 'update-toast' });
-        } else if (comparison === 'older') {
-          // Se o usuário já rejeitou essa versão específica de downgrade, não mostramos novamente a não ser que seja manual
-          if (!isManual && ignoredVersions.includes(remoteVersion)) {
-            console.log(`[UPDATE] Downgrade para v${remoteVersion} ignorado pelo usuário.`);
-            setUpdateInfo(null);
-            return;
+          // Se for manual, mostra sempre. Se for automático, verifica se não foi ignorada.
+          if (isManual || !ignoredVersions.includes(remoteVersion)) {
+             setUpdateInfo({ version: remoteVersion, notes, branch, updateType: 'upgrade', currentVersion: localVersion });
+             if (isManual) toast.success(`Nova versão encontrada: v${remoteVersion}`, { id: 'update-toast' });
           }
-          setUpdateInfo({ version: remoteVersion, notes, branch, updateType: 'downgrade', currentVersion: localVersion });
+        } else if (comparison === 'older') {
+          // Apenas informa downgrade em check manual
           if (isManual) {
-            toast(`Versão local (v${localVersion}) é mais recente que v${remoteVersion}.`, { id: 'update-toast', icon: '✅' });
+             setUpdateInfo({ version: remoteVersion, notes, branch, updateType: 'downgrade', currentVersion: localVersion });
+             toast(`A versão disponível (v${remoteVersion}) é anterior à sua local.`, { id: 'update-toast', icon: '⚠️' });
           }
         } else {
-          // Versões iguais
           setUpdateInfo(null);
           if (isManual) {
-            toast.success("O aplicativo já está atualizado.", { id: 'update-toast' });
+            toast.success("O aplicativo já está na última versão.", { id: 'update-toast' });
           } else {
             toast.dismiss('update-toast');
           }
@@ -132,7 +130,7 @@ const App: React.FC = () => {
       };
 
       const handleUpdateError = (err: any) => {
-        console.error("[UPDATE-IPC] Erro:", err);
+        console.error("[UPDATE] Erro no check:", err);
         manualCheckRef.current = false;
         toast.error(`Falha ao buscar atualizações: ${err.message}`, { id: 'update-toast' });
       };
@@ -147,7 +145,7 @@ const App: React.FC = () => {
       });
       electron.on('update-ready', () => {
         setUpdateReady(true);
-        toast.success("Download concluído! Pronto para instalar.", { id: 'update-toast' });
+        toast.success("Pronto para instalar!", { id: 'update-toast' });
       });
       
       // Auto-check on mount
@@ -170,19 +168,19 @@ const App: React.FC = () => {
       toast.loading("Verificando GitHub...", { id: 'update-toast' });
       electron.send('check-update', settings.updateBranch);
     } else {
-      toast.error("Atualizações automáticas disponíveis apenas no Desktop.");
+      toast.error("Disponível apenas na versão Desktop.");
     }
   };
 
   const handleIgnoreUpdate = (version: string) => {
-    console.log(`[UPDATE] Ignorando versão ${version}.`);
-    const ignoredVersionsStr = localStorage.getItem('psqlBuddy-ignored-downgrades') || '[]';
+    const ignoredVersionsStr = localStorage.getItem('psqlBuddy-ignored-versions') || '[]';
     const ignoredVersions = JSON.parse(ignoredVersionsStr);
     if (!ignoredVersions.includes(version)) {
       ignoredVersions.push(version);
-      localStorage.setItem('psqlBuddy-ignored-downgrades', JSON.stringify(ignoredVersions));
+      localStorage.setItem('psqlBuddy-ignored-versions', JSON.stringify(ignoredVersions));
     }
     setUpdateInfo(null);
+    toast("Aviso de atualização silenciado para esta versão.", { icon: '🔇' });
   };
 
   const handleStartDownload = () => {
@@ -196,7 +194,6 @@ const App: React.FC = () => {
   const handleInstallUpdate = () => {
     const electron = (window as any).electron;
     if (electron) {
-      console.log("[UPDATE] Iniciando reinício para instalação...");
       electron.send('install-update');
     }
   };
