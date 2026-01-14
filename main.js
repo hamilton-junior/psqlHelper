@@ -3,7 +3,8 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { execSync } from 'child_process';
 import fs from 'fs';
-import { autoUpdater } from 'electron-updater';
+import pkg from 'electron-updater';
+const { autoUpdater } = pkg;
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -94,8 +95,6 @@ ipcMain.on('check-update', () => {
     autoUpdater.checkForUpdates();
   } else {
     console.log('[UPDATE] Simulação em modo DEV: Verificação ignorada.');
-    // Apenas para testes visuais em dev:
-    // mainWindow.webContents.send('update-available', { version: '1.0.0', releaseNotes: 'Notas simuladas' });
   }
 });
 
