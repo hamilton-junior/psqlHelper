@@ -131,11 +131,15 @@ export default function SettingsModal({
        );
     }
 
-    const prefix = (latest.startsWith('v') || latest.includes('(')) ? '' : 'v';
+    // Se começa com número, garante que tenha o prefixo 'v'
+    let display = latest;
+    if (/^[0-9]/.test(display)) {
+       display = 'v' + display;
+    }
 
     return (
        <div className="text-3xl font-black text-emerald-600 dark:text-emerald-400">
-          {prefix}{latest}
+          {display}
        </div>
     );
   };
@@ -358,7 +362,7 @@ export default function SettingsModal({
                             type="text" 
                             value={formData.defaultDbPort} 
                             onChange={e => setFormData({...formData, defaultDbPort: e.target.value})} 
-                            className="w-full p-4 bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-800 rounded-2xl text-sm font-bold focus:ring-2 focus:ring-indigo-500 outline-none" 
+                            className="w-full p-4 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl text-sm font-bold focus:ring-2 focus:ring-indigo-500 outline-none" 
                          />
                       </div>
 
