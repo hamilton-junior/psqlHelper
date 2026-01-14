@@ -1,7 +1,7 @@
-import { app, BrowserWindow, ipcMain, spawn } from 'electron';
+import { app, BrowserWindow, ipcMain } from 'electron';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { execSync } from 'child_process';
+import { execSync, spawn } from 'child_process';
 import fs from 'fs';
 import pkg from 'electron-updater';
 const { autoUpdater } = pkg;
