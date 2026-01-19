@@ -1,5 +1,7 @@
 import { app, BrowserWindow, ipcMain, shell } from 'electron';
 import path from 'path';
+import fs from 'fs';
+import https from 'https';
 import { fileURLToPath } from 'url';
 import { spawn, execSync } from 'child_process';
 import pkg from 'electron-updater';
@@ -11,19 +13,14 @@ const __dirname = path.dirname(__filename);
 let mainWindow;
 let serverProcess;
 
-// Configurações do autoUpdater
+// Configurações do autoUpdater oficial
 autoUpdater.autoDownload = false;
 autoUpdater.allowDowngrade = true; 
 autoUpdater.allowPrerelease = true; 
 autoUpdater.logger = console;
 
-/**
- * Obtém a versão correta do aplicativo
- */
 function getCalculatedAppVersion() {
-  if (app.isPackaged) {
-    return app.getVersion();
-  }
+  if (app.isPackaged) return app.getVersion();
   try {
     const commitCount = execSync('git rev-list --count HEAD').toString().trim();
     const count = parseInt(commitCount, 10) || 0;
@@ -38,14 +35,6 @@ function getCalculatedAppVersion() {
 
 const CURRENT_VERSION = getCalculatedAppVersion();
 
-function calculateVersionFromCount(count) {
-  const c = parseInt(count, 10) || 0;
-  const major = Math.floor(c / 1000);
-  const minor = Math.floor((count % 1000) / 100);
-  const patch = c % 100;
-  return `${major}.${minor}.${patch}`;
-}
-
 function compareVersions(v1, v2) {
   if (!v1 || v1 === '---' || !v2 || v2 === '---') return 0;
   const cleanV1 = v1.replace(/^v/, '');
@@ -59,45 +48,83 @@ function compareVersions(v1, v2) {
   return 0;
 }
 
+/**
+ * Simulador de download para ambiente de Desenvolvimento
+ * Baixa o arquivo real via streaming para testar a barra de progresso
+ */
+async function simulateDownloadInDev(branch) {
+  const repo = "Hamilton-Junior/psqlBuddy";
+  const url = `https://api.github.com/repos/${repo}/releases/latest`;
+  const headers = { 'User-Agent': 'PSQL-Buddy-Dev-Tester' };
+
+  console.log(`[DEV-DOWNLOAD] Buscando assets em: ${url}`);
+
+  https.get(url, { headers }, (res) => {
+    let data = '';
+    res.on('data', chunk => data += chunk);
+    res.on('end', () => {
+      try {
+        const release = JSON.parse(data);
+        // Tenta achar um executável ou dmg
+        const asset = release.assets.find(a => a.name.endsWith('.exe') || a.name.endsWith('.dmg') || a.name.endsWith('.AppImage'));
+        
+        if (!asset) {
+          mainWindow.webContents.send('update-error', "Nenhum binário encontrado na release para simular download.");
+          return;
+        }
+
+        const downloadUrl = asset.browser_download_url;
+        const tempPath = path.join(app.getPath('temp'), asset.name);
+        const file = fs.createWriteStream(tempPath);
+
+        console.log(`[DEV-DOWNLOAD] Iniciando streaming: ${asset.name} (${asset.size} bytes)`);
+
+        https.get(downloadUrl, (downloadRes) => {
+          // Segue redirecionamentos do GitHub
+          if (downloadRes.statusCode === 302) {
+             https.get(downloadRes.headers.location, (finalRes) => startStream(finalRes, asset.size, file));
+          } else {
+             startStream(downloadRes, asset.size, file);
+          }
+        });
+
+      } catch (e) {
+        mainWindow.webContents.send('update-error', "Erro ao processar JSON da release GitHub.");
+      }
+    });
+  }).on('error', (err) => {
+    mainWindow.webContents.send('update-error', "Erro de conexão com GitHub API.");
+  });
+
+  function startStream(response, totalSize, fileStream) {
+    let downloaded = 0;
+    response.pipe(fileStream);
+    response.on('data', (chunk) => {
+      downloaded += chunk.length;
+      const percent = (downloaded / totalSize) * 100;
+      mainWindow.webContents.send('update-downloading', { percent: Math.round(percent) });
+    });
+    response.on('end', () => {
+      console.log(`[DEV-DOWNLOAD] Download finalizado em: ${fileStream.path}`);
+      mainWindow.webContents.send('update-ready');
+    });
+  }
+}
+
 async function fetchGitHubVersions() {
   const repo = "Hamilton-Junior/psqlBuddy";
-  const headers = { 
-    'User-Agent': 'PSQL-Buddy-App',
-    'Accept': 'application/vnd.github.v3+json',
-    'Cache-Control': 'no-cache'
-  };
-
+  const headers = { 'User-Agent': 'PSQL-Buddy-App', 'Accept': 'application/vnd.github.v3+json' };
   try {
     let stable = '---';
-    const tagsRes = await fetch(`https://api.github.com/repos/${repo}/tags?per_page=30`, { headers });
+    const tagsRes = await fetch(`https://api.github.com/repos/${repo}/tags?per_page=5`, { headers });
     if (tagsRes.ok) {
       const tags = await tagsRes.json();
       const valid = tags.map(t => t.name.replace(/^v/, '')).filter(v => /^\d+\.\d+\.\d+$/.test(v)).sort(compareVersions);
       if (valid.length > 0) stable = valid[valid.length - 1];
     }
-
-    let main = '---';
-    const commitsRes = await fetch(`https://api.github.com/repos/${repo}/commits?sha=main&per_page=1`, { headers });
-    if (commitsRes.ok) {
-      const link = commitsRes.headers.get('link');
-      const count = link ? (link.match(/page=(\d+)>; rel="last"/) || [0, 1])[1] : 1;
-      main = calculateVersionFromCount(count);
-    }
-
-    return { stable, main };
+    return { stable, main: '---' };
   } catch (error) {
-    console.error('[GITHUB] Erro sincronização:', error.message);
     return { stable: 'Erro', main: 'Erro' };
-  }
-}
-
-function startBackend() {
-  if (!app.isPackaged || process.env.SKIP_BACKEND !== '1') {
-    const serverPath = path.join(__dirname, 'server.js');
-    serverProcess = spawn(process.execPath, [serverPath], {
-      env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
-      stdio: 'inherit'
-    });
   }
 }
 
@@ -123,39 +150,25 @@ function createWindow() {
   });
 }
 
-// Eventos autoUpdater
+// Eventos autoUpdater Oficiais
 autoUpdater.on('update-available', (info) => {
-  console.log(`[AUTO-UPDATER] Atualização disponível: ${info.version}`);
   mainWindow.webContents.send('update-available', { 
-    ...info, 
+    version: info.version, 
     updateType: compareVersions(info.version, CURRENT_VERSION) > 0 ? 'upgrade' : 'downgrade',
     branch: 'stable'
   });
 });
-
-autoUpdater.on('update-not-available', () => {
-  mainWindow.webContents.send('update-not-available');
-});
-
-autoUpdater.on('download-progress', (p) => {
-  mainWindow.webContents.send('update-downloading', p);
-});
-
-autoUpdater.on('update-downloaded', () => {
-  mainWindow.webContents.send('update-ready');
-});
-
-autoUpdater.on('error', (e) => {
-  console.error('[AUTO-UPDATER] Erro:', e.message);
-  mainWindow.webContents.send('update-error', e.message);
-});
+autoUpdater.on('update-not-available', () => mainWindow.webContents.send('update-not-available'));
+autoUpdater.on('download-progress', (p) => mainWindow.webContents.send('update-downloading', p));
+autoUpdater.on('update-downloaded', () => mainWindow.webContents.send('update-ready'));
+autoUpdater.on('error', (e) => mainWindow.webContents.send('update-error', e.message));
 
 ipcMain.on('check-update', async (event, branch) => {
+  console.log(`[UPDATE] Verificando: ${branch} | Packaged: ${app.isPackaged}`);
   if (app.isPackaged && branch === 'stable') {
     autoUpdater.checkForUpdates();
   } else {
     const versions = await fetchGitHubVersions();
-    mainWindow.webContents.send('sync-versions', versions);
     const remote = branch === 'main' ? versions.main : versions.stable;
     const comp = compareVersions(remote, CURRENT_VERSION);
     if (comp !== 0) {
@@ -167,24 +180,34 @@ ipcMain.on('check-update', async (event, branch) => {
 });
 
 ipcMain.on('start-download', (event, branch) => {
-  console.log(`[DOWNLOAD] Solicitado: ${branch} | Packaged: ${app.isPackaged}`);
-  
-  if (branch === 'stable' && app.isPackaged) {
-    autoUpdater.downloadUpdate();
+  if (branch === 'stable') {
+    if (app.isPackaged) {
+      autoUpdater.downloadUpdate();
+    } else {
+      // Em DEV, simulamos o download real via streaming para testar a UI
+      simulateDownloadInDev(branch);
+    }
   } else {
-    // Se não está empacotado, o autoUpdater não consegue baixar.
-    // Abrimos o navegador e informamos ao renderer para cancelar o carregamento infinito.
-    const url = branch === 'main' 
-      ? 'https://github.com/Hamilton-Junior/psqlBuddy/archive/refs/heads/main.zip'
-      : 'https://github.com/Hamilton-Junior/psqlBuddy/releases';
-    
-    shell.openExternal(url).then(() => {
-      mainWindow.webContents.send('update-error', "MANUAL_DOWNLOAD_TRIGGERED");
-    });
+    shell.openExternal('https://github.com/Hamilton-Junior/psqlBuddy/archive/refs/heads/main.zip');
+    mainWindow.webContents.send('update-error', "MANUAL_DOWNLOAD_TRIGGERED");
   }
 });
 
-ipcMain.on('install-update', () => autoUpdater.quitAndInstall());
+ipcMain.on('install-update', () => {
+  if (app.isPackaged) {
+    autoUpdater.quitAndInstall();
+  } else {
+    console.log("[DEV-UPDATE] Instalação ignorada em modo Dev para não interromper o processo atual.");
+    shell.showItemInFolder(path.join(app.getPath('temp')));
+  }
+});
 
-app.whenReady().then(() => { startBackend(); createWindow(); });
+app.whenReady().then(() => { 
+  if (!app.isPackaged) {
+    const serverPath = path.join(__dirname, 'server.js');
+    serverProcess = spawn(process.execPath, [serverPath], { env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' }, stdio: 'inherit' });
+  }
+  createWindow(); 
+});
+
 app.on('window-all-closed', () => { if (serverProcess) serverProcess.kill(); app.quit(); });

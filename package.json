@@ -16,7 +16,7 @@
     "dev:all": "concurrently -n \"VITE,SERVER,APP\" -c \"blue,green,magenta\" \"npm run dev\" \"npm run server\" \"cross-env SKIP_BACKEND=1 npm run electron\"",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "dist": "node -e \"const {execSync}=require('child_process'); const c=parseInt(execSync('git rev-list --count HEAD').toString().trim()); const major=Math.floor(c/1000); const minor=Math.floor((c%1000)/100); const patch=c%100; const v=major+'.'+minor+'.'+patch; const b=execSync('git rev-parse --abbrev-ref HEAD').toString().trim(); console.log('--- BUILD INFO ---'); console.log('Version:', v); console.log('Branch:', b); console.log('------------------'); execSync('npm run build', {stdio:'inherit'}); const builderCmd='electron-builder -c.extraMetadata.version='+v+' -c.nsis.artifactName=\\\"PSQL Buddy Setup '+v+'-'+b+'.exe\\\"'; execSync(builderCmd, {stdio:'inherit'})\""
+    "dist": "node -e \"const {execSync}=require('child_process'); const c=parseInt(execSync('git rev-list --count HEAD').toString().trim()); const major=Math.floor(c/1000); const minor=Math.floor((c%1000)/100); const patch=c%100; const v=major+'.'+minor+'.'+patch; const b=execSync('git rev-parse --abbrev-ref HEAD').toString().trim(); console.log('--- BUILD INFO ---'); console.log('Version:', v); console.log('Branch:', b); console.log('------------------'); execSync('npm run build', {stdio:'inherit'}); const builderCmd='electron-builder --publish always -c.extraMetadata.version='+v+' -c.nsis.artifactName=\\\"PSQL Buddy Setup '+v+'-'+b+'.exe\\\"'; execSync(builderCmd, {stdio:'inherit'})\""
   },
   "dependencies": {
     "@google/genai": "1.35.0",
