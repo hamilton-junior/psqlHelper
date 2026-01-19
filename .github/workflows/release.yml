@@ -28,16 +28,16 @@ jobs:
         run: npm install
 
       - name: Build and Publish
-        # O seu script 'dist' já calcula a versão e chama o electron-builder com --publish always
+        # O seu script 'dist' no package.json já calcula a versão e chama o electron-builder com --publish always
         run: npm run dist
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VITE_API_KEY: ${{ secrets.VITE_API_KEY }}
 
       - name: Cleanup Release Tag
-        # Opcional: Remove a tag genérica 'release' do servidor para que você possa reusá-la no próximo commit
+        # Remove a tag temporária 'release' para permitir reuso no próximo disparo
         shell: bash
         run: |
-          git push --delete origin release || true
+          git push origin :refs/tags/release || true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
