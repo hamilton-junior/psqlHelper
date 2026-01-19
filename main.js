@@ -1,7 +1,7 @@
 import { app, BrowserWindow, ipcMain, shell } from 'electron';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { spawn } from 'child_process';
+import { spawn, execSync } from 'child_process';
 import pkg from 'electron-updater';
 const { autoUpdater } = pkg;
 
@@ -14,6 +14,28 @@ let serverProcess;
 // Configurações do autoUpdater
 autoUpdater.autoDownload = false;
 autoUpdater.logger = console;
+
+/**
+ * Calcula a versão baseada nos commits para manter consistência entre Main e Renderer
+ */
+function getCalculatedAppVersion() {
+  try {
+    const commitCount = execSync('git rev-list --count HEAD').toString().trim();
+    const count = parseInt(commitCount, 10) || 0;
+    const major = Math.floor(count / 1000);
+    const minor = Math.floor((count % 1000) / 100);
+    const patch = count % 100;
+    const version = `${major}.${minor}.${patch}`;
+    console.log(`[DEBUG:VERSION] Versão calculada via Git: ${version} (${count} commits)`);
+    return version;
+  } catch (e) {
+    const fallback = app.getVersion();
+    console.log(`[DEBUG:VERSION] Falha ao ler Git, usando fallback do package.json: ${fallback}`);
+    return fallback;
+  }
+}
+
+const CURRENT_CALCULATED_VERSION = getCalculatedAppVersion();
 
 function calculateVersionFromCount(count) {
   const c = parseInt(count, 10) || 0;
@@ -127,8 +149,8 @@ function createWindow() {
   }
 
   mainWindow.webContents.on('did-finish-load', async () => {
-    const currentVer = app.getVersion();
-    mainWindow.webContents.send('app-version', currentVer);
+    // Envia a versão calculada dinamicamente para o frontend
+    mainWindow.webContents.send('app-version', CURRENT_CALCULATED_VERSION);
     const versions = await fetchGitHubVersions();
     mainWindow.webContents.send('sync-versions', versions);
   });
@@ -137,10 +159,11 @@ function createWindow() {
 // IPC Listeners
 ipcMain.on('check-update', async (event, branch) => {
   const targetBranch = branch || 'stable';
-  const current = app.getVersion();
+  const current = CURRENT_CALCULATED_VERSION;
   console.log(`[APP] [UPDATE] Verificação: Canal=${targetBranch}, Local=${current}`);
   
   if (app.isPackaged && targetBranch === 'stable') {
+    console.log('[APP] [UPDATE] Verificando atualizações via autoUpdater oficial...');
     autoUpdater.checkForUpdates();
   } else {
     const versions = await fetchGitHubVersions();
@@ -155,7 +178,9 @@ ipcMain.on('check-update', async (event, branch) => {
       mainWindow.webContents.send('update-available', { 
         version: remote, 
         updateType: comparison > 0 ? 'upgrade' : 'downgrade',
-        releaseNotes: targetBranch === 'main' ? 'Novos commits detectados na branch main. Esta versão não possui release oficial e deve ser baixada manualmente.' : 'Nova versão disponível.',
+        releaseNotes: targetBranch === 'main' 
+          ? 'Novos commits detectados na branch main. Esta versão não possui release oficial e deve ser baixada manualmente.' 
+          : `Nova versão estável ${remote} disponível.`,
         isManual: true,
         branch: targetBranch
       });
@@ -166,20 +191,25 @@ ipcMain.on('check-update', async (event, branch) => {
 });
 
 ipcMain.on('start-download', (event, branch) => { 
+  console.log(`[APP] [UPDATE] Solicitação de download. Canal: ${branch}, Packaged: ${app.isPackaged}`);
+
   if (branch === 'main') {
-    console.log("[APP] [UPDATE] WIP detectado. Redirecionando para GitHub Source.");
+    console.log("[APP] [UPDATE] Canal WIP/Main: Redirecionando para download do código fonte (ZIP).");
     shell.openExternal('https://github.com/Hamilton-Junior/psqlBuddy/archive/refs/heads/main.zip');
   } else if (app.isPackaged) {
-    console.log("[APP] [UPDATE] Stable detectado. Iniciando auto-download.");
+    console.log("[APP] [UPDATE] Canal Stable (Packaged): Acionando autoUpdater.downloadUpdate().");
     autoUpdater.downloadUpdate(); 
   } else {
-    console.log("[APP] [UPDATE] Modo Dev. Abrindo releases no navegador.");
+    console.log("[APP] [UPDATE] Canal Stable (Modo Dev): autoUpdater desabilitado em modo não empacotado. Redirecionando para página de releases.");
     shell.openExternal('https://github.com/Hamilton-Junior/psqlBuddy/releases');
   }
 });
 
 ipcMain.on('install-update', () => { 
-  if (app.isPackaged) autoUpdater.quitAndInstall(); 
+  if (app.isPackaged) {
+    console.log("[APP] [UPDATE] Instalando atualização e reiniciando...");
+    autoUpdater.quitAndInstall(); 
+  }
 });
 
 app.whenReady().then(() => { 
