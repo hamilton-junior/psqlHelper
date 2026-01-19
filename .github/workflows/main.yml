@@ -1,0 +1,43 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'release' # Dispara quando você rodar: git tag release && git push origin release
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # CRUCIAL: Necessário para o 'git rev-list' contar os commits corretamente
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build and Publish
+        # O seu script 'dist' já calcula a versão e chama o electron-builder com --publish always
+        run: npm run dist
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VITE_API_KEY: ${{ secrets.VITE_API_KEY }}
+
+      - name: Cleanup Release Tag
+        # Opcional: Remove a tag genérica 'release' do servidor para que você possa reusá-la no próximo commit
+        shell: bash
+        run: |
+          git push --delete origin release || true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
