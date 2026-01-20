@@ -22,7 +22,8 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: 'npm'
+          # Cache removido para evitar o erro "Dependencies lock file is not found"
+          # Caso deseje reativar, certifique-se de que o package-lock.json está commitado no repositório.
 
       - name: Install dependencies
         run: npm install
@@ -31,6 +32,7 @@ jobs:
         # O seu script 'dist' no package.json já calcula a versão e chama o electron-builder com --publish always
         run: npm run dist
         env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VITE_API_KEY: ${{ secrets.VITE_API_KEY }}
 
