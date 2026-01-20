@@ -72,7 +72,7 @@ Este software é distribuído sob uma licença **Atribuição-NãoComercial**.
 2. **Uso Não Comercial**: É estritamente proibida a venda, sublicenciamento ou qualquer uso que gere lucro direto ou indireto com o software.
 3. **Créditos Obrigatórios**: Toda e qualquer derivação deste projeto deve obrigatoriamente manter os créditos originais e apontar para este repositório: `https://github.com/Hamilton-Junior/psqlBuddy`.
 
-Consulte o arquivo `LICENSE.txt` para ler os termos na íntegra.
+Consulte o arquivo `LICENSE` para ler os termos na íntegra.
 
 ---
 
