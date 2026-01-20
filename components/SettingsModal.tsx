@@ -61,6 +61,16 @@ export default function SettingsModal({
 
   const isConnected = !!schema;
 
+  // Monitora a aba Diagnóstico para atualizar versões silenciosamente
+  useEffect(() => {
+    if (activeTab === 'diagnostics') {
+      console.log("[SETTINGS] Aba diagnóstico ativa. Solicitando atualização silenciosa de versões...");
+      if ((window as any).electron) {
+        (window as any).electron.send('refresh-remote-versions');
+      }
+    }
+  }, [activeTab]);
+
   useEffect(() => {
     if (logContainerRef.current) {
       logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight;
@@ -132,7 +142,7 @@ export default function SettingsModal({
   const getLatestVersionDisplay = () => {
     const latest = formData.updateBranch === 'stable' ? remoteVersions?.stable : remoteVersions?.main;
     
-    if (!remoteVersions || latest === undefined) {
+    if (!remoteVersions || latest === undefined || latest === '---') {
        return (
           <div className="flex items-center gap-2 text-slate-400">
              <Loader2 className="w-4 h-4 animate-spin" />
