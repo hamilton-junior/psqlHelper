@@ -1,11 +1,12 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { DatabaseSchema, QueryResult, ValidationResult, BuilderState, AggregateFunction, Operator, JoinType, OptimizationAnalysis, VirtualRelation } from "../types";
 
-// Log para depuração de ambiente
-if (!process.env.API_KEY) {
-  console.error("[GEMINI] Erro Crítico: A VITE_API_KEY não foi detectada pelo Vite. Verifique seu arquivo .env");
+// Log aprimorado para diagnóstico
+if (!process.env.API_KEY || process.env.API_KEY === "undefined") {
+  console.error("%c[GEMINI ERROR]", "color: white; background: red; padding: 4px; font-weight: bold", "A chave de API não foi injetada corretamente.");
+  console.info("Certifique-se de que:\n1. O arquivo .env contém VITE_API_KEY=sua_chave\n2. Você está rodando via 'npm run dev'");
 } else {
-  console.log("[GEMINI] API Key detectada com sucesso.");
+  console.log("%c[GEMINI]", "color: #6366f1; font-weight: bold", "Serviço de IA inicializado.");
 }
 
 // Initialize the AI client using the API key from environment variables.

@@ -11,6 +11,13 @@ const __dirname = path.dirname(__filename);
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, (process as any).cwd(), '');
 
+  // Tenta encontrar a chave mesmo se houver erro de digitação no case (ex: VITE_API_kEY)
+  const actualApiKey = env.VITE_API_KEY || Object.entries(env).find(([k]) => k.toUpperCase() === 'VITE_API_KEY')?.[1];
+
+  if (!actualApiKey && mode === 'development') {
+    console.warn('\x1b[33m%s\x1b[0m', '⚠️  [VITE] VITE_API_KEY não encontrada no seu arquivo .env!');
+  }
+
   let commitCount = '0';
   try {
     commitCount = execSync('git rev-list --count HEAD').toString().trim();
@@ -23,7 +30,6 @@ export default defineConfig(({ mode }) => {
   const minor = Math.floor((count % 1000) / 100);
   const patch = count % 100;
   
-  // Versão técnica compatível com SemVer (sem zeros à esquerda)
   const appVersion = `${major}.${minor}.${patch}`;
 
   return {
@@ -35,13 +41,16 @@ export default defineConfig(({ mode }) => {
     },
     base: './', 
     define: {
-      'process.env.API_KEY': JSON.stringify(env.VITE_API_KEY),
+      'process.env.API_KEY': JSON.stringify(actualApiKey),
       '__APP_VERSION__': JSON.stringify(appVersion),
       '__COMMIT_COUNT__': JSON.stringify(count)
     },
     build: {
       outDir: 'dist',
       emptyOutDir: true,
+    },
+    server: {
+      host: '127.0.0.1'
     }
   };
 });
