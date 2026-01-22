@@ -103,9 +103,12 @@ const App: React.FC = () => {
   const handleUpdateDetection = useCallback((info: any) => {
     const ignoredVersions = JSON.parse(localStorage.getItem('psqlBuddy-ignored-versions') || '[]');
     const isManual = manualCheckRef.current || info.isManual;
-    const type = info.updateType || (compareVersions(info.version, currentAppVersion) > 0 ? 'upgrade' : 'downgrade');
+    
+    // Se o backend já enviou o tipo, usamos ele. Senão, calculamos.
+    const type = info.updateType || (compareVersions(info.version, currentAppVersion) < 0 ? 'downgrade' : 'upgrade');
 
     if (currentAppVersion !== '...' && compareVersions(info.version, currentAppVersion) === 0) {
+      console.log("[APP] Mesma versão detectada. Ignorando aviso.");
       manualCheckRef.current = false;
       return;
     }
@@ -113,11 +116,11 @@ const App: React.FC = () => {
     if (isManual || !ignoredVersions.includes(info.version)) {
       setUpdateInfo({
         version: info.version,
-        notes: info.releaseNotes || 'Novas melhorias.',
-        branch: settings.updateBranch === 'main' ? 'Main' : 'Stable',
+        notes: info.releaseNotes || (type === 'downgrade' ? 'Versão de recuperação disponível.' : 'Novas melhorias e correções.'),
+        branch: info.branch || (settings.updateBranch === 'main' ? 'Main' : 'Stable'),
         updateType: type as 'upgrade' | 'downgrade',
         currentVersion: currentAppVersion,
-        isManual: !!info.isManual
+        isManual: !!isManual
       });
     }
     manualCheckRef.current = false;

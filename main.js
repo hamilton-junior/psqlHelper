@@ -38,7 +38,7 @@ const CURRENT_VERSION = getCalculatedAppVersion();
 function compareVersions(v1, v2) {
   if (!v1 || v1 === '---' || !v2 || v2 === '---' || v1 === '...' || v2 === '...') return 0;
   const cleanV1 = v1.replace(/^v/, '');
-  const cleanV2 = v1.replace(/^v/, '');
+  const cleanV2 = v2.replace(/^v/, '');
   const p1 = cleanV1.split('.').map(n => parseInt(n, 10) || 0);
   const p2 = cleanV2.split('.').map(n => parseInt(n, 10) || 0);
   for (let i = 0; i < 3; i++) {
@@ -54,20 +54,15 @@ function startBackend() {
     return;
   }
 
-  // Caminho do server.js em produção vs desenvolvimento
   const serverPath = app.isPackaged 
     ? path.join(process.resourcesPath, 'app.asar.unpacked', 'server.js')
     : path.join(__dirname, 'server.js');
 
-  console.log(`[MAIN] Tentando iniciar backend em: ${serverPath}`);
-
   if (!fs.existsSync(serverPath)) {
     console.error(`[MAIN] Erro Crítico: Arquivo do servidor não encontrado em ${serverPath}`);
-    // Fallback caso a estrutura mude em builds asar específicos
     return;
   }
 
-  // Usamos o próprio binário do Electron para rodar o node script para garantir compatibilidade
   serverProcess = spawn(process.execPath, [serverPath], {
     env: { 
       ...process.env, 
@@ -80,10 +75,6 @@ function startBackend() {
 
   serverProcess.on('error', (err) => {
     console.error('[MAIN] Falha catastrófica ao iniciar backend:', err);
-  });
-
-  serverProcess.on('exit', (code, signal) => {
-    console.log(`[MAIN] Backend encerrou. Code: ${code}, Signal: ${signal}`);
   });
 }
 
@@ -146,24 +137,29 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => { 
-  if (serverProcess) {
-    console.log("[MAIN] Encerrando backend...");
-    serverProcess.kill();
-  }
-  if (process.platform !== 'darwin') {
-    app.quit();
-  }
+  if (serverProcess) serverProcess.kill();
+  if (process.platform !== 'darwin') app.quit();
 });
 
-// IPC handlers for updates
 ipcMain.on('check-update', async (event, branch) => {
+  console.log(`[MAIN] Checando atualizações para o canal: ${branch}`);
+  
   if (app.isPackaged && branch === 'stable') {
     autoUpdater.checkForUpdates();
   } else {
     const versions = await fetchGitHubVersions();
     const remote = branch === 'main' ? versions.main : versions.stable;
-    if (compareVersions(remote, CURRENT_VERSION) !== 0) {
-      mainWindow.webContents.send('update-available', { version: remote, branch });
+    const comparison = compareVersions(remote, CURRENT_VERSION);
+    
+    if (comparison !== 0) {
+      const updateType = comparison < 0 ? 'downgrade' : 'upgrade';
+      console.log(`[MAIN] Mudança de versão detectada: ${CURRENT_VERSION} -> ${remote} (${updateType})`);
+      mainWindow.webContents.send('update-available', { 
+        version: remote, 
+        branch, 
+        updateType,
+        isManual: true 
+      });
     } else {
       mainWindow.webContents.send('update-not-available');
     }
@@ -173,4 +169,34 @@ ipcMain.on('check-update', async (event, branch) => {
 ipcMain.on('refresh-remote-versions', async () => {
     const versions = await fetchGitHubVersions();
     if (mainWindow) mainWindow.webContents.send('sync-versions', versions);
+});
+
+autoUpdater.on('update-available', (info) => {
+  const comparison = compareVersions(info.version, CURRENT_VERSION);
+  const updateType = comparison < 0 ? 'downgrade' : 'upgrade';
+  mainWindow.webContents.send('update-available', { 
+    version: info.version, 
+    releaseNotes: info.releaseNotes,
+    updateType 
+  });
+});
+
+autoUpdater.on('update-not-available', () => {
+  mainWindow.webContents.send('update-not-available');
+});
+
+autoUpdater.on('download-progress', (progressObj) => {
+  mainWindow.webContents.send('update-downloading', progressObj);
+});
+
+autoUpdater.on('update-downloaded', () => {
+  mainWindow.webContents.send('update-ready');
+});
+
+ipcMain.on('start-download', () => {
+  autoUpdater.downloadUpdate();
+});
+
+ipcMain.on('install-update', () => {
+  autoUpdater.quitAndInstall();
 });
