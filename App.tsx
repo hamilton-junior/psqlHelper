@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
   DatabaseSchema, AppStep, BuilderState, QueryResult, DbCredentials, 
@@ -141,7 +142,6 @@ const App: React.FC = () => {
       });
       electron.on('update-error', (msg: string) => {
         console.warn("[UI] Status Atualizador:", msg);
-        // Resetamos o progresso se o download foi desviado para o navegador ou deu erro
         setDownloadProgress(null);
         if (msg === "MANUAL_DOWNLOAD_TRIGGERED") {
            toast("Abrindo navegador para download manual...", { icon: '🌐' });
@@ -223,7 +223,7 @@ const App: React.FC = () => {
            )}
            {currentStep === 'datadiff' && schema && <DataDiffStep schema={schema} credentials={credentials} simulationData={simulationData} settings={settings} />}
            {currentStep === 'dashboard' && <DashboardStep items={dashboardItems} onRemoveItem={(id) => setDashboardItems(prev => prev.filter(i => i.id !== id))} onClearAll={() => setDashboardItems([])} />}
-           {currentStep === 'roadmap' && <Rocket className="w-8 h-8 text-indigo-600 animate-bounce" />}
+           {currentStep === 'roadmap' && <RoadmapStep />}
         </div>
       </main>
       {showSettings && <SettingsModal settings={settings} onSave={setSettings} onClose={() => setShowSettings(false)} simulationData={simulationData} schema={schema} credentials={credentials} remoteVersions={remoteVersions} />}

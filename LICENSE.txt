@@ -1,6 +1,6 @@
-PSQL Buddy - Licença de Uso Atribuição Não-Comercial
+PSQL Buddy - Licença de Uso Atribuição-NãoComercial
 
-Copyright (c) 2024-2026 Hamilton Junior
+Copyright (c) 2024-2025 Hamilton Junior
 
 Este software é fornecido sob os seguintes termos:
 

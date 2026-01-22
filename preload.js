@@ -4,12 +4,7 @@ console.log("[PRELOAD] Sistema de IPC Inicializado.");
 
 contextBridge.exposeInMainWorld('electron', {
   send: (channel, data) => {
-    let validChannels = [
-      "check-update",
-      "install-update",
-      "start-download",
-      "refresh-remote-versions",
-    ];
+    let validChannels = ['check-update', 'install-update', 'start-download', 'refresh-remote-versions'];
     if (validChannels.includes(channel)) {
       ipcRenderer.send(channel, data);
     }

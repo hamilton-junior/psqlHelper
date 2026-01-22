@@ -1,6 +1,7 @@
+
 {
   "name": "psqlBuddy",
-  "version": "0.2.21",
+  "version": "0.2.44",
   "author": "Hamilton Junior",
   "repository": {
     "type": "git",
@@ -16,6 +17,7 @@
     "dev:all": "concurrently -n \"VITE,SERVER,APP\" -c \"blue,green,magenta\" \"npm run dev\" \"npm run server\" \"cross-env SKIP_BACKEND=1 npm run electron\"",
     "build": "tsc && vite build",
     "preview": "vite preview",
+    "dist:local": "node -e \"const {execSync}=require('child_process'); const fs=require('fs'); const c=parseInt(execSync('git rev-list --count HEAD').toString().trim()); const v='0.2.'+c; console.log('Build Local Versão:', v); execSync('npm run build', {stdio:'inherit'}); execSync('electron-builder --publish never -c.extraMetadata.version='+v, {stdio:'inherit'})\"",
     "dist": "node -e \"const {execSync}=require('child_process'); const fs=require('fs'); if(!process.env.GH_TOKEN && fs.existsSync('.env')){ const env=fs.readFileSync('.env','utf8'); const match=env.match(/^GH_TOKEN=(.*)$/m); if(match) process.env.GH_TOKEN=match[1].trim(); } const c=parseInt(execSync('git rev-list --count HEAD').toString().trim()); const major=Math.floor(c/1000); const minor=Math.floor((c%1000)/100); const patch=c%100; const v=major+'.'+minor+'.'+patch; const b=execSync('git rev-parse --abbrev-ref HEAD').toString().trim(); console.log('--- BUILD INFO ---'); console.log('Version:', v); console.log('Branch:', b); if(!process.env.GH_TOKEN) console.warn('AVISO: GH_TOKEN não encontrado. O upload para o GitHub pode falhar.'); console.log('------------------'); execSync('npm run build', {stdio:'inherit'}); const builderCmd='electron-builder --publish always -c.extraMetadata.version='+v+' -c.nsis.artifactName=\\\"PSQL Buddy Setup '+v+'-'+b+'.exe\\\"'; execSync(builderCmd, {stdio:'inherit', env: process.env})\""
   },
   "dependencies": {
@@ -67,12 +69,13 @@
       "package.json",
       "node_modules/**/*"
     ],
+    "asar": true,
+    "asarUnpack": [
+      "server.js",
+      "node_modules/pg/**/*"
+    ],
     "directories": {
       "output": "release"
-    },
-    "asar": true,
-    "mac": {
-      "category": "public.app-category.developer-tools"
     },
     "win": {
       "target": "nsis"
@@ -83,9 +86,6 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "PSQL Buddy"
-    },
-    "linux": {
-      "target": "AppImage"
     }
   }
 }

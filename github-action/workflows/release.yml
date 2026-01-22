@@ -37,9 +37,11 @@ jobs:
           VITE_API_KEY: ${{ secrets.VITE_API_KEY }}
 
       - name: Cleanup Release Tag
-        # Remove a tag temporária 'release' para permitir reuso no próximo disparo
+        # O uso de if: always() garante que a tag seja limpa mesmo em caso de erro no build.
+        # gh api é mais resiliente que git push direto em ambientes de CI para deleção de refs.
+        if: always()
         shell: bash
         run: |
-          git push origin :refs/tags/release || true
+          gh api -X DELETE repos/${{ github.repository }}/git/refs/tags/release || true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
