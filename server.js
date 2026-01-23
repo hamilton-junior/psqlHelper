@@ -8,9 +8,9 @@ import { fileURLToPath } from 'url';
 const { Client, types } = pg;
 const app = express();
 const PORT = process.env.PORT || 3000;
-const HOST = '127.0.0.1'; // Forçamos 127.0.0.1 para evitar problemas de resolução de nome local
+const HOST = '127.0.0.1'; // IPV4 Estrito
 
-// ESM helpers for __dirname
+// ESM helpers
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -22,29 +22,37 @@ const serverLog = (method, path, message, extra = '') => {
   console.log(`[${timestamp}] [SERVER] ${method} ${path} - ${message}`, extra);
 };
 
-// Sobrescreve os parsers para TEXT (25), VARCHAR (1043) e BPCHAR (1042)
+// Configurações de tipos do Postgres
 types.setTypeParser(25, (v) => v); 
 types.setTypeParser(1043, (v) => v);
 types.setTypeParser(1042, (v) => v);
 
-serverLog('INIT', '-', 'Servidor inicializando e parsers de tipos configurados.');
+serverLog('INIT', '-', 'Servidor inicializando em IPv4 estrito.');
+
+// Rota de Health Check
+app.get('/api/ping', (req, res) => {
+  res.json({ status: 'online', timestamp: new Date().toISOString(), ipv4: true });
+});
 
 async function setupSession(client) {
   try {
     await client.query("SET client_encoding TO 'LATIN1'");
   } catch (e) {
-    serverLog('SESSION', '-', 'Falha ao definir encoding para LATIN1, usando padrão.', e.message);
+    serverLog('SESSION', '-', 'Falha ao definir encoding.', e.message);
   }
 }
 
 app.post('/api/connect', async (req, res) => {
-  const { host, port, user, password, database } = req.body;
+  let { host, port, user, password, database } = req.body;
   const start = Date.now();
   
-  serverLog('POST', '/api/connect', `Tentativa de conexão: ${user}@${host}/${database}`);
+  // Normalização de Host para IPv4
+  if (host === 'localhost') host = '127.0.0.1';
+
+  serverLog('POST', '/api/connect', `Tentativa: ${user}@${host}:${port}/${database}`);
 
   if (!host || !port || !user || !database) {
-    return res.status(400).json({ error: 'Missing connection details' });
+    return res.status(400).json({ error: 'Faltam detalhes de conexão' });
   }
 
   const client = new Client({
@@ -60,9 +68,7 @@ app.post('/api/connect', async (req, res) => {
     await client.connect();
     await setupSession(client);
     
-    serverLog('POST', '/api/connect', 'Conectado. Buscando metadados do schema...');
-
-    // 1. Fetch Tables
+    // Busca tabelas e metadados
     const tablesQuery = `
       SELECT 
         table_schema, 
@@ -75,7 +81,6 @@ app.post('/api/connect', async (req, res) => {
     `;
     const tablesRes = await client.query(tablesQuery);
 
-    // 2. Fetch Columns
     const columnsQuery = `
       SELECT 
         c.table_schema, 
@@ -98,7 +103,6 @@ app.post('/api/connect', async (req, res) => {
     `;
     const columnsRes = await client.query(columnsQuery);
 
-    // 3. Fetch Foreign Keys
     const fkQuery = `
       SELECT
           tc.table_schema, 
@@ -128,7 +132,6 @@ app.post('/api/connect', async (req, res) => {
             f.table_schema === t.table_schema && 
             f.column_name === c.column_name
           );
-
           return {
             name: c.column_name,
             type: c.data_type,
@@ -137,7 +140,6 @@ app.post('/api/connect', async (req, res) => {
             references: fk ? `${fk.foreign_table_schema}.${fk.foreign_table_name}.${fk.foreign_column_name}` : undefined
           };
         });
-
       return {
         name: t.table_name,
         schema: t.table_schema,
@@ -146,12 +148,11 @@ app.post('/api/connect', async (req, res) => {
       };
     });
 
-    const duration = Date.now() - start;
-    serverLog('POST', '/api/connect', `Schema carregado com sucesso em ${duration}ms.`);
+    serverLog('POST', '/api/connect', `Schema carregado em ${Date.now() - start}ms.`);
     res.json({ name: database, tables: tables });
 
   } catch (err) {
-    serverLog('POST', '/api/connect', 'ERRO de conexão', err.message);
+    serverLog('POST', '/api/connect', 'ERRO Postgres', err.message);
     res.status(500).json({ error: err.message });
   } finally {
     try { await client.end(); } catch (e) {}
@@ -159,15 +160,16 @@ app.post('/api/connect', async (req, res) => {
 });
 
 app.post('/api/execute', async (req, res) => {
-  const { credentials, sql } = req.body;
+  let { credentials, sql } = req.body;
   const start = Date.now();
   
   if (!credentials || !sql) {
     return res.status(400).json({ error: 'Missing credentials or SQL' });
   }
 
-  serverLog('POST', '/api/execute', `Executando query no banco ${credentials.database}`);
+  if (credentials.host === 'localhost') credentials.host = '127.0.0.1';
 
+  serverLog('POST', '/api/execute', `Executando no banco ${credentials.database}`);
   const client = new Client(credentials);
 
   try {
@@ -178,7 +180,7 @@ app.post('/api/execute', async (req, res) => {
     const duration = Date.now() - start;
     
     if (Array.isArray(result)) {
-        serverLog('POST', '/api/execute', `Sucesso (Multi-statement) em ${duration}ms.`);
+        serverLog('POST', '/api/execute', `Sucesso (Multi) em ${duration}ms.`);
         res.json(result[result.length - 1].rows);
     } else {
         serverLog('POST', '/api/execute', `Sucesso em ${duration}ms. ${result.rowCount} linhas.`);
@@ -193,5 +195,5 @@ app.post('/api/execute', async (req, res) => {
 });
 
 app.listen(PORT, HOST, () => {
-  serverLog('STARTUP', '-', `Servidor API rodando em http://${HOST}:${PORT}`);
+  serverLog('STARTUP', '-', `Backend ativado em http://${HOST}:${PORT}`);
 });

@@ -11,13 +11,25 @@ const logger = (context: string, message: string, data?: any) => {
   console.log(`[${timestamp}] [DB:${context}] ${message}`, data || '');
 };
 
+/**
+ * Interceptor para garantir IPv4 nas credenciais
+ */
+const ensureIpv4 = (creds: DbCredentials): DbCredentials => {
+  if (creds.host.toLowerCase() === 'localhost') {
+    return { ...creds, host: '127.0.0.1' };
+  }
+  return creds;
+};
+
 export const connectToDatabase = async (creds: DbCredentials): Promise<DatabaseSchema> => {
-  logger('Connect', `Iniciando conexão para ${creds.host}:${creds.port}/${creds.database}`);
+  const normalizedCreds = ensureIpv4(creds);
+  logger('Connect', `Iniciando conexão para ${normalizedCreds.host}:${normalizedCreds.port}/${normalizedCreds.database}`);
+  
   try {
     const response = await fetch(`${API_URL}/connect`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(creds)
+      body: JSON.stringify(normalizedCreds)
     });
 
     if (!response.ok) {
@@ -32,13 +44,14 @@ export const connectToDatabase = async (creds: DbCredentials): Promise<DatabaseS
   } catch (error: any) {
     logger('Connect', 'Erro crítico de conexão', error.message);
     if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
-      throw new Error("Não foi possível alcançar o serviço de dados (Backend). Verifique se o app tem permissão de rede local.");
+      throw new Error("O serviço de dados (Backend) não respondeu. Verifique se o app está rodando e se a porta 3000 está livre.");
     }
     throw error;
   }
 };
 
 export const executeQueryReal = async (creds: DbCredentials, sql: string): Promise<any[]> => {
+  const normalizedCreds = ensureIpv4(creds);
   const sqlPreview = sql.substring(0, 50) + (sql.length > 50 ? '...' : '');
   logger('Execute', `Rodando SQL: ${sqlPreview}`);
   
@@ -46,7 +59,7 @@ export const executeQueryReal = async (creds: DbCredentials, sql: string): Promi
     const response = await fetch(`${API_URL}/execute`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ credentials: creds, sql })
+      body: JSON.stringify({ credentials: normalizedCreds, sql })
     });
 
     if (!response.ok) {
@@ -114,9 +127,6 @@ export const fetchIntersectionDetail = async (
    }
 };
 
-/**
- * Função recursiva para converter o JSON do Postgres Explain para nossa interface simplificada
- */
 const mapExplainNode = (pgNode: any): ExplainNode => {
   return {
     type: pgNode['Node Type'] || 'Unknown',
@@ -153,40 +163,27 @@ export const explainQueryReal = async (creds: DbCredentials, sql: string): Promi
       };
    }
 
-   // Remove terminador ; se houver para evitar erro no explain
    const cleanSql = sql.trim().replace(/;$/, '');
    const explainSql = `EXPLAIN (FORMAT JSON, ANALYZE) ${cleanSql}`;
    
    try {
       const result = await executeQueryReal(creds, explainSql);
-      
       if (result && result.length > 0) {
-         logger('Explain', 'Resultado bruto recebido', result[0]);
-         
          const planRow = result[0];
-         // O pg pode retornar o resultado em uma coluna com nome variável
          const key = Object.keys(planRow).find(k => 
             k.toUpperCase() === 'QUERY PLAN' || 
             k.toUpperCase() === 'JSON' || 
             k.toUpperCase().includes('PLAN')
          );
 
-         if (!key) {
-            logger('Explain', 'Coluna de resultado não identificada', Object.keys(planRow));
-            throw new Error("Formato de retorno do EXPLAIN não reconhecido.");
-         }
+         if (!key) throw new Error("Formato do EXPLAIN não reconhecido.");
 
          let rawPlan = planRow[key];
          if (typeof rawPlan === 'string') rawPlan = JSON.parse(rawPlan);
-
-         // Postgres retorna um array com um objeto que tem a chave 'Plan'
-         if (Array.isArray(rawPlan) && rawPlan[0].Plan) {
-            return mapExplainNode(rawPlan[0].Plan);
-         }
+         if (Array.isArray(rawPlan) && rawPlan[0].Plan) return mapExplainNode(rawPlan[0].Plan);
       }
-      throw new Error("O banco de dados não retornou um plano de execução válido.");
+      throw new Error("Plano de execução inválido.");
    } catch (e: any) {
-      logger('Explain', 'Falha ao processar explain', e.message);
-      throw new Error("Falha ao gerar plano de execução: " + e.message);
+      throw new Error("Falha ao gerar plano: " + e.message);
    }
 };

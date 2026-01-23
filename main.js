@@ -49,55 +49,49 @@ function compareVersions(v1, v2) {
 }
 
 /**
- * Inicializa o backend usando UtilityProcess (Electron 22+)
- * É mais seguro e lida melhor com módulos nativos e caminhos ASAR.
+ * Inicializa o backend garantindo a prioridade de IPv4 e captura de logs.
  */
 function startBackend() {
-  console.log("[MAIN] Iniciando Backend Service...");
+  console.log("[MAIN] Iniciando Backend Service (Force IPv4)...");
   
   if (process.env.SKIP_BACKEND === '1') {
-    console.log("[MAIN] SKIP_BACKEND ativo. Ignorando.");
+    console.log("[MAIN] SKIP_BACKEND ativo.");
     return;
   }
 
-  // Caminho do servidor
   const serverPath = app.isPackaged 
     ? path.join(process.resourcesPath, 'app.asar.unpacked', 'server.js')
     : path.join(__dirname, 'server.js');
 
-  console.log(`[MAIN] Resolvendo backend em: ${serverPath}`);
+  console.log(`[MAIN] Caminho do servidor: ${serverPath}`);
 
   if (!fs.existsSync(serverPath)) {
-    console.error(`[MAIN] ERRO CRÍTICO: server.js não existe em ${serverPath}`);
-    // Tenta fallback para dentro do ASAR se for packaged (apenas para debug)
-    const asarPath = path.join(__dirname, 'server.js');
-    if (app.isPackaged && !fs.existsSync(serverPath) && fs.existsSync(asarPath)) {
-        console.warn("[MAIN] Fallback para caminho interno do ASAR detectado.");
-    } else {
-        return;
-    }
+    console.error(`[MAIN] ERRO: server.js não localizado em ${serverPath}`);
+    return;
   }
 
   try {
-    // Usamos UtilityProcess para garantir isolamento e carregamento correto de dependências
     serverChild = utilityProcess.fork(serverPath, [], {
         env: { 
             ...process.env,
             PORT: '3000',
-            HOST: '127.0.0.1'
+            HOST: '127.0.0.1',
+            // Força o Node a resolver localhost como IPv4 primeiro
+            NODE_OPTIONS: '--dns-result-order=ipv4first'
         },
         stdio: 'inherit'
     });
 
     serverChild.on('spawn', () => {
-        console.log("[MAIN] Backend Process (Utility) spawnado com sucesso na porta 3000.");
+        console.log("[MAIN] Processo do Backend spawnado com sucesso na porta 3000.");
     });
 
     serverChild.on('exit', (code) => {
-        console.warn(`[MAIN] Backend Process encerrou inesperadamente com código ${code}`);
+        console.warn(`[MAIN] O processo do Backend encerrou (Código: ${code})`);
+        serverChild = null;
     });
   } catch (err) {
-    console.error("[MAIN] Falha ao executar fork do backend:", err);
+    console.error("[MAIN] Falha crítica ao iniciar backend:", err);
   }
 }
 
@@ -167,8 +161,6 @@ app.on('window-all-closed', () => {
 });
 
 ipcMain.on('check-update', async (event, branch) => {
-  console.log(`[MAIN] Buscando atualização para branch: ${branch}`);
-  
   const versions = await fetchGitHubVersions();
   const remoteVersion = branch === 'main' ? versions.main : versions.stable;
   const comparison = compareVersions(remoteVersion, CURRENT_VERSION);
@@ -179,13 +171,9 @@ ipcMain.on('check-update', async (event, branch) => {
   }
 
   const updateType = comparison < 0 ? 'downgrade' : 'upgrade';
-  console.log(`[MAIN] Alteração detectada: v${CURRENT_VERSION} -> v${remoteVersion} (${updateType})`);
 
   if (app.isPackaged && branch === 'stable') {
-    // Força o autoUpdater a checar. allowDowngrade=true permite que ele ache a versão inferior
-    autoUpdater.checkForUpdates().catch(err => {
-      console.error("[MAIN] Erro autoUpdater:", err);
-      // Se falhar o auto-check, enviamos o evento manualmente para a UI exibir o modal
+    autoUpdater.checkForUpdates().catch(() => {
       mainWindow.webContents.send('update-available', { 
         version: remoteVersion, 
         branch, 
@@ -194,7 +182,6 @@ ipcMain.on('check-update', async (event, branch) => {
       });
     });
   } else {
-    // Para branch main ou dev, sempre via manual event
     mainWindow.webContents.send('update-available', { 
       version: remoteVersion, 
       branch, 
@@ -219,7 +206,6 @@ autoUpdater.on('update-not-available', () => {
 });
 
 autoUpdater.on('error', (err) => {
-  console.error("[MAIN] Erro no atualizador:", err);
   mainWindow.webContents.send('update-error', err.message);
 });
 
