@@ -137,11 +137,14 @@ async function fetchGitHubVersions() {
   try {
     let stable = '---';
     let main = '---';
+    let totalCommits = 0;
+
     const tagsRes = await fetch(`https://api.github.com/repos/${repo}/tags`, { headers });
     if (tagsRes.ok) {
       const tags = await tagsRes.json();
       if (tags.length > 0) stable = tags[0].name.replace(/^v/, '');
     }
+
     const commitsRes = await fetch(`https://api.github.com/repos/${repo}/commits?sha=main&per_page=1`, { headers });
     if (commitsRes.ok) {
        const link = commitsRes.headers.get('link');
@@ -149,13 +152,19 @@ async function fetchGitHubVersions() {
           const match = link.match(/&page=(\d+)>; rel="last"/);
           if (match) {
              const count = parseInt(match[1]);
+             totalCommits = count;
              main = `${Math.floor(count/1000)}.${Math.floor((count%1000)/100)}.${count%100}`;
           }
+       } else {
+          // Caso tenha apenas 1 commit ou link header ausente
+          const single = await commitsRes.json();
+          if (Array.isArray(single)) totalCommits = 1;
        }
     }
-    return { stable, main };
+    return { stable, main, totalCommits };
   } catch (e) { 
-    return { stable: 'Erro', main: 'Erro' }; 
+    console.error("[MAIN] Erro ao buscar versões remotas:", e);
+    return { stable: 'Erro', main: 'Erro', totalCommits: 0 }; 
   }
 }
 
