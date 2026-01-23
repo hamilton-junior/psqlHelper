@@ -6,7 +6,7 @@ import {
   AlertCircle, GraduationCap, PenTool, DatabaseZap, HeartPulse, 
   Activity, CheckCircle2, XCircle, RefreshCw, Play, 
   Bug, Loader2, Database, User, Server, Hash, Shield, Terminal, ZapOff, ActivitySquare,
-  LayoutGrid, Monitor, Moon, Sun, ChevronRight, Gauge, GitCompare, GitBranch, FlaskConical, Tag, Info, Github, GitCommit
+  LayoutGrid, Monitor, Moon, Sun, ChevronRight, Gauge, GitCompare, GitBranch, FlaskConical, Tag, Info, Github, GitCommit, Radio, Binary
 } from 'lucide-react';
 import { AppSettings, DatabaseSchema, DbCredentials } from '../types';
 import { runFullHealthCheck, HealthStatus, runRandomizedStressTest, StressTestLog } from '../services/healthService';
@@ -20,7 +20,7 @@ interface SettingsModalProps {
   schema?: DatabaseSchema | null;
   credentials?: DbCredentials | null;
   simulationData?: SimulationData;
-  remoteVersions?: { stable: string, main: string, totalCommits?: number } | null;
+  remoteVersions?: { stable: string, wip: string, bleedingEdge: string, totalCommits?: number } | null;
 }
 
 type TabId = 'interface' | 'ai' | 'database' | 'diagnostics';
@@ -29,15 +29,20 @@ declare const __APP_VERSION__: string;
 const CURRENT_APP_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.1.10';
 
 /**
- * Utilitário visual para formatar a versão no padrão legível X.0Y.0Z
+ * Utilitário visual para formatar a versão.
+ * Se for Bleeding Edge (0.0.X), mantém o formato simplificado.
+ * Se for release estável, usa o padrão X.0Y.0Z.
  */
 const formatVersionDisplay = (v: string | undefined): string => {
   if (!v || v === '---') return '...';
   if (v === 'Erro') return 'Erro';
   
   const clean = v.replace(/^v/, '');
-  const parts = clean.split('.');
   
+  // Se for versão de commits (0.0.X)
+  if (clean.startsWith('0.0.')) return `v${clean}`;
+
+  const parts = clean.split('.');
   if (parts.length !== 3) return v;
   
   const major = parts[0];
@@ -62,7 +67,6 @@ export default function SettingsModal({
 
   const isConnected = !!schema;
 
-  // Monitora a aba Diagnóstico para atualizar versões silenciosamente
   useEffect(() => {
     if (activeTab === 'diagnostics') {
       console.log("[SETTINGS] Aba diagnóstico ativa. Solicitando atualização silenciosa de versões...");
@@ -140,21 +144,33 @@ export default function SettingsModal({
     </button>
   );
 
-  const RemoteVersionItem = ({ title, version, icon: Icon, isWip }: { title: string, version: string | undefined, icon: any, isWip?: boolean }) => {
+  const RemoteVersionItem = ({ title, version, icon: Icon, type }: { title: string, version: string | undefined, icon: any, type: 'stable' | 'wip' | 'bleeding' }) => {
     const display = !remoteVersions || version === undefined || version === '---' 
         ? <Loader2 className="w-4 h-4 animate-spin opacity-50" /> 
         : version === 'Erro' ? <XCircle className="w-4 h-4 text-rose-500" /> 
         : formatVersionDisplay(version);
 
+    const colors = {
+       stable: 'text-indigo-600 dark:text-indigo-400',
+       wip: 'text-orange-600 dark:text-orange-400',
+       bleeding: 'text-rose-600 dark:text-rose-400'
+    };
+
+    const subLabels = {
+       stable: 'Versão de Produção',
+       wip: 'Pré-release GitHub',
+       bleeding: 'Commit History'
+    };
+
     return (
       <div className="bg-slate-50 dark:bg-slate-900 p-5 rounded-3xl border border-slate-100 dark:border-slate-800 flex flex-col items-center text-center group">
          <span className="text-[9px] font-black text-slate-400 uppercase tracking-[0.15em] mb-2">{title}</span>
-         <div className={`text-xl font-black mb-1 ${isWip ? 'text-purple-600 dark:text-purple-400' : 'text-indigo-600 dark:text-indigo-400'}`}>
+         <div className={`text-xl font-black mb-1 ${colors[type]}`}>
             {display}
          </div>
          <div className="flex items-center gap-1.5 text-[10px] font-bold text-slate-500 uppercase tracking-tighter">
-            <Icon className={`w-3 h-3 ${isWip ? 'text-purple-500' : 'text-indigo-500'}`} />
-            {isWip ? 'Bleeding Edge' : 'Stable Tag'}
+            <Icon className={`w-3 h-3 ${colors[type].replace('text-', 'fill-')}`} />
+            {subLabels[type]}
          </div>
       </div>
     );
@@ -441,25 +457,25 @@ export default function SettingsModal({
                       </div>
 
                       <div className="grid grid-cols-3 gap-4 mb-8">
-                         <div className="bg-slate-50 dark:bg-slate-900 p-6 rounded-3xl border border-slate-100 dark:border-slate-800 flex flex-col items-center text-center">
-                            <span className="text-[9px] font-black text-slate-400 uppercase tracking-[0.15em] mb-2">Build Local</span>
-                            <div className="text-2xl font-black text-slate-800 dark:text-white">{formatVersionDisplay(CURRENT_APP_VERSION)}</div>
-                            <p className="text-[10px] text-slate-500 mt-2 font-bold uppercase tracking-tight flex items-center gap-1">
-                               <Info className="w-3 h-3" /> Instância Ativa
-                            </p>
-                         </div>
-
                          <RemoteVersionItem 
                             title="Release Estável" 
                             version={remoteVersions?.stable} 
-                            icon={CheckCircle2} 
+                            icon={CheckCircle2}
+                            type="stable"
                          />
 
                          <RemoteVersionItem 
-                            title="Release WIP (Commit)" 
-                            version={remoteVersions?.main} 
-                            icon={GitCommit} 
-                            isWip 
+                            title="Release WIP" 
+                            version={remoteVersions?.wip} 
+                            icon={FlaskConical} 
+                            type="wip"
+                         />
+
+                         <RemoteVersionItem 
+                            title="Bleeding Edge" 
+                            version={remoteVersions?.bleedingEdge} 
+                            icon={Binary} 
+                            type="bleeding"
                          />
                       </div>
 
@@ -470,13 +486,13 @@ export default function SettingsModal({
                                   <Github className="w-4 h-4 text-slate-500" />
                                </div>
                                <div>
-                                  <span className="text-[10px] font-black text-slate-400 uppercase block leading-none mb-1">Total de Commits</span>
+                                  <span className="text-[10px] font-black text-slate-400 uppercase block leading-none mb-1">Histórico de Commits</span>
                                   <span className="text-sm font-black text-slate-700 dark:text-slate-200">
                                      {remoteVersions?.totalCommits ? remoteVersions.totalCommits.toLocaleString() : '---'}
                                   </span>
                                </div>
                             </div>
-                            <div className="px-2 py-1 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 text-[10px] font-black rounded-lg uppercase tracking-tighter">Build Hub</div>
+                            <div className="px-2 py-1 bg-rose-50 dark:bg-rose-900/30 text-rose-600 dark:text-rose-400 text-[10px] font-black rounded-lg uppercase tracking-tighter">Bleeding Hub</div>
                          </div>
 
                          <div className="space-y-2">
@@ -556,8 +572,10 @@ export default function SettingsModal({
                       <div className="col-span-3 bg-slate-950 rounded-[2.5rem] flex flex-col overflow-hidden border border-slate-800 shadow-2xl">
                          <div className="px-6 py-4 bg-slate-900 flex justify-between items-center border-b border-slate-800">
                             <div className="flex items-center gap-3">
-                               <Terminal className="w-5 h-5 text-emerald-500" />
-                               <span className="text-[11px] font-black text-slate-300 uppercase tracking-[0.2em]">Motor de Fuzzing</span>
+                               <div className="p-1.5 bg-indigo-900/30 rounded text-indigo-400">
+                                  <Binary className="w-4 h-4" />
+                               </div>
+                               <span className="text-[11px] font-black text-slate-300 uppercase tracking-[0.2em]">Build Info / Local</span>
                             </div>
                             <button 
                                type="button"
@@ -575,6 +593,20 @@ export default function SettingsModal({
                          </div>
                          
                          <div ref={logContainerRef} className="flex-1 p-5 font-mono text-[10px] custom-scrollbar overflow-y-auto bg-black/50 min-h-[300px]">
+                            <div className="mb-4 flex flex-col gap-1 border-b border-slate-800 pb-4">
+                               <div className="flex justify-between items-center text-slate-400">
+                                  <span>ID da Build Local:</span>
+                                  <span className="text-white font-black">{CURRENT_APP_VERSION}</span>
+                               </div>
+                               <div className="flex justify-between items-center text-slate-400">
+                                  <span>Ambiente Electron:</span>
+                                  <span className="text-indigo-400">v{window?.process?.versions?.electron || 'N/A'}</span>
+                               </div>
+                               <div className="flex justify-between items-center text-slate-400">
+                                  <span>Kernel Node:</span>
+                                  <span className="text-emerald-400">v{window?.process?.versions?.node || 'N/A'}</span>
+                               </div>
+                            </div>
                             {stressLogs.length === 0 ? (
                                <div className="h-full flex flex-col items-center justify-center text-slate-600 gap-4 opacity-50">
                                   <ActivitySquare className="w-12 h-12" />

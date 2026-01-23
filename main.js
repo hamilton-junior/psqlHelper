@@ -114,8 +114,6 @@ function createWindow() {
     mainWindow.loadFile(path.join(__dirname, 'dist/index.html'));
   }
 
-  // Interceptar tentativas de abertura de novas janelas (links target="_blank")
-  // para forçar abertura no navegador do sistema
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith('http')) {
       shell.openExternal(url);
@@ -136,35 +134,43 @@ async function fetchGitHubVersions() {
   const headers = { 'User-Agent': 'PSQL-Buddy-App' };
   try {
     let stable = '---';
-    let main = '---';
+    let wip = '---';
+    let bleedingEdge = '---';
     let totalCommits = 0;
 
-    const tagsRes = await fetch(`https://api.github.com/repos/${repo}/tags`, { headers });
-    if (tagsRes.ok) {
-      const tags = await tagsRes.json();
-      if (tags.length > 0) stable = tags[0].name.replace(/^v/, '');
+    // Busca Releases para separar Estável de Pré-release (WIP)
+    const releasesRes = await fetch(`https://api.github.com/repos/${repo}/releases`, { headers });
+    if (releasesRes.ok) {
+      const releases = await releasesRes.json();
+      const latestStable = releases.find(r => !r.prerelease);
+      const latestWip = releases.find(r => r.prerelease);
+      
+      if (latestStable) stable = latestStable.tag_name.replace(/^v/, '');
+      if (latestWip) wip = latestWip.tag_name.replace(/^v/, '');
     }
 
+    // Busca Commits para o Bleeding Edge
     const commitsRes = await fetch(`https://api.github.com/repos/${repo}/commits?sha=main&per_page=1`, { headers });
     if (commitsRes.ok) {
        const link = commitsRes.headers.get('link');
        if (link) {
           const match = link.match(/&page=(\d+)>; rel="last"/);
           if (match) {
-             const count = parseInt(match[1]);
-             totalCommits = count;
-             main = `${Math.floor(count/1000)}.${Math.floor((count%1000)/100)}.${count%100}`;
+             totalCommits = parseInt(match[1]);
+             bleedingEdge = `0.0.${totalCommits}`;
           }
        } else {
-          // Caso tenha apenas 1 commit ou link header ausente
           const single = await commitsRes.json();
-          if (Array.isArray(single)) totalCommits = 1;
+          if (Array.isArray(single)) {
+             totalCommits = 1;
+             bleedingEdge = `0.0.1`;
+          }
        }
     }
-    return { stable, main, totalCommits };
+    return { stable, wip, bleedingEdge, totalCommits };
   } catch (e) { 
     console.error("[MAIN] Erro ao buscar versões remotas:", e);
-    return { stable: 'Erro', main: 'Erro', totalCommits: 0 }; 
+    return { stable: 'Erro', wip: 'Erro', bleedingEdge: 'Erro', totalCommits: 0 }; 
   }
 }
 
@@ -178,7 +184,6 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
 
-// Listener para abrir URLs externas de forma explícita
 ipcMain.on('open-external', (event, url) => {
   if (url && typeof url === 'string' && url.startsWith('http')) {
     shell.openExternal(url);
@@ -187,7 +192,8 @@ ipcMain.on('open-external', (event, url) => {
 
 ipcMain.on('check-update', async (event, branch) => {
   const versions = await fetchGitHubVersions();
-  const remoteVersion = branch === 'main' ? versions.main : versions.stable;
+  // Se o usuário quer 'main', comparamos com o bleedingEdge, senão com a stable
+  const remoteVersion = branch === 'main' ? versions.bleedingEdge : versions.stable;
   const comparison = compareVersions(remoteVersion, CURRENT_VERSION);
 
   if (comparison === 0) {

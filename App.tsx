@@ -87,7 +87,8 @@ const App: React.FC = () => {
   const [virtualRelations, setVirtualRelations] = useState<VirtualRelation[]>([]);
   
   const [updateInfo, setUpdateInfo] = useState<{version: string, notes: string, branch?: string, updateType?: 'upgrade' | 'downgrade', currentVersion?: string, isManual?: boolean} | null>(null);
-  const [remoteVersions, setRemoteVersions] = useState<{stable: string, main: string} | null>(null);
+  // Fix: Corrected type definition for remoteVersions to match expected prop in SettingsModal and actual response from main process
+  const [remoteVersions, setRemoteVersions] = useState<{ stable: string; wip: string; bleedingEdge: string; totalCommits?: number } | null>(null);
   const [currentAppVersion, setCurrentAppVersion] = useState<string>('...');
   const [downloadProgress, setDownloadProgress] = useState<number | null>(null);
   const [updateReady, setUpdateReady] = useState(false);
@@ -160,6 +161,8 @@ const App: React.FC = () => {
       });
       
       return () => electron.removeAllListeners('update-available');
+    } else {
+      console.warn("[UI] Objeto 'electron' não encontrado. Recursos nativos desativados.");
     }
   }, [handleUpdateDetection]);
 
@@ -169,6 +172,8 @@ const App: React.FC = () => {
       setDownloadProgress(0); 
       electron.send('start-download');
       toast.loading("Iniciando transferência...");
+    } else {
+      toast.error("Atualização automática indisponível no navegador.");
     }
   };
 
@@ -222,7 +227,16 @@ const App: React.FC = () => {
         onOpenHistory={() => setShowHistory(true)} onOpenShortcuts={() => setShowShortcuts(true)}
         onOpenCheatSheet={() => setShowCheatSheet(true)} onOpenVirtualRelations={() => setShowVirtualRelations(true)}
         onOpenLogAnalyzer={() => setShowLogAnalyzer(true)} onOpenTemplates={() => setShowTemplates(true)}
-        onOpenSqlExtractor={() => setShowSqlExtractor(true)} onCheckUpdate={() => { manualCheckRef.current = true; (window as any).electron.send('check-update', settings.updateBranch); }}
+        onOpenSqlExtractor={() => setShowSqlExtractor(true)} 
+        onCheckUpdate={() => { 
+          const electron = (window as any).electron;
+          if (electron) {
+            manualCheckRef.current = true; 
+            electron.send('check-update', settings.updateBranch); 
+          } else {
+            toast.error("Funcionalidade disponível apenas no App Desktop.");
+          }
+        }}
       />
       <main className="flex-1 overflow-hidden relative flex flex-col">
         <div className="flex-1 p-6 overflow-hidden h-full">
@@ -250,7 +264,25 @@ const App: React.FC = () => {
       {showLogAnalyzer && schema && <LogAnalyzerModal schema={schema} onClose={() => setShowLogAnalyzer(false)} onRunSql={sql => { setQueryResult({sql, explanation:'', tips:[]}); setCurrentStep('preview'); }} />}
       {showTemplates && <TemplateModal onClose={() => setShowTemplates(false)} onRunTemplate={sql => { setQueryResult({sql, explanation:'', tips:[]}); setCurrentStep('preview'); }} />}
       {showSqlExtractor && <SqlExtractorModal onClose={() => setShowSqlExtractor(false)} onRunSql={sql => { setQueryResult({sql, explanation:'', tips:[]}); setCurrentStep('preview'); }} settings={settings} />}
-      {updateInfo && <UpdateModal updateInfo={updateInfo} downloadProgress={downloadProgress} isReady={updateReady} onClose={() => setUpdateInfo(null)} onStartDownload={handleStartDownload} onInstall={() => (window as any).electron.send('install-update')} onIgnore={() => { const ign = JSON.parse(localStorage.getItem('psqlBuddy-ignored-versions') || '[]'); ign.push(updateInfo.version); localStorage.setItem('psqlBuddy-ignored-versions', JSON.stringify(ign)); setUpdateInfo(null); }} />}
+      {updateInfo && (
+        <UpdateModal 
+          updateInfo={updateInfo} 
+          downloadProgress={downloadProgress} 
+          isReady={updateReady} 
+          onClose={() => setUpdateInfo(null)} 
+          onStartDownload={handleStartDownload} 
+          onInstall={() => {
+            const electron = (window as any).electron;
+            if (electron) electron.send('install-update');
+          }} 
+          onIgnore={() => { 
+            const ign = JSON.parse(localStorage.getItem('psqlBuddy-ignored-versions') || '[]'); 
+            ign.push(updateInfo.version); 
+            localStorage.setItem('psqlBuddy-ignored-versions', JSON.stringify(ign)); 
+            setUpdateInfo(null); 
+          }} 
+        />
+      )}
     </div>
   );
 };
