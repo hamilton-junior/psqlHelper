@@ -59,14 +59,11 @@ function startBackend() {
     return;
   }
 
-  // Em produção, o server.js está no mesmo nível do main.js dentro do asar.
-  // UtilityProcess consegue ler arquivos de dentro do ASAR sem problemas se passarmos o caminho absoluto.
   const serverPath = path.join(__dirname, 'server.js');
 
   console.log(`[MAIN] Resolvendo backend em: ${serverPath}`);
 
   try {
-    // Redirecionamos os logs ('pipe') para que possamos ver erros de inicialização no terminal principal
     serverChild = utilityProcess.fork(serverPath, [], {
         env: { 
             ...process.env,
@@ -117,6 +114,15 @@ function createWindow() {
     mainWindow.loadFile(path.join(__dirname, 'dist/index.html'));
   }
 
+  // Interceptar tentativas de abertura de novas janelas (links target="_blank")
+  // para forçar abertura no navegador do sistema
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (url.startsWith('http')) {
+      shell.openExternal(url);
+    }
+    return { action: 'deny' };
+  });
+
   mainWindow.webContents.on('did-finish-load', () => {
     mainWindow.webContents.send('app-version', CURRENT_VERSION);
     fetchGitHubVersions().then(versions => {
@@ -161,6 +167,13 @@ app.whenReady().then(() => {
 app.on('window-all-closed', () => { 
   if (serverChild) serverChild.kill();
   if (process.platform !== 'darwin') app.quit();
+});
+
+// Listener para abrir URLs externas de forma explícita
+ipcMain.on('open-external', (event, url) => {
+  if (url && typeof url === 'string' && url.startsWith('http')) {
+    shell.openExternal(url);
+  }
 });
 
 ipcMain.on('check-update', async (event, branch) => {
