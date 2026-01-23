@@ -1,10 +1,11 @@
+
 import React, { useState } from 'react';
 import { AppStep, DatabaseSchema } from '../types';
 import { 
   Database, Layers, Terminal, Table, Server, ArrowRight, Settings, 
   ChevronLeft, ChevronRight, Map, History, GitCompare, Link, 
   FileSearch, FileText, Scissors, BookOpen, Rocket, Tag, 
-  CloudDownload, Keyboard, Zap, LayoutGrid
+  CloudDownload, Keyboard, Zap, LayoutGrid, Github
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -160,10 +161,33 @@ const Sidebar: React.FC<SidebarProps> = ({
              {!isCollapsed && <span>Configurações</span>}
            </button>
 
-           {!isCollapsed && (
+           {isCollapsed ? (
+              <div className="flex flex-col items-center gap-3 pt-4 mt-2 border-t border-slate-900">
+                <a 
+                  href="https://github.com/Hamilton-Junior/psqlBuddy" 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="text-slate-600 hover:text-white transition-colors"
+                  title="Abrir Repositório no GitHub"
+                >
+                  <Github className="w-5 h-5" />
+                </a>
+              </div>
+           ) : (
               <div className="px-4 pt-4 flex items-center justify-between mt-2 border-t border-slate-900">
-                 <div className="flex items-center gap-2 text-[9px] font-black text-slate-600 uppercase tracking-widest" title="Versão atual do aplicativo">
-                    <Tag className="w-3 h-3 opacity-50" /> {formatVersionDisplay(CURRENT_APP_VERSION)}
+                 <div className="flex items-center gap-3">
+                    <a 
+                      href="https://github.com/Hamilton-Junior/psqlBuddy" 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="text-slate-600 hover:text-white transition-colors"
+                      title="Abrir Repositório no GitHub"
+                    >
+                      <Github className="w-4 h-4" />
+                    </a>
+                    <div className="flex items-center gap-2 text-[9px] font-black text-slate-600 uppercase tracking-widest" title="Versão atual do aplicativo">
+                       <Tag className="w-3 h-3 opacity-50" /> {formatVersionDisplay(CURRENT_APP_VERSION)}
+                    </div>
                  </div>
                  <button 
                     onClick={() => onNavigate('roadmap')}
