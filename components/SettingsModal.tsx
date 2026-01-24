@@ -6,7 +6,9 @@ import {
   AlertCircle, GraduationCap, PenTool, DatabaseZap, HeartPulse, 
   Activity, CheckCircle2, XCircle, RefreshCw, Play, 
   Bug, Loader2, Database, User, Server, Hash, Shield, Terminal, ZapOff, ActivitySquare,
-  LayoutGrid, Monitor, Moon, Sun, ChevronRight, Gauge, GitCompare, GitBranch, FlaskConical, Tag, Info, Github, GitCommit, Radio, Binary
+  LayoutGrid, Monitor, Moon, Sun, ChevronRight, Gauge, GitCompare, GitBranch, FlaskConical, Tag, Info, Github, GitCommit, Radio, Binary,
+  UserCheck,
+  Cpu
 } from 'lucide-react';
 import { AppSettings, DatabaseSchema, DbCredentials } from '../types';
 import { runFullHealthCheck, HealthStatus, runRandomizedStressTest, StressTestLog } from '../services/healthService';
@@ -144,26 +146,32 @@ export default function SettingsModal({
     </button>
   );
 
-  const RemoteVersionItem = ({ title, version, icon: Icon, type }: { title: string, version: string | undefined, icon: any, type: 'stable' | 'wip' | 'bleeding' }) => {
-    const display = !remoteVersions || version === undefined || version === '---' 
+  const VersionItem = ({ title, version, icon: Icon, type }: { title: string, version: string | undefined, icon: any, type: 'local' | 'stable' | 'wip' }) => {
+    const display = version === undefined || version === '---' 
         ? <Loader2 className="w-4 h-4 animate-spin opacity-50" /> 
         : version === 'Erro' ? <XCircle className="w-4 h-4 text-rose-500" /> 
         : formatVersionDisplay(version);
 
     const colors = {
+       local: 'text-emerald-600 dark:text-emerald-400',
        stable: 'text-indigo-600 dark:text-indigo-400',
-       wip: 'text-orange-600 dark:text-orange-400',
-       bleeding: 'text-rose-600 dark:text-rose-400'
+       wip: 'text-orange-600 dark:text-orange-400'
     };
 
     const subLabels = {
-       stable: 'Versão de Produção',
-       wip: 'Pré-release GitHub',
-       bleeding: 'Commit History'
+       local: 'Instalada neste PC',
+       stable: 'Última de Produção',
+       wip: 'Última Pre-release'
+    };
+
+    const bgColors = {
+       local: 'bg-emerald-50/50 dark:bg-emerald-950/20 border-emerald-100 dark:border-emerald-800/50',
+       stable: 'bg-indigo-50/50 dark:bg-indigo-950/20 border-indigo-100 dark:border-indigo-800/50',
+       wip: 'bg-orange-50/50 dark:bg-orange-950/20 border-orange-100 dark:border-orange-800/50'
     };
 
     return (
-      <div className="bg-slate-50 dark:bg-slate-900 p-5 rounded-3xl border border-slate-100 dark:border-slate-800 flex flex-col items-center text-center group">
+      <div className={`p-5 rounded-3xl border flex flex-col items-center text-center group transition-all hover:scale-[1.02] ${bgColors[type]}`}>
          <span className="text-[9px] font-black text-slate-400 uppercase tracking-[0.15em] mb-2">{title}</span>
          <div className={`text-xl font-black mb-1 ${colors[type]}`}>
             {display}
@@ -457,42 +465,44 @@ export default function SettingsModal({
                       </div>
 
                       <div className="grid grid-cols-3 gap-4 mb-8">
-                         <RemoteVersionItem 
+                         <VersionItem 
+                            title="Versão Instalada" 
+                            version={CURRENT_APP_VERSION} 
+                            icon={UserCheck}
+                            type="local"
+                         />
+
+                         <VersionItem 
                             title="Release Estável" 
                             version={remoteVersions?.stable} 
                             icon={CheckCircle2}
                             type="stable"
                          />
 
-                         <RemoteVersionItem 
+                         <VersionItem 
                             title="Release WIP" 
                             version={remoteVersions?.wip} 
                             icon={FlaskConical} 
                             type="wip"
                          />
-
-                         <RemoteVersionItem 
-                            title="Bleeding Edge" 
-                            version={remoteVersions?.bleedingEdge} 
-                            icon={Binary} 
-                            type="bleeding"
-                         />
                       </div>
 
                       <div className="grid grid-cols-2 gap-6 items-center">
-                         <div className="p-4 bg-slate-50 dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                         <div className="p-4 bg-slate-50 dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-800 flex items-center justify-between group/hub">
                             <div className="flex items-center gap-3">
                                <div className="p-2 bg-white dark:bg-slate-800 rounded-lg shadow-sm">
                                   <Github className="w-4 h-4 text-slate-500" />
                                </div>
                                <div>
-                                  <span className="text-[10px] font-black text-slate-400 uppercase block leading-none mb-1">Histórico de Commits</span>
-                                  <span className="text-sm font-black text-slate-700 dark:text-slate-200">
-                                     {remoteVersions?.totalCommits ? remoteVersions.totalCommits.toLocaleString() : '---'}
+                                  <span className="text-[10px] font-black text-slate-400 uppercase block leading-none mb-1">Bleeding Hub</span>
+                                  <span className="text-sm font-black text-rose-600 dark:text-rose-400">
+                                     {remoteVersions?.bleedingEdge ? formatVersionDisplay(remoteVersions.bleedingEdge) : '---'}
                                   </span>
                                </div>
                             </div>
-                            <div className="px-2 py-1 bg-rose-50 dark:bg-rose-900/30 text-rose-600 dark:text-rose-400 text-[10px] font-black rounded-lg uppercase tracking-tighter">Bleeding Hub</div>
+                            <div className="px-2 py-1 bg-rose-50 dark:bg-rose-900/30 text-rose-600 dark:text-rose-400 text-[10px] font-black rounded-lg uppercase tracking-tighter">
+                               {remoteVersions?.totalCommits ? `${remoteVersions.totalCommits} Commits` : 'Syncing'}
+                            </div>
                          </div>
 
                          <div className="space-y-2">
