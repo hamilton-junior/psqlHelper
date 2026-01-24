@@ -66,7 +66,7 @@ export default function SettingsModal({
 
   useEffect(() => {
     if (activeTab === 'diagnostics') {
-      console.log("[SETTINGS] Diagnostic tab active. Refreshing versions...");
+      console.log("[SETTINGS] Aba diagnóstico ativa. Verificando versões...");
       if ((window as any).electron) {
         (window as any).electron.send('refresh-remote-versions');
       }
@@ -81,6 +81,7 @@ export default function SettingsModal({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    console.log("[SETTINGS] Salvando novas configurações...", formData);
     onSave(formData);
     onClose();
   };
@@ -88,11 +89,12 @@ export default function SettingsModal({
   const handleHealthCheck = async () => {
     setIsChecking(true);
     setHealthResults(null);
+    console.log("[SETTINGS] Iniciando check-up de saúde do sistema...");
     try {
       const results = await runFullHealthCheck(credentials, schema);
       setHealthResults(results);
     } catch (e) {
-      console.error("[SETTINGS] Health Check failed", e);
+      console.error("[SETTINGS] Falha no Health Check", e);
     } finally {
       setIsChecking(false);
     }
@@ -101,12 +103,13 @@ export default function SettingsModal({
   const handleRunStressTest = async () => {
     setIsStressing(true);
     setStressLogs([]);
+    console.log("[SETTINGS] Iniciando fuzzer de carga...");
     try {
       await runRandomizedStressTest(schema || null, simulationData, (newLog) => {
         setStressLogs(prev => [...prev, newLog]);
       });
     } catch (e) {
-      console.error("[SETTINGS] Stress test failed", e);
+      console.error("[SETTINGS] Falha no teste de estresse", e);
     } finally {
       setIsStressing(false);
     }
@@ -166,8 +169,10 @@ export default function SettingsModal({
     };
 
     return (
-      <div className={`p-5 rounded-3xl border flex flex-col items-center text-center group transition-all duration-500 ${bgColors[type]} 
-        ${!isActive ? 'opacity-60 scale-[0.98] shadow-none grayscale-[0.2]' : 'opacity-100 grayscale-0 scale-100 shadow-sm border-current/20'}`}>
+      <div className={`p-5 rounded-3xl border flex flex-col items-center text-center group transition-all duration-500 ease-[cubic-bezier(0.4,0,0.2,1)] ${bgColors[type]} 
+        ${!isActive 
+          ? 'opacity-40 scale-[0.92] grayscale-[0.5] shadow-none blur-[0.2px] border-slate-200 dark:border-slate-800' 
+          : 'opacity-100 grayscale-0 scale-100 shadow-xl shadow-indigo-900/5 border-indigo-300 dark:border-indigo-500/50 ring-2 ring-indigo-500/10'}`}>
          <span className="text-[9px] font-black text-slate-400 uppercase tracking-[0.15em] mb-2">{title}</span>
          <div className={`text-xl font-black mb-1 ${colors[type]}`}>
             {display}
@@ -510,7 +515,7 @@ export default function SettingsModal({
                             <div className="grid grid-cols-2 gap-2 p-1 bg-slate-100 dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700">
                                <button 
                                   type="button"
-                                  onClick={() => setFormData({...formData, updateBranch: 'stable'})}
+                                  onClick={() => { console.log("[DIAGNOSTICS] Trocando para branch STABLE"); setFormData({...formData, updateBranch: 'stable'}); }}
                                   className={`py-2 rounded-xl text-[10px] font-black uppercase transition-all
                                      ${formData.updateBranch === 'stable' 
                                         ? 'bg-white dark:bg-slate-800 text-indigo-600 shadow-sm' 
@@ -521,7 +526,7 @@ export default function SettingsModal({
                                 </button>
                                 <button 
                                   type="button"
-                                  onClick={() => setFormData({...formData, updateBranch: 'main'})}
+                                  onClick={() => { console.log("[DIAGNOSTICS] Trocando para branch MAIN/WIP"); setFormData({...formData, updateBranch: 'main'}); }}
                                   className={`py-2 rounded-xl text-[10px] font-black uppercase transition-all
                                      ${formData.updateBranch === 'main' 
                                         ? 'bg-white dark:bg-slate-800 text-purple-600 shadow-sm' 
