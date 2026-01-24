@@ -17,6 +17,17 @@
           ]
         },
         {
+          "title": "Database Semantic Search",
+          "desc": "Busque tabelas e colunas pelo significado em vez do nome exato (ex: buscar 'cobrança' para achar 'invoice_headers').",
+          "status": "Em Pesquisa",
+          "implementationPlan": [
+            "Técnica: Geração de Embeddings vetoriais dos metadados e nomes de colunas.",
+            "Busca: Comparação de cosseno entre a query de busca natural e o mapa vetorial do banco.",
+            "UI: Barra de busca inteligente no topo do SchemaViewer.",
+            "IA: Uso de modelos Gemini para interpretar sinônimos e contextos de negócio."
+          ]
+        },
+        {
           "title": "Tradução de Dialetos",
           "desc": "Converter queries de MySQL, SQL Server ou Oracle para sintaxe otimizada do PostgreSQL.",
           "status": "Em Discussão",
@@ -44,6 +55,17 @@
       "title": "UX & Visualização Avançada",
       "icon": "Eye",
       "items": [
+        {
+          "title": "Visual Explain Timeline",
+          "desc": "Transforme o EXPLAIN ANALYZE em um gráfico de Gantt visual, mostrando os gargalos de tempo da query.",
+          "status": "Planejado",
+          "implementationPlan": [
+            "Lógica: Parsing do JSON retornado pelo PostgreSQL EXPLAIN (ANALYZE, FORMAT JSON).",
+            "Gráfico: Timeline horizontal mostrando o custo de 'Startup' vs 'Total' de cada nó.",
+            "Highlight: Identificação visual de nós que consomem mais de 50% do tempo total.",
+            "UI: Integração com a aba de Performance no ResultsStep."
+          ]
+        },
         {
           "title": "Fixar Colunas (Column Pinning)",
           "desc": "Congele colunas identificadoras à esquerda para manter o contexto enquanto navega horizontalmente em tabelas largas.",
@@ -85,6 +107,28 @@
       "icon": "Zap",
       "items": [
         {
+          "title": "Multi-Query Scratchpad",
+          "desc": "Abas de rascunho rápido para testar snippets SQL sem perder a query principal do builder.",
+          "status": "Planejado",
+          "implementationPlan": [
+            "UI: Lateral expansível com abas numeradas de 'Scratchpad'.",
+            "Recurso: Cada aba mantém seu próprio estado de editor Monaco.",
+            "Funcionalidade: 'Promover para Builder' permite levar o código do rascunho para o fluxo principal.",
+            "Persistência: Salva automaticamente os rascunhos em tempo real."
+          ]
+        },
+        {
+          "title": "Natural Language Data Cleaning",
+          "desc": "Diga 'limpe os espaços em branco' ou 'normalize CPFs' e a IA gera os comandos de UPDATE necessários.",
+          "status": "Sugestão",
+          "implementationPlan": [
+            "IA: Prompt especializado em higienização de strings e regex Postgres.",
+            "Preview: Exibição 'Antes vs Depois' em uma amostra de 5 linhas antes de executar.",
+            "Segurança: Geração obrigatória de transação com BEGIN/ROLLBACK sugerido.",
+            "Contexto: IA reconhece tipos de dados (Datas, Moedas, Documentos) para aplicar a melhor regra."
+          ]
+        },
+        {
           "title": "Command Palette (Ctrl+P)",
           "desc": "Barra de comando global estilo VS Code para navegar instantaneamente entre tabelas e ferramentas.",
           "status": "Planejado",
@@ -105,16 +149,44 @@
             "Segurança: Garantia de não-utilização de dados reais (Anonimização total).",
             "Diferencial: Preservação de integridade referencial (FKs simuladas)."
           ]
-        },
+        }
+      ]
+    },
+    {
+      "title": "DevOps & Governança",
+      "icon": "Layers",
+      "items": [
         {
-          "title": "Versionamento de Queries",
-          "desc": "Histórico Git interno para salvar versões de templates SQL e restaurar alterações antigas.",
+          "title": "DML Safety Lock",
+          "desc": "Trava inteligente que detecta UPDATE/DELETE sem WHERE e exige confirmação dupla.",
           "status": "Planejado",
           "implementationPlan": [
-            "Persistência: Uso de IndexedDB para armazenar commits locais com comentários.",
-            "Visual: Ferramenta de Diff integrada para comparar o que mudou entre a Versão 1 e Versão 2.",
-            "UI: Timeline vertical na lateral do Editor SQL.",
-            "Funcionalidade: Branching experimental para testar grandes refatorações de queries complexas."
+            "Lógica: Analisador sintático (Parser) identifica comandos destrutivos sem cláusula de filtro.",
+            "UI: Banner de alerta vermelho 'Critical Risk' impedindo o botão de execução imediata.",
+            "Savepoint: Opção automática de criar um ponto de restauração antes de rodar o comando.",
+            "Proteção: Bloqueio opcional de comandos TRUNCATE ou DROP em ambientes marcados como 'Produção'."
+          ]
+        },
+        {
+          "title": "Schema Diff & Sync",
+          "desc": "Compare dois bancos (ex: Local vs Stage) e gere o script de migração para sincronizar as tabelas.",
+          "status": "Em Discussão",
+          "implementationPlan": [
+            "Técnica: Comparação de metadados das tabelas de sistema (pg_catalog).",
+            "Geração: Criação de scripts ALTER TABLE automáticos para colunas faltantes ou tipos alterados.",
+            "UI: Tabela comparativa lado-a-lado destacando diferenças de colunas, constraints e índices.",
+            "Diferencial: Suporte a migração seletiva (escolha quais tabelas sincronizar)."
+          ]
+        },
+        {
+          "title": "Shared Workspaces (Bundles)",
+          "desc": "Exporte todo o contexto do projeto (Schema + Vínculos Virtuais + Templates) em um único arquivo.",
+          "status": "Em Discussão",
+          "implementationPlan": [
+            "Formato: Arquivo .psqlbuddy contendo configurações e metadados criptografados.",
+            "Colaboração: Permite que colegas importem o workspace e tenham o mesmo contexto de auditoria instantaneamente.",
+            "Segurança: Opcional de 'Remover Credenciais' ao exportar para compartilhamento público.",
+            "Recurso: Snapshot de histórico de queries importantes incluído no bundle."
           ]
         }
       ]
@@ -123,6 +195,17 @@
       "title": "Performance & Relatórios",
       "icon": "Terminal",
       "items": [
+        {
+          "title": "Data Quality Dashboard",
+          "desc": "Perfilagem automática: detecte % de nulos, outliers e cardinalidade de colunas.",
+          "status": "Planejado",
+          "implementationPlan": [
+            "Técnica: Queries estatísticas leves rodando em background (ou sob demanda).",
+            "Visual: Mini-cards com histogramas de distribuição de dados por coluna.",
+            "Alerta: Notificação automática de 'Data Drift' ou inconsistências de tipo em colunas genéricas.",
+            "UI: Nova aba 'Qualidade' no painel de Resultados."
+          ]
+        },
         {
           "title": "Multitasking de Resultados",
           "desc": "Abas na tela de Results para manter múltiplas queries rodando simultaneamente.",
