@@ -32,7 +32,6 @@ const CURRENT_APP_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSI
 
 /**
  * Utilitário visual para formatar a versão.
- * Aplica o padrão vX.0Y.0Z para todas as versões para consistência visual.
  */
 const formatVersionDisplay = (v: string | undefined): string => {
   if (!v || v === '---') return '...';
@@ -67,7 +66,7 @@ export default function SettingsModal({
 
   useEffect(() => {
     if (activeTab === 'diagnostics') {
-      console.log("[SETTINGS] Aba diagnóstico ativa. Solicitando atualização silenciosa de versões...");
+      console.log("[SETTINGS] Diagnostic tab active. Refreshing versions...");
       if ((window as any).electron) {
         (window as any).electron.send('refresh-remote-versions');
       }
@@ -142,7 +141,7 @@ export default function SettingsModal({
     </button>
   );
 
-  const VersionItem = ({ title, version, icon: Icon, type }: { title: string, version: string | undefined, icon: any, type: 'local' | 'stable' | 'wip' }) => {
+  const VersionItem = ({ title, version, icon: Icon, type, isActive = true }: { title: string, version: string | undefined, icon: any, type: 'local' | 'stable' | 'wip', isActive?: boolean }) => {
     const display = version === undefined || version === '---' 
         ? <Loader2 className="w-4 h-4 animate-spin opacity-50" /> 
         : version === 'Erro' ? <XCircle className="w-4 h-4 text-rose-500" /> 
@@ -167,7 +166,8 @@ export default function SettingsModal({
     };
 
     return (
-      <div className={`p-5 rounded-3xl border flex flex-col items-center text-center group transition-all hover:scale-[1.02] ${bgColors[type]}`}>
+      <div className={`p-5 rounded-3xl border flex flex-col items-center text-center group transition-all duration-500 ${bgColors[type]} 
+        ${!isActive ? 'opacity-60 scale-[0.98] shadow-none grayscale-[0.2]' : 'opacity-100 grayscale-0 scale-100 shadow-sm border-current/20'}`}>
          <span className="text-[9px] font-black text-slate-400 uppercase tracking-[0.15em] mb-2">{title}</span>
          <div className={`text-xl font-black mb-1 ${colors[type]}`}>
             {display}
@@ -182,7 +182,7 @@ export default function SettingsModal({
 
   return (
     <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[100] flex items-center justify-center p-4 font-sans animate-in fade-in duration-300">
-      <div className="bg-white dark:bg-slate-900 rounded-[2rem] shadow-2xl w-full max-w-5xl h-[85vh] flex flex-col overflow-hidden border border-slate-200 dark:border-slate-800">
+      <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] shadow-2xl w-full max-w-5xl h-[85vh] flex flex-col overflow-hidden border border-slate-200 dark:border-slate-800">
         
         <div className="px-8 py-5 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-white/50 dark:bg-slate-900/50 backdrop-blur-sm shrink-0">
           <div className="flex items-center gap-4">
@@ -473,6 +473,7 @@ export default function SettingsModal({
                             version={remoteVersions?.stable} 
                             icon={CheckCircle2}
                             type="stable"
+                            isActive={formData.updateBranch === 'stable'}
                          />
 
                          <VersionItem 
@@ -480,6 +481,7 @@ export default function SettingsModal({
                             version={remoteVersions?.wip} 
                             icon={FlaskConical} 
                             type="wip"
+                            isActive={formData.updateBranch === 'main'}
                          />
                       </div>
 
@@ -590,7 +592,7 @@ export default function SettingsModal({
                                className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-2
                                   ${isStressing 
                                      ? 'bg-rose-500 text-white animate-pulse' 
-                                     : 'bg-emerald-500 hover:bg-emerald-600 text-slate-950 shadow-lg shadow-emerald-500/20'}
+                                     : 'bg-emerald-50 hover:bg-emerald-600 text-slate-950 shadow-lg shadow-emerald-500/20'}
                                `}
                             >
                                {isStressing ? <Loader2 className="w-3 h-3 animate-spin" /> : <Play className="w-3 h-3 fill-current" />}
