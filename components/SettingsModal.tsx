@@ -8,7 +8,9 @@ import {
   Bug, Loader2, Database, User, Server, Hash, Shield, Terminal, ZapOff, ActivitySquare,
   LayoutGrid, Monitor, Moon, Sun, ChevronRight, Gauge, GitCompare, GitBranch, FlaskConical, Tag, Info, Github, GitCommit, Radio, Binary,
   UserCheck,
-  Cpu
+  Cpu,
+  Lock,
+  ShieldAlert
 } from 'lucide-react';
 import { AppSettings, DatabaseSchema, DbCredentials } from '../types';
 import { runFullHealthCheck, HealthStatus, runRandomizedStressTest, StressTestLog } from '../services/healthService';
@@ -171,8 +173,8 @@ export default function SettingsModal({
     return (
       <div className={`p-5 rounded-3xl border flex flex-col items-center text-center group transition-all duration-500 ease-[cubic-bezier(0.4,0,0.2,1)] ${bgColors[type]} 
         ${!isActive 
-          ? 'opacity-40 scale-[0.92] grayscale-[0.5] shadow-none blur-[0.2px] border-slate-200 dark:border-slate-800' 
-          : 'opacity-100 grayscale-0 scale-100 shadow-xl shadow-indigo-900/5 border-indigo-300 dark:border-indigo-500/50 ring-2 ring-indigo-500/10'}`}>
+          ? 'opacity-20 scale-90 grayscale-[0.8] blur-[2px] shadow-none pointer-events-none' 
+          : 'opacity-100 grayscale-0 scale-100 blur-none shadow-xl shadow-indigo-900/5 border-current/30'}`}>
          <span className="text-[9px] font-black text-slate-400 uppercase tracking-[0.15em] mb-2">{title}</span>
          <div className={`text-xl font-black mb-1 ${colors[type]}`}>
             {display}
@@ -266,6 +268,39 @@ export default function SettingsModal({
                             </div>
                             <span className="text-sm font-bold flex items-center gap-2 text-slate-700 dark:text-slate-200"><Moon className="w-4 h-4" /> Escuro</span>
                          </button>
+                      </div>
+                   </section>
+
+                   <section>
+                      <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+                         <ShieldCheck className="w-4 h-4" /> Segurança & Governança
+                      </h4>
+                      <div className="grid grid-cols-1 gap-3">
+                         <div className="p-4 bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-800 rounded-2xl flex items-center justify-between hover:shadow-sm transition-all group">
+                            <div className="flex items-center gap-4">
+                               <div className="p-2.5 bg-rose-50 dark:bg-rose-950/30 text-rose-600 dark:text-rose-400 rounded-xl group-hover:scale-110 transition-transform">
+                                  <Lock className="w-5 h-5" />
+                               </div>
+                               <div>
+                                  <span className="text-sm font-black text-slate-700 dark:text-slate-200 block leading-tight">DML Safety Lock</span>
+                                  <p className="text-xs text-slate-500">Exige confirmação dupla para UPDATE/DELETE sem WHERE.</p>
+                               </div>
+                            </div>
+                            <Toggle checked={formData.enableDmlSafety} onChange={val => setFormData({...formData, enableDmlSafety: val})} colorClass="peer-checked:bg-rose-500" />
+                         </div>
+
+                         <div className="p-4 bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-800 rounded-2xl flex items-center justify-between hover:shadow-sm transition-all group">
+                            <div className="flex items-center gap-4">
+                               <div className="p-2.5 bg-red-50 dark:bg-red-950/30 text-red-600 dark:text-red-400 rounded-xl group-hover:scale-110 transition-transform">
+                                  <ShieldAlert className="w-5 h-5" />
+                               </div>
+                               <div>
+                                  <span className="text-sm font-black text-slate-700 dark:text-slate-200 block leading-tight">Bloquear TRUNCATE/DROP</span>
+                                  <p className="text-xs text-slate-500">Impede comandos destrutivos de esquema em todo o app.</p>
+                               </div>
+                            </div>
+                            <Toggle checked={formData.blockDestructiveCommands} onChange={val => setFormData({...formData, blockDestructiveCommands: val})} colorClass="peer-checked:bg-red-600" />
+                         </div>
                       </div>
                    </section>
 

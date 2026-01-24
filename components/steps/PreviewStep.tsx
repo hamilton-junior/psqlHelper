@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { DatabaseSchema, QueryResult, OptimizationAnalysis } from '../../types';
-import { Terminal, Play, ArrowLeft, CheckCircle2, ShieldAlert, Info, Copy, Check, Loader2, Lightbulb, ShieldOff, AlertCircle, AlignLeft, Minimize2, Split, Code2, Zap, TrendingUp, Gauge, X, Shield } from 'lucide-react';
+import { DatabaseSchema, QueryResult, OptimizationAnalysis, AppSettings } from '../../types';
+import { Terminal, Play, ArrowLeft, CheckCircle2, ShieldAlert, Info, Copy, Check, Loader2, Lightbulb, ShieldOff, AlertCircle, AlignLeft, Minimize2, Split, Code2, Zap, TrendingUp, Gauge, X, Shield, Lock, Unlock } from 'lucide-react';
 import Editor, { useMonaco, DiffEditor } from '@monaco-editor/react';
 import { analyzeQueryPerformance } from '../../services/geminiService';
 
@@ -13,26 +13,26 @@ interface PreviewStepProps {
   isValidating: boolean;
   validationDisabled?: boolean;
   schema?: DatabaseSchema;
+  settings?: AppSettings;
 }
 
-const PreviewStep: React.FC<PreviewStepProps> = ({ queryResult, onExecute, onBack, isExecuting, isValidating, validationDisabled, schema }) => {
+const PreviewStep: React.FC<PreviewStepProps> = ({ queryResult, onExecute, onBack, isExecuting, isValidating, validationDisabled, schema, settings }) => {
   const [copied, setCopied] = useState(false);
-  // Inicializa o estado com o valor da query atual
   const [editedSql, setEditedSql] = useState(queryResult.sql || '');
   const [viewMode, setViewMode] = useState<'edit' | 'diff'>('edit');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisResult, setAnalysisResult] = useState<OptimizationAnalysis | null>(null);
   const [showAnalysis, setShowAnalysis] = useState(false);
+  const [isSafetyUnlocked, setIsSafetyUnlocked] = useState(false);
   
   const monaco = useMonaco();
-  // Referência para controlar qual foi a última query "oficial" enviada pelo pai
   const lastSourceSqlRef = useRef(queryResult.sql);
 
   useEffect(() => {
      const handleKeyDown = (e: KeyboardEvent) => {
         if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
            e.preventDefault();
-           if (!isExecuting && editedSql.trim()) onExecute(editedSql);
+           if (!isExecuting && editedSql.trim() && !safetyError) onExecute(editedSql);
         }
      };
      window.addEventListener('keydown', handleKeyDown);
@@ -58,17 +58,47 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ queryResult, onExecute, onBac
     return () => disposable.dispose();
   }, [monaco, schema]);
 
-  /**
-   * Sincroniza o editor APENAS se a query vinda do pai for diferente da última processada.
-   * Isso evita que re-renderizações do componente pai (causadas por outros estados) 
-   * resetem o texto que o usuário está editando ou limpando no Monaco.
-   */
   useEffect(() => {
     if (queryResult.sql !== lastSourceSqlRef.current) {
       setEditedSql(queryResult.sql || '');
       lastSourceSqlRef.current = queryResult.sql;
+      setIsSafetyUnlocked(false);
     }
   }, [queryResult.sql]);
+
+  // ANALISADOR DE SEGURANÇA DML
+  const safetyError = useMemo(() => {
+     const sql = editedSql.trim().toUpperCase();
+     if (!sql) return null;
+
+     // 1. Bloqueio Estrito de TRUNCATE/DROP
+     if (settings?.blockDestructiveCommands) {
+        if (/\b(TRUNCATE|DROP)\b/.test(sql)) {
+           return {
+              type: 'BLOCK',
+              message: 'Comandos de destruição (TRUNCATE/DROP) estão bloqueados por governança do sistema.',
+              icon: <Lock className="w-5 h-5" />
+           };
+        }
+     }
+
+     // 2. Trava de Segurança DML (UPDATE/DELETE sem WHERE)
+     if (settings?.enableDmlSafety && !isSafetyUnlocked) {
+        const isUpdate = /\bUPDATE\b/.test(sql);
+        const isDelete = /\bDELETE\b/.test(sql);
+        const hasWhere = /\bWHERE\b/.test(sql);
+
+        if ((isUpdate || isDelete) && !hasWhere) {
+           return {
+              type: 'RISK',
+              message: `RISCO CRÍTICO: Detectado ${isUpdate ? 'UPDATE' : 'DELETE'} sem cláusula WHERE. Isso afetará TODAS as linhas da tabela.`,
+              icon: <ShieldAlert className="w-5 h-5" />
+           };
+        }
+     }
+
+     return null;
+  }, [editedSql, settings, isSafetyUnlocked]);
 
   const handleCopy = () => {
     navigator.clipboard.writeText(editedSql);
@@ -183,16 +213,38 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ queryResult, onExecute, onBac
            </div>
         </div>
 
-        <div className={`rounded-xl border overflow-hidden transition-all shrink-0 ${isValidating ? 'bg-indigo-50 border-indigo-100 dark:bg-indigo-900/20' : isValid ? 'bg-emerald-50 border-emerald-200 dark:bg-emerald-900/20' : 'bg-red-50 border-red-200 dark:bg-red-900/10'}`}>
-          <div className="p-4 flex items-start gap-3">
-             {isValidating ? <Loader2 className="w-5 h-5 text-indigo-600 animate-spin" /> : isValid ? <CheckCircle2 className="w-5 h-5 text-emerald-600" /> : <ShieldAlert className="w-5 h-5 text-red-600" />}
-             <div className="flex-1">
-                <h4 className={`font-bold text-sm ${isValidating ? 'text-indigo-800 dark:text-indigo-200' : isValid ? 'text-emerald-800 dark:text-emerald-200' : 'text-red-800 dark:text-red-200'}`}>
-                {isValidating ? 'Validando Sintaxe...' : isValid ? 'Sintaxe Validada' : 'Erro Detectado'}
-                </h4>
+        {safetyError ? (
+           <div className={`rounded-xl border overflow-hidden transition-all shrink-0 animate-pulse ${safetyError.type === 'BLOCK' ? 'bg-red-950/40 border-red-500' : 'bg-rose-950/40 border-rose-500'}`}>
+              <div className="p-4 flex items-center justify-between gap-4">
+                 <div className="flex items-start gap-3 flex-1">
+                    <div className="text-red-500 mt-0.5">{safetyError.icon}</div>
+                    <div className="flex-1">
+                       <h4 className="font-black text-xs text-red-400 uppercase tracking-widest mb-1">DML Safety Lock</h4>
+                       <p className="text-sm font-medium text-white leading-snug">{safetyError.message}</p>
+                    </div>
+                 </div>
+                 {safetyError.type === 'RISK' && (
+                    <button 
+                       onClick={() => setIsSafetyUnlocked(true)}
+                       className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white text-xs font-black rounded-lg shadow-lg flex items-center gap-2 whitespace-nowrap transition-all"
+                    >
+                       <Unlock className="w-3.5 h-3.5" /> Forçar Desbloqueio
+                    </button>
+                 )}
+              </div>
+           </div>
+        ) : (
+           <div className={`rounded-xl border overflow-hidden transition-all shrink-0 ${isValidating ? 'bg-indigo-50 border-indigo-100 dark:bg-indigo-900/20' : isValid ? 'bg-emerald-50 border-emerald-200 dark:bg-emerald-900/20' : 'bg-red-50 border-red-200 dark:bg-red-900/10'}`}>
+             <div className="p-4 flex items-start gap-3">
+                {isValidating ? <Loader2 className="w-5 h-5 text-indigo-600 animate-spin" /> : isValid ? <CheckCircle2 className="w-5 h-5 text-emerald-600" /> : <ShieldAlert className="w-5 h-5 text-red-600" />}
+                <div className="flex-1">
+                   <h4 className={`font-bold text-sm ${isValidating ? 'text-indigo-800 dark:text-indigo-200' : isValid ? 'text-emerald-800 dark:text-emerald-200' : 'text-red-800 dark:text-red-200'}`}>
+                   {isValidating ? 'Validando Sintaxe...' : isValid ? 'Sintaxe Validada' : 'Erro Detectado'}
+                   </h4>
+                </div>
              </div>
-          </div>
-        </div>
+           </div>
+        )}
 
         <div className="bg-white dark:bg-slate-800 p-6 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm shrink-0">
            <div className="flex items-center gap-2 mb-3"><Info className="w-4 h-4 text-indigo-500" /><h4 className="font-bold text-slate-700 dark:text-slate-300 text-sm uppercase tracking-wider">Explicação da Lógica</h4></div>
@@ -201,8 +253,15 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ queryResult, onExecute, onBac
 
         <div className="flex items-center justify-between pt-4 pb-10 shrink-0">
            <button onClick={onBack} className="px-6 py-3 text-slate-600 dark:text-slate-400 font-semibold hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors flex items-center gap-2"><ArrowLeft className="w-4 h-4" /> Voltar</button>
-           <button onClick={() => onExecute(editedSql)} disabled={isExecuting || isValidating || !editedSql.trim()} className="bg-indigo-600 hover:bg-indigo-50 text-white px-8 py-3 rounded-xl font-bold shadow-lg shadow-indigo-900/20 dark:shadow-none transition-all disabled:opacity-50 flex items-center gap-2">
-              {isExecuting ? 'Executando...' : 'Executar Query'} <Play className="w-4 h-4 fill-current" />
+           <button 
+              onClick={() => onExecute(editedSql)} 
+              disabled={isExecuting || isValidating || !editedSql.trim() || (!!safetyError && safetyError.type === 'BLOCK') || (!!safetyError && !isSafetyUnlocked)} 
+              className={`px-8 py-3 rounded-xl font-bold shadow-lg transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed
+                 ${safetyError ? 'bg-slate-500 text-slate-300' : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-indigo-900/20'}
+              `}
+           >
+              {isExecuting ? 'Executando...' : 'Executar Query'} 
+              {safetyError ? <Lock className="w-4 h-4" /> : <Play className="w-4 h-4 fill-current" />}
            </button>
         </div>
       </div>

@@ -132,6 +132,8 @@ export interface AppSettings {
   enableAiTips: boolean;
   beginnerMode: boolean; 
   advancedMode: boolean; 
+  enableDmlSafety: boolean;
+  blockDestructiveCommands: boolean;
   backgroundLoadLinks: boolean; 
   aiGenerationTimeout: number; 
   defaultDbHost: string;
@@ -151,6 +153,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   enableAiTips: true,
   beginnerMode: true, 
   advancedMode: false, 
+  enableDmlSafety: true,
+  blockDestructiveCommands: false,
   backgroundLoadLinks: true,
   aiGenerationTimeout: 3000,
   defaultDbHost: 'localhost',
