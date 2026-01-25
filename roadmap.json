@@ -16,23 +16,23 @@
           ]
         },
         {
-          "title": "Monitor de Saúde em Tempo Real (Live Stats)",
-          "desc": "Telemetria do servidor: TPS, Cache Hit Rate, detecção de locks, queries zumbis (idle in transaction) e inchaço de tabelas (bloat).",
+          "title": "Monitor de Saúde Enterprise (Advanced Telemetry)",
+          "desc": "Telemetria profunda: Análise de Wait Events, árvore de bloqueios, detecção de índices inúteis e monitoramento de transação wraparound.",
           "status": "Finalizado",
           "implementationPlan": [
-            "Técnica: Consultas periódicas às views pg_stat_activity e pg_stat_database.",
-            "Recurso: Detector de bloqueios (Blocking Tree) e encerramento forçado de PIDs.",
-            "IA: Botão 'Analisar com Gemini' para diagnósticos humanos baseados na telemetria."
+            "Técnica: Agregadores de pg_stat_activity com wait_event_type categorizado.",
+            "Diagnóstico: Identificação de índices redundantes com idx_scan = 0.",
+            "Segurança: Alerta visual de Transaction Wraparound baseado em age(datfrozenxid)."
           ]
         },
         {
           "title": "Exportação de Snapshot de Diagnóstico",
-          "desc": "Gerador de relatórios técnicos em PDF/JSON contendo métricas, locks e plano de saúde do banco para compartilhamento com equipes de infra.",
-          "status": "Planejado",
+          "desc": "Gerador de relatórios técnicos em JSON/TXT contendo métricas, locks e plano de saúde do banco para compartilhamento.",
+          "status": "Finalizado",
           "implementationPlan": [
-            "UI: Botão de exportação no topo da tela de Saúde.",
-            "Técnica: Captura do estado atual do componente e formatação via jspdf/html2canvas.",
-            "Recurso: Possibilidade de anexar queries lentas detectadas no período."
+            "UI: Botões dedicados no topo da tela de Saúde.",
+            "Técnica: Captura serializada do estado atual de telemetria.",
+            "Recurso: Geração de arquivos offline para auditoria externa."
           ]
         }
       ]

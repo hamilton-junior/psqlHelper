@@ -4,12 +4,13 @@ import {
   HeartPulse, Activity, Database, Users, Clock, 
   RefreshCw, Trash2, Search, AlertCircle, 
   Loader2, Zap, ShieldAlert, Terminal, ZapOff, 
-  Cpu, BarChart3, AlertTriangle, Ghost, ListOrdered, Sparkles, X, ChevronDown, CheckCircle2, Timer, Settings
+  Cpu, BarChart3, AlertTriangle, Ghost, ListOrdered, Sparkles, X, ChevronDown, CheckCircle2, Timer, Settings,
+  FileJson, FileText, Download, Share2, Layers, Anchor, ActivitySquare, Gauge, ShieldCheck, Info
 } from 'lucide-react';
-import { DbCredentials, ServerStats, ActiveProcess, TableInsight } from '../../types';
+import { DbCredentials, ServerStats, ActiveProcess, TableInsight, UnusedIndex } from '../../types';
 import { getServerHealth, terminateProcess } from '../../services/dbService';
 import { getHealthDiagnosis } from '../../services/geminiService';
-import { LineChart, Line, ResponsiveContainer, YAxis, XAxis, Tooltip, AreaChart, Area } from 'recharts';
+import { LineChart, Line, ResponsiveContainer, YAxis, XAxis, Tooltip, AreaChart, Area, PieChart, Pie, Cell } from 'recharts';
 import { toast } from 'react-hot-toast';
 
 interface ServerHealthStepProps {
@@ -20,10 +21,11 @@ const ServerHealthStep: React.FC<ServerHealthStepProps> = ({ credentials }) => {
   const [stats, setStats] = useState<ServerStats | null>(null);
   const [processes, setProcesses] = useState<ActiveProcess[]>([]);
   const [tableInsights, setTableInsights] = useState<TableInsight[]>([]);
+  const [unusedIndexes, setUnusedIndexes] = useState<UnusedIndex[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(true);
-  const [refreshInterval, setRefreshInterval] = useState(5000); // ms
+  const [refreshInterval, setRefreshInterval] = useState(5000); 
   const [showSystemProcesses, setShowSystemProcesses] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [terminatingPid, setTerminatingPid] = useState<number | null>(null);
@@ -32,8 +34,8 @@ const ServerHealthStep: React.FC<ServerHealthStepProps> = ({ credentials }) => {
   const [aiDiagnosis, setAiDiagnosis] = useState<string | null>(null);
   const [isDiagnosing, setIsDiagnosing] = useState(false);
 
-  // Historico para Sparklines
-  const [history, setHistory] = useState<{conn: number, cache: number, tps: number}[]>([]);
+  // Historico para Sparklines (Aumentado para 24h em memória simulada)
+  const [history, setHistory] = useState<{conn: number, cache: number, tps: number, time: string}[]>([]);
 
   const fetchHealth = async (isManual = false) => {
     if (!credentials || credentials.host === 'simulated') {
@@ -49,11 +51,17 @@ const ServerHealthStep: React.FC<ServerHealthStepProps> = ({ credentials }) => {
       setStats(data.summary);
       setProcesses(data.processes);
       setTableInsights(data.tableInsights || []);
+      setUnusedIndexes(data.unusedIndexes || []);
       setError(null);
       
       setHistory(prev => {
-         const next = [...prev, { conn: data.summary.connections, cache: cacheVal, tps: data.summary.transactionsCommit }];
-         return next.slice(-20);
+         const next = [...prev, { 
+           conn: data.summary.connections, 
+           cache: cacheVal, 
+           tps: data.summary.transactionsCommit,
+           time: new Date().toLocaleTimeString()
+         }];
+         return next.slice(-100); // Guardamos mais pontos para o gráfico expandido
       });
     } catch (err: any) {
       setError(err.message || "Falha ao sincronizar telemetria.");
@@ -67,30 +75,10 @@ const ServerHealthStep: React.FC<ServerHealthStepProps> = ({ credentials }) => {
   useEffect(() => {
     let interval: any;
     if (autoRefresh && credentials && credentials.host !== 'simulated') {
-       console.log(`[HEALTH] Iniciando polling com intervalo de ${refreshInterval}ms`);
        interval = setInterval(() => fetchHealth(), refreshInterval);
     }
-    return () => {
-      if (interval) {
-        console.log(`[HEALTH] Limpando polling anterior`);
-        clearInterval(interval);
-      }
-    };
+    return () => clearInterval(interval);
   }, [autoRefresh, credentials, refreshInterval]);
-
-  const handleIntervalChange = (val: string) => {
-    const num = parseInt(val);
-    if (isNaN(num)) return;
-
-    // Sanitização: Mínimo 2s (2000ms), Máximo 60s (60000ms)
-    const sanitized = Math.max(2000, Math.min(60000, num));
-    console.log(`[HEALTH] Usuário solicitou intervalo de ${num}ms. Sanitizado para: ${sanitized}ms`);
-    setRefreshInterval(sanitized);
-    
-    if (num < 2000) {
-      toast("Intervalo mínimo de 2s para preservar performance do banco.", { icon: '🛡️', id: 'health-min-warn' });
-    }
-  };
 
   const handleAiDiagnosis = async () => {
      if (!stats || processes.length === 0) return;
@@ -115,25 +103,66 @@ const ServerHealthStep: React.FC<ServerHealthStepProps> = ({ credentials }) => {
     } finally { setTerminatingPid(null); }
   };
 
+  const exportSnapshot = (format: 'json' | 'txt') => {
+     const snapshot = {
+       timestamp: new Date().toISOString(),
+       host: credentials?.host,
+       stats,
+       processes: processes.map(p => ({ pid: p.pid, user: p.user, query: p.query, state: p.state })),
+       tableInsights
+     };
+
+     if (format === 'json') {
+        const blob = new Blob([JSON.stringify(snapshot, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `pg_snapshot_${Date.now()}.json`;
+        link.click();
+     } else {
+        let text = `PG SNAPSHOT - ${snapshot.timestamp}\n`;
+        text += `Host: ${snapshot.host}\n\n`;
+        text += `CONEXOES: ${stats?.connections}/${stats?.maxConnections}\n`;
+        text += `CACHE HIT: ${stats?.cacheHitRate}\n\n`;
+        text += `PROCESSOS ATIVOS:\n`;
+        processes.forEach(p => {
+           text += `[PID ${p.pid}] ${p.user}: ${p.state} - ${p.query.substring(0, 100)}...\n`;
+        });
+        const blob = new Blob([text], { type: 'text/plain' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `pg_snapshot_${Date.now()}.txt`;
+        link.click();
+     }
+     toast.success("Snapshot gerado com sucesso!");
+  };
+
   const filteredProcesses = useMemo(() => {
     return processes.filter(p => {
-       // 1. Filtro de Busca
        const matchesSearch = 
           (p.query || '').toLowerCase().includes(searchTerm.toLowerCase()) || 
           (p.user || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
           (p.pid || '').toString().includes(searchTerm);
-
        if (!matchesSearch) return false;
-
-       // 2. Filtro de Processos do Sistema (Native)
-       // No Postgres, 'client backend' são sessões de usuários. Todo o resto é nativo/sistema.
-       if (!showSystemProcesses && p.backendType !== 'client backend') {
-          return false;
-       }
-
+       if (!showSystemProcesses && p.backendType !== 'client backend') return false;
        return true;
     });
   }, [processes, searchTerm, showSystemProcesses]);
+
+  // Árvore de Bloqueios
+  const blockingTree = useMemo(() => {
+     const tree: Record<number, number[]> = {};
+     processes.forEach(p => {
+        if (p.blockingPids && p.blockingPids.length > 0) {
+           p.blockingPids.forEach(blocker => {
+              if (!tree[blocker]) tree[blocker] = [];
+              tree[blocker].push(p.pid);
+           });
+        }
+     });
+     return tree;
+  }, [processes]);
 
   const formatDurationDisplay = (duration: any): string => {
     if (!duration) return '0s';
@@ -147,34 +176,51 @@ const ServerHealthStep: React.FC<ServerHealthStepProps> = ({ credentials }) => {
     return typeof duration === 'string' ? duration.split('.')[0] : String(duration);
   };
 
-  const StatCard = ({ title, value, sub, icon: Icon, colorClass, highlight = false, historyKey }: any) => (
-    <div className={`p-5 rounded-3xl border transition-all shadow-sm bg-white dark:bg-slate-800 ${highlight ? 'border-indigo-400 ring-1 ring-indigo-500/20' : 'border-slate-200 dark:border-slate-700'}`}>
-       <div className="flex justify-between items-start mb-4">
-          <div className={`p-2.5 rounded-2xl ${colorClass}`}>
-             <Icon className="w-5 h-5" />
-          </div>
-          {historyKey && history.length > 1 && (
-             <div className="h-10 w-24">
-                <ResponsiveContainer width="100%" height="100%">
-                   <AreaChart data={history}>
-                      <defs>
-                        <linearGradient id={`grad-${historyKey}`} x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#6366f1" stopOpacity={0.3}/>
-                          <stop offset="95%" stopColor="#6366f1" stopOpacity={0}/>
-                        </linearGradient>
-                      </defs>
-                      <Area type="monotone" dataKey={historyKey} stroke="#6366f1" fill={`url(#grad-${historyKey})`} strokeWidth={2} dot={false} isAnimationActive={false} />
-                      <YAxis hide domain={['auto', 'auto']} />
-                   </AreaChart>
-                </ResponsiveContainer>
-             </div>
-          )}
-       </div>
-       <div className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1">{title}</div>
-       <div className="text-2xl font-black text-slate-800 dark:text-white tracking-tight">{value}</div>
-       <div className="text-[11px] text-slate-500 mt-1 font-medium">{sub}</div>
-    </div>
-  );
+  const getStatStatusColor = (key: string, value: any) => {
+     if (key === 'cache') {
+        const val = parseFloat(String(value).replace('%', ''));
+        if (val < 80) return 'text-rose-500 bg-rose-50 dark:bg-rose-900/30';
+        if (val < 90) return 'text-amber-500 bg-amber-50 dark:bg-amber-900/30';
+        return 'text-emerald-500 bg-emerald-50 dark:bg-emerald-900/30';
+     }
+     if (key === 'wraparound') {
+        if (value > 80) return 'text-rose-500 bg-rose-50 dark:bg-rose-900/30';
+        if (value > 50) return 'text-amber-500 bg-amber-50 dark:bg-amber-900/30';
+     }
+     return 'text-indigo-600 bg-indigo-50 dark:bg-indigo-900/30';
+  };
+
+  const StatCard = ({ title, value, sub, icon: Icon, type = 'default', historyKey }: any) => {
+    const colorClass = getStatStatusColor(type, value);
+    return (
+      <div className={`p-5 rounded-3xl border transition-all shadow-sm bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 hover:border-indigo-400`}>
+         <div className="flex justify-between items-start mb-4">
+            <div className={`p-2.5 rounded-2xl ${colorClass}`}>
+               <Icon className="w-5 h-5" />
+            </div>
+            {historyKey && history.length > 1 && (
+               <div className="h-10 w-24">
+                  <ResponsiveContainer width="100%" height="100%">
+                     <AreaChart data={history}>
+                        <defs>
+                          <linearGradient id={`grad-${historyKey}`} x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="#6366f1" stopOpacity={0.3}/>
+                            <stop offset="95%" stopColor="#6366f1" stopOpacity={0}/>
+                          </linearGradient>
+                        </defs>
+                        <Area type="monotone" dataKey={historyKey} stroke="#6366f1" fill={`url(#grad-${historyKey})`} strokeWidth={2} dot={false} isAnimationActive={false} />
+                        <YAxis hide domain={['auto', 'auto']} />
+                     </AreaChart>
+                  </ResponsiveContainer>
+               </div>
+            )}
+         </div>
+         <div className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1">{title}</div>
+         <div className="text-2xl font-black text-slate-800 dark:text-white tracking-tight">{value}</div>
+         <div className="text-[11px] text-slate-500 mt-1 font-medium">{sub}</div>
+      </div>
+    );
+  };
 
   if (credentials?.host === 'simulated') {
      return (
@@ -191,47 +237,51 @@ const ServerHealthStep: React.FC<ServerHealthStepProps> = ({ credentials }) => {
   return (
     <div className="flex flex-col h-full animate-in fade-in duration-500 pb-10">
       
-      <div className="mb-8 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6">
+      {/* Header Operational */}
+      <div className="mb-8 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6 shrink-0">
          <div>
             <h2 className="text-3xl font-black text-slate-800 dark:text-white flex items-center gap-3">
                <HeartPulse className="w-8 h-8 text-rose-500" />
                Saúde do Servidor
             </h2>
-            <p className="text-sm text-slate-500 mt-1">Status operacional em tempo real: <strong>{credentials?.host}</strong></p>
+            <div className="flex items-center gap-3 mt-1">
+               <span className="text-sm text-slate-500">Host: <strong>{credentials?.host}</strong></span>
+               <div className="flex items-center gap-1.5 px-2 py-0.5 bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400 text-[10px] font-black rounded-lg uppercase border border-emerald-200 dark:border-emerald-800">
+                  <ActivitySquare className="w-3 h-3" /> Online
+               </div>
+            </div>
          </div>
+         
          <div className="flex items-center gap-3">
+            <div className="flex bg-white dark:bg-slate-800 p-1 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm">
+               <button onClick={() => exportSnapshot('json')} className="p-2 text-slate-500 hover:text-indigo-600 transition-all" title="Exportar JSON Snapshot"><FileJson className="w-5 h-5" /></button>
+               <button onClick={() => exportSnapshot('txt')} className="p-2 text-slate-500 hover:text-indigo-600 transition-all" title="Exportar TXT Snapshot"><FileText className="w-5 h-5" /></button>
+            </div>
+            
             <button 
                onClick={handleAiDiagnosis}
                disabled={isDiagnosing || !stats}
                className="flex items-center gap-2 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl text-xs font-black uppercase tracking-widest shadow-xl shadow-indigo-900/20 transition-all active:scale-95 disabled:opacity-50"
             >
                {isDiagnosing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-               Analisar com Gemini
+               Diagnóstico IA
             </button>
             
-            {/* Seção de Configuração de Refresh */}
             <div className="flex items-center gap-3 bg-white dark:bg-slate-800 p-2 px-4 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm">
                <div className="flex items-center gap-2 border-r border-slate-100 dark:border-slate-700 pr-3">
                   <Timer className={`w-3.5 h-3.5 ${autoRefresh ? 'text-indigo-500' : 'text-slate-400'}`} />
-                  <input 
-                     type="number"
-                     step="500"
-                     value={refreshInterval}
-                     onChange={(e) => handleIntervalChange(e.target.value)}
-                     className="w-16 bg-transparent text-xs font-black text-slate-700 dark:text-slate-200 outline-none"
-                     title="Intervalo em milissegundos (Mín 2000, Máx 60000)"
-                  />
+                  <input type="number" step="500" value={refreshInterval} onChange={(e) => {
+                     const val = parseInt(e.target.value);
+                     if (val >= 2000) setRefreshInterval(val);
+                  }} className="w-16 bg-transparent text-xs font-black text-slate-700 dark:text-slate-200 outline-none" />
                   <span className="text-[10px] font-black text-slate-400 uppercase">ms</span>
                </div>
-               <div className="flex items-center gap-2">
-                  <span className="text-[10px] font-black text-slate-400 uppercase">Live</span>
-                  <label className="relative inline-flex items-center cursor-pointer scale-90">
-                     <input type="checkbox" checked={autoRefresh} onChange={e => setAutoRefresh(e.target.checked)} className="sr-only peer" />
-                     <div className="w-11 h-6 bg-slate-200 dark:bg-slate-700 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500"></div>
-                  </label>
-               </div>
+               <label className="relative inline-flex items-center cursor-pointer scale-90">
+                  <input type="checkbox" checked={autoRefresh} onChange={e => setAutoRefresh(e.target.checked)} className="sr-only peer" />
+                  <div className="w-11 h-6 bg-slate-200 dark:bg-slate-700 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500"></div>
+               </label>
             </div>
-
+            
             <button onClick={() => fetchHealth(true)} disabled={loading} className="p-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 rounded-2xl hover:bg-slate-50 dark:hover:bg-slate-700 shadow-sm transition-all">
                {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <RefreshCw className="w-5 h-5" />}
             </button>
@@ -253,200 +303,220 @@ const ServerHealthStep: React.FC<ServerHealthStepProps> = ({ credentials }) => {
          </div>
       )}
 
-      {error ? (
-         <div className="p-12 bg-rose-50 dark:bg-rose-950/20 border border-rose-100 dark:border-rose-900 rounded-[2.5rem] flex flex-col items-center justify-center text-center">
-            <ShieldAlert className="w-16 h-16 text-rose-500 mb-4" />
-            <h4 className="font-black text-rose-900 dark:text-rose-200 text-xl">Erro de Sincronização</h4>
-            <p className="text-sm text-rose-700 dark:text-rose-400 mt-2 max-w-sm">{error}</p>
+      <div className="flex-1 flex flex-col min-h-0 gap-8 overflow-y-auto custom-scrollbar pr-2">
+         
+         {/* Stats Grid */}
+         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 shrink-0">
+            <StatCard 
+               title="Pool de Conexões" 
+               value={`${stats?.connections || 0}/${stats?.maxConnections || '--'}`} 
+               sub={`${Math.round(((stats?.connections || 0) / (stats?.maxConnections || 1)) * 100)}% de ocupação`}
+               icon={Users}
+               historyKey="conn"
+            />
+            <StatCard 
+               title="Cache Hit Rate" 
+               value={stats?.cacheHitRate || '---'} 
+               sub="Eficiência de Buffer Pool"
+               icon={Activity}
+               type="cache"
+               historyKey="cache"
+            />
+            <StatCard 
+               title="Transações (Commit)" 
+               value={stats?.transactionsCommit ? stats.transactionsCommit.toLocaleString() : '---'} 
+               sub="Throughput operacional"
+               icon={BarChart3}
+               historyKey="tps"
+            />
+            <StatCard 
+               title="Wraparound Danger" 
+               value={`${stats?.wraparoundPercent || 0}%`} 
+               sub={`${(stats?.wraparoundAge || 0).toLocaleString()} IDs de idade`}
+               icon={ShieldCheck}
+               type="wraparound"
+            />
          </div>
-      ) : (
-         <div className="flex-1 flex flex-col min-h-0 gap-8">
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 shrink-0">
-               <StatCard 
-                  title="Conexões" 
-                  value={stats?.connections || 0} 
-                  sub="Backends ativos"
-                  icon={Users}
-                  colorClass="bg-indigo-50 text-indigo-600 dark:bg-indigo-900/30"
-                  historyKey="conn"
-               />
-               <StatCard 
-                  title="Cache Hit Rate" 
-                  value={stats?.cacheHitRate || '---'} 
-                  sub="Eficiência de memória"
-                  icon={Activity}
-                  colorClass="bg-emerald-50 text-emerald-600 dark:bg-emerald-900/30"
-                  historyKey="cache"
-               />
-               <StatCard 
-                  title="Total Transações" 
-                  value={stats?.transactionsCommit ? stats.transactionsCommit.toLocaleString() : '---'} 
-                  sub="Commits realizados"
-                  icon={BarChart3}
-                  colorClass="bg-amber-50 text-amber-600 dark:bg-amber-900/30"
-                  historyKey="tps"
-               />
-               <StatCard 
-                  title="Query Mais Longa" 
-                  value={formatDurationDisplay(stats?.maxQueryDuration)} 
-                  sub="Tempo de execução do topo"
-                  icon={Clock}
-                  colorClass="bg-rose-50 text-rose-600 dark:bg-rose-900/30"
-                  highlight={(stats?.activeQueries || 0) > 0}
-               />
-            </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 flex-1 min-h-0">
-               {/* Painel de Processos */}
-               <div className="lg:col-span-2 flex flex-col bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-[2.5rem] shadow-sm overflow-hidden">
-                  <div className="px-8 py-5 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 shrink-0">
-                     <div className="flex items-center gap-3">
-                        <Terminal className="w-5 h-5 text-indigo-500" />
-                        <h3 className="font-black text-slate-700 dark:text-slate-200 uppercase tracking-tighter">Processos Ativos</h3>
-                        <span className="text-[10px] bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full font-black uppercase">{filteredProcesses.length} Sessões</span>
-                     </div>
-                     <div className="flex items-center gap-3 w-full md:w-auto">
-                        {/* Toggle de Processos Nativos */}
-                        <div className="flex items-center gap-2 bg-slate-100 dark:bg-slate-800 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700" title="Exibir/Ocultar processos internos do PostgreSQL (autovacuum, etc)">
-                           <Settings className={`w-3.5 h-3.5 ${showSystemProcesses ? 'text-indigo-500' : 'text-slate-400'}`} />
-                           <span className="text-[10px] font-black text-slate-500 uppercase">Internos</span>
-                           <label className="relative inline-flex items-center cursor-pointer scale-75">
-                              <input type="checkbox" checked={showSystemProcesses} onChange={e => setShowSystemProcesses(e.target.checked)} className="sr-only peer" />
-                              <div className="w-11 h-6 bg-slate-200 dark:bg-slate-700 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500"></div>
-                           </label>
-                        </div>
-                        
-                        <div className="relative group flex-1 md:flex-none">
-                           <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
-                           <input 
-                              type="text" value={searchTerm} onChange={e => setSearchTerm(e.target.value)}
-                              placeholder="Filtrar..."
-                              className="pl-10 pr-4 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs outline-none focus:ring-2 focus:ring-indigo-500 w-full md:w-48 shadow-inner"
-                           />
-                        </div>
-                     </div>
+         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 min-h-0">
+            {/* Processos Ativos e Wait Events */}
+            <div className="lg:col-span-2 flex flex-col bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-[2.5rem] shadow-sm overflow-hidden min-h-[400px]">
+               <div className="px-8 py-5 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 shrink-0">
+                  <div className="flex items-center gap-3">
+                     <Terminal className="w-5 h-5 text-indigo-500" />
+                     <h3 className="font-black text-slate-700 dark:text-slate-200 uppercase tracking-tighter">Processos & Bloqueios</h3>
+                     {Object.keys(blockingTree).length > 0 && (
+                        <span className="text-[9px] bg-rose-100 text-rose-700 px-2 py-0.5 rounded-full font-black uppercase animate-pulse">Bloqueios Detectados</span>
+                     )}
                   </div>
-
-                  <div className="flex-1 overflow-auto custom-scrollbar">
-                     <table className="w-full text-left border-collapse">
-                        <thead className="bg-slate-50/80 dark:bg-slate-800/80 sticky top-0 z-10 text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] border-b border-slate-100 dark:border-slate-700">
-                           <tr>
-                              <th className="px-6 py-4 w-20">PID</th>
-                              <th className="px-6 py-4 w-32">Usuário</th>
-                              <th className="px-6 py-4 w-24">Estado</th>
-                              <th className="px-6 py-4">Comando / Bloqueios</th>
-                              <th className="px-6 py-4 w-20">Ação</th>
-                           </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-50 dark:divide-slate-800 font-medium">
-                           {filteredProcesses.map(proc => {
-                              const isZombie = proc.state === 'idle in transaction';
-                              const isBlocked = proc.blockingPids && proc.blockingPids.length > 0;
-                              const isNative = proc.backendType !== 'client backend';
-                              
-                              return (
-                                 <tr key={proc.pid} className={`group transition-colors ${isNative ? 'bg-slate-50/30 dark:bg-slate-800/20' : 'hover:bg-slate-50 dark:hover:bg-slate-800/50'}`}>
-                                    <td className="px-6 py-4 text-xs font-mono font-bold text-slate-400">
-                                       <div className="flex items-center gap-2">
-                                          {proc.pid}
-                                          {isNative && <Cpu className="w-3 h-3 text-slate-300" title="Processo do Sistema" />}
-                                       </div>
-                                    </td>
-                                    <td className="px-6 py-4">
-                                       <div className="flex flex-col">
-                                          <span className={`text-xs font-bold ${isNative ? 'text-slate-400' : 'text-slate-700 dark:text-slate-200'}`}>{proc.user || 'system'}</span>
-                                          <span className="text-[9px] text-slate-400 font-mono">{(proc.duration || '0s').split('.')[0]}</span>
-                                       </div>
-                                    </td>
-                                    <td className="px-6 py-4">
-                                       <div className="flex flex-col gap-1">
-                                          <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-full border text-center
-                                             ${proc.state === 'active' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-slate-50 text-slate-400 border-slate-100'}
-                                          `}>{proc.state}</span>
-                                          {isZombie && <span className="flex items-center gap-1 text-[8px] text-rose-500 font-black animate-pulse"><Ghost className="w-2.5 h-2.5" /> ZUMBI</span>}
-                                       </div>
-                                    </td>
-                                    <td className="px-6 py-4">
-                                       <div className="max-w-[300px] xl:max-w-[500px]">
-                                          <code className={`text-[11px] font-mono block truncate group-hover:whitespace-normal group-hover:break-all ${isNative ? 'text-slate-400 italic' : 'text-slate-600 dark:text-slate-400'}`}>
-                                             {isNative && !proc.query ? `[${proc.backendType}]` : (proc.query || '(vazio)')}
-                                          </code>
-                                          {isBlocked && (
-                                             <div className="flex items-center gap-1.5 text-[9px] text-rose-600 font-black mt-1 uppercase bg-rose-50 dark:bg-rose-900/30 px-2 py-0.5 rounded-lg w-fit border border-rose-100 dark:border-rose-800">
-                                                <AlertTriangle className="w-2.5 h-2.5" /> BLOQUEADO POR: {proc.blockingPids.join(', ')}
-                                             </div>
-                                          )}
-                                       </div>
-                                    </td>
-                                    <td className="px-6 py-4">
-                                       {!isNative && (
-                                          <button 
-                                             onClick={() => handleKill(proc.pid)}
-                                             disabled={terminatingPid === proc.pid}
-                                             className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/30 rounded-xl transition-all"
-                                             title="Kill Connection"
-                                          >
-                                             {terminatingPid === proc.pid ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
-                                          </button>
-                                       )}
-                                    </td>
-                                 </tr>
-                              );
-                           })}
-                        </tbody>
-                     </table>
+                  <div className="flex items-center gap-3 w-full md:w-auto">
+                     <div className="flex items-center gap-2 bg-slate-100 dark:bg-slate-800 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700">
+                        <Settings className={`w-3.5 h-3.5 ${showSystemProcesses ? 'text-indigo-500' : 'text-slate-400'}`} />
+                        <span className="text-[10px] font-black text-slate-500 uppercase">Sistêmicos</span>
+                        <label className="relative inline-flex items-center cursor-pointer scale-75">
+                           <input type="checkbox" checked={showSystemProcesses} onChange={e => setShowSystemProcesses(e.target.checked)} className="sr-only peer" />
+                           <div className="w-11 h-6 bg-slate-200 dark:bg-slate-700 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500"></div>
+                        </label>
+                     </div>
+                     <div className="relative group flex-1 md:flex-none">
+                        <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
+                        <input type="text" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} placeholder="Filtrar processos..." className="pl-10 pr-4 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs outline-none focus:ring-2 focus:ring-indigo-500 w-full md:w-48" />
+                     </div>
                   </div>
                </div>
 
-               {/* Table Insights (Bloat/Size) */}
-               <div className="flex flex-col bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-[2.5rem] shadow-sm overflow-hidden">
-                  <div className="px-8 py-5 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 shrink-0">
-                     <div className="flex items-center gap-3">
-                        <ListOrdered className="w-5 h-5 text-indigo-500" />
-                        <h3 className="font-black text-slate-700 dark:text-slate-200 uppercase tracking-tighter">Volume de Dados</h3>
-                     </div>
+               <div className="flex-1 overflow-auto custom-scrollbar">
+                  <table className="w-full text-left border-collapse">
+                     <thead className="bg-slate-50/80 dark:bg-slate-800/80 sticky top-0 z-10 text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] border-b border-slate-100 dark:border-slate-700">
+                        <tr>
+                           <th className="px-6 py-4 w-20">PID</th>
+                           <th className="px-6 py-4 w-32">Usuário / Wait</th>
+                           <th className="px-6 py-4 w-24">Estado</th>
+                           <th className="px-6 py-4">Query / Árvore</th>
+                           <th className="px-6 py-4 w-20 text-center">Ação</th>
+                        </tr>
+                     </thead>
+                     <tbody className="divide-y divide-slate-50 dark:divide-slate-800 font-medium">
+                        {filteredProcesses.map(proc => {
+                           const isZombie = proc.state === 'idle in transaction';
+                           const isBlocked = proc.blockingPids && proc.blockingPids.length > 0;
+                           const blockingOthers = blockingTree[proc.pid];
+                           const isNative = proc.backendType !== 'client backend';
+                           const waitColor = proc.waitEventType === 'Lock' ? 'text-rose-500' : proc.waitEventType === 'IO' ? 'text-amber-500' : 'text-slate-400';
+                           
+                           return (
+                              <tr key={proc.pid} className={`group transition-colors ${isBlocked ? 'bg-rose-50/30 dark:bg-rose-900/10' : blockingOthers ? 'bg-amber-50/30 dark:bg-amber-900/10' : 'hover:bg-slate-50 dark:hover:bg-slate-800/50'}`}>
+                                 <td className="px-6 py-4 text-xs font-mono font-bold text-slate-400">
+                                    <div className="flex items-center gap-2">
+                                       {proc.pid}
+                                       {isNative && <Cpu className="w-3 h-3 text-slate-300" />}
+                                    </div>
+                                 </td>
+                                 <td className="px-6 py-4">
+                                    <div className="flex flex-col">
+                                       <span className={`text-xs font-bold ${isNative ? 'text-slate-400' : 'text-slate-700 dark:text-slate-200'}`}>{proc.user || 'system'}</span>
+                                       <span className={`text-[9px] font-mono flex items-center gap-1 ${waitColor}`}>
+                                          <Anchor className="w-2.5 h-2.5" /> {proc.waitEvent === 'None' ? 'CPU Bound' : proc.waitEvent}
+                                       </span>
+                                    </div>
+                                 </td>
+                                 <td className="px-6 py-4">
+                                    <div className="flex flex-col gap-1">
+                                       <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-full border text-center
+                                          ${proc.state === 'active' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-slate-50 text-slate-400 border-slate-100'}
+                                       `}>{proc.state}</span>
+                                       {isZombie && <span className="flex items-center gap-1 text-[8px] text-rose-500 font-black animate-pulse"><Ghost className="w-2.5 h-2.5" /> ZUMBI</span>}
+                                    </div>
+                                 </td>
+                                 <td className="px-6 py-4">
+                                    <div className="flex flex-col gap-1.5">
+                                       <code className={`text-[11px] font-mono block truncate group-hover:whitespace-normal group-hover:break-all ${isNative ? 'text-slate-400 italic' : 'text-slate-600 dark:text-slate-400'}`}>
+                                          {isNative && !proc.query ? `[${proc.backendType}]` : (proc.query || '(vazio)')}
+                                       </code>
+                                       <div className="flex items-center gap-2">
+                                          {isBlocked && (
+                                             <div className="flex items-center gap-1.5 text-[8px] text-rose-600 font-black uppercase bg-rose-100 dark:bg-rose-900/40 px-2 py-0.5 rounded border border-rose-200 dark:border-rose-800">
+                                                <AlertTriangle className="w-2.5 h-2.5" /> Bloqueado por: {proc.blockingPids.join(', ')}
+                                             </div>
+                                          )}
+                                          {blockingOthers && (
+                                             <div className="flex items-center gap-1.5 text-[8px] text-amber-600 font-black uppercase bg-amber-100 dark:bg-amber-900/40 px-2 py-0.5 rounded border border-amber-200 dark:border-amber-800">
+                                                <Layers className="w-2.5 h-2.5" /> Bloqueando: {blockingOthers.join(', ')}
+                                             </div>
+                                          )}
+                                       </div>
+                                    </div>
+                                 </td>
+                                 <td className="px-6 py-4 text-center">
+                                    {!isNative && (
+                                       <button onClick={() => handleKill(proc.pid)} disabled={terminatingPid === proc.pid} className="p-2 text-slate-300 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/20 rounded-xl transition-all">
+                                          {terminatingPid === proc.pid ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                                       </button>
+                                    )}
+                                 </td>
+                              </tr>
+                           );
+                        })}
+                     </tbody>
+                  </table>
+               </div>
+            </div>
+
+            {/* Coluna Lateral: Manutenção e Índices */}
+            <div className="flex flex-col gap-8">
+               
+               {/* Gráfico de TPS */}
+               <div className="bg-slate-950 rounded-[2.5rem] p-6 border border-slate-800 shadow-2xl flex flex-col h-[200px]">
+                  <div className="flex items-center justify-between mb-4">
+                     <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><ActivitySquare className="w-3.5 h-3.5 text-emerald-500" /> Carga Operacional</span>
+                     <span className="text-[10px] font-bold text-slate-500">Last 100 samples</span>
                   </div>
-                  <div className="flex-1 p-6 overflow-y-auto custom-scrollbar space-y-4">
-                     {tableInsights.length === 0 ? (
-                        <div className="h-full flex flex-col items-center justify-center text-slate-400 gap-4 opacity-50">
-                           <BarChart3 className="w-10 h-10" />
-                           <p className="text-xs font-bold uppercase tracking-widest">Sincronizando tabelas...</p>
+                  <div className="flex-1 w-full">
+                     <ResponsiveContainer width="100%" height="100%">
+                        <LineChart data={history}>
+                           <Line type="monotone" dataKey="tps" stroke="#10b981" strokeWidth={3} dot={false} isAnimationActive={false} />
+                           <YAxis hide />
+                           <Tooltip contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #1e293b', borderRadius: '12px', fontSize: '10px' }} itemStyle={{ color: '#10b981' }} />
+                        </LineChart>
+                     </ResponsiveContainer>
+                  </div>
+               </div>
+
+               {/* Índices Não Utilizados */}
+               <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-[2.5rem] shadow-sm flex flex-col overflow-hidden flex-1">
+                  <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 shrink-0">
+                     <h3 className="text-xs font-black text-slate-700 dark:text-slate-200 uppercase tracking-widest flex items-center gap-2"><Anchor className="w-4 h-4 text-indigo-500" /> Otimização: Índices Inúteis</h3>
+                  </div>
+                  <div className="flex-1 p-5 overflow-y-auto custom-scrollbar space-y-3">
+                     {unusedIndexes.length === 0 ? (
+                        <div className="h-full flex flex-col items-center justify-center text-center p-6 opacity-40">
+                           <ShieldCheck className="w-10 h-10 text-emerald-500 mb-2" />
+                           <p className="text-[10px] font-bold uppercase text-slate-400">Excelente! Nenhum índice ocioso encontrado.</p>
                         </div>
                      ) : (
-                        tableInsights.map((tbl, idx) => (
-                           <div key={idx} className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-700/50 group hover:border-indigo-300 transition-colors">
-                              <div className="flex justify-between items-start mb-3">
-                                 <span className="text-xs font-black text-slate-800 dark:text-white truncate pr-2">{tbl.name}</span>
-                                 <span className="text-[10px] font-black text-indigo-500 uppercase">{tbl.totalSize}</span>
+                        unusedIndexes.map((idx, i) => (
+                           <div key={i} className="p-3 bg-slate-50 dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700 group hover:border-indigo-400 transition-all">
+                              <div className="flex justify-between items-start mb-1">
+                                 <span className="text-[11px] font-black text-slate-700 dark:text-white truncate pr-2">{idx.index}</span>
+                                 <span className="text-[10px] font-black text-rose-500 uppercase">{idx.size}</span>
                               </div>
-                              <div className="flex items-center gap-4">
-                                 <div className="flex-1 h-1.5 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
-                                    <div className="h-full bg-indigo-500 rounded-full" style={{ width: `${Math.min((parseInt(tbl.totalSize) || 0) / 10, 100)}%` }}></div>
-                                 </div>
-                                 <span className="text-[9px] font-bold text-slate-400 shrink-0">{tbl.estimatedRows.toLocaleString()} rows</span>
-                              </div>
-                              <div className="grid grid-cols-2 gap-2 mt-3 pt-3 border-t border-slate-100 dark:border-slate-700">
-                                 <div>
-                                    <span className="block text-[8px] font-black text-slate-400 uppercase">Dados</span>
-                                    <span className="text-[10px] font-bold text-slate-600 dark:text-slate-300">{tbl.tableSize}</span>
-                                 </div>
-                                 <div>
-                                    <span className="block text-[8px] font-black text-slate-400 uppercase">Índices</span>
-                                    <span className="text-[10px] font-bold text-slate-600 dark:text-slate-300">{tbl.indexSize}</span>
-                                 </div>
-                              </div>
+                              <div className="text-[9px] text-slate-400 truncate">Tabela: {idx.table}</div>
+                              <div className="mt-2 text-[8px] font-bold text-slate-400 uppercase bg-white dark:bg-slate-900 px-2 py-0.5 rounded-full w-fit">Nunca Escaneado</div>
                            </div>
                         ))
                      )}
                   </div>
-                  <div className="p-4 bg-slate-50 dark:bg-slate-800/50 border-t border-slate-100 dark:border-slate-800 text-center">
-                     <p className="text-[9px] font-bold text-slate-400 uppercase">Top 5 tabelas por armazenamento total</p>
+               </div>
+
+               {/* Manutenção (Vácuo) */}
+               <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-[2.5rem] shadow-sm flex flex-col overflow-hidden flex-1">
+                  <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 shrink-0">
+                     <h3 className="text-xs font-black text-slate-700 dark:text-slate-200 uppercase tracking-widest flex items-center gap-2"><Gauge className="w-4 h-4 text-emerald-500" /> Autovacuum & Bloat</h3>
+                  </div>
+                  <div className="flex-1 p-5 overflow-y-auto custom-scrollbar space-y-3">
+                     {tableInsights.map((tbl, idx) => (
+                        <div key={idx} className="p-3 bg-slate-50 dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700">
+                           <div className="flex justify-between items-center mb-2">
+                              <span className="text-[10px] font-black text-slate-600 dark:text-slate-200 truncate">{tbl.name}</span>
+                              <div className="flex items-center gap-1.5">
+                                 <span className={`w-2 h-2 rounded-full ${tbl.deadTuples > 10000 ? 'bg-rose-500 animate-pulse' : 'bg-emerald-500'}`} />
+                                 <span className="text-[9px] font-black text-slate-400 uppercase">{tbl.deadTuples} dead</span>
+                              </div>
+                           </div>
+                           <div className="h-1.5 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
+                              <div className={`h-full transition-all ${tbl.deadTuples > 10000 ? 'bg-rose-500' : 'bg-indigo-500'}`} style={{ width: `${Math.min((tbl.deadTuples / (tbl.estimatedRows || 1)) * 100, 100)}%` }} />
+                           </div>
+                           <div className="mt-2 flex justify-between items-center text-[8px] font-bold text-slate-400 uppercase">
+                              <span>Linhagem: {tbl.estimatedRows.toLocaleString()}</span>
+                              <span>Vacuum: {tbl.lastVacuum}</span>
+                           </div>
+                        </div>
+                     ))}
                   </div>
                </div>
             </div>
          </div>
-      )}
+      </div>
     </div>
   );
 };

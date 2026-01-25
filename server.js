@@ -87,20 +87,24 @@ app.post('/api/server-stats', async (req, res) => {
   const client = new Client(credentials);
   try {
     await client.connect();
-    // 1. Sumário e TPS
+    
+    // 1. Sumário estendido e Wraparound
     const statsQuery = `
       SELECT 
         (SELECT numbackends FROM pg_stat_database WHERE datname = $1) as connections,
+        (SELECT current_setting('max_connections')::int) as max_connections,
         pg_size_pretty(pg_database_size($1)) as db_size,
         (SELECT count(*) FROM pg_stat_activity WHERE state = 'active' AND datname = $1) as active_queries,
         (SELECT COALESCE(max(now() - query_start), '0s'::interval)::text FROM pg_stat_activity WHERE state = 'active' AND datname = $1) as max_duration,
         COALESCE(xact_commit, 0) as xact_commit, 
         COALESCE(xact_rollback, 0) as xact_rollback,
-        round(100.0 * blks_hit / NULLIF(blks_read + blks_hit, 0), 2) as cache_hit_rate
+        round(100.0 * blks_hit / NULLIF(blks_read + blks_hit, 0), 2) as cache_hit_rate,
+        age(datfrozenxid) as wraparound_age,
+        round(100.0 * age(datfrozenxid) / 2000000000.0, 2) as wraparound_percent
       FROM pg_stat_database WHERE datname = $1;`;
     const statsRes = await client.query(statsQuery, [credentials.database]);
 
-    // 2. Processos com Bloqueios (Locks)
+    // 2. Processos com Bloqueios e Wait Events
     const processesQuery = `
       SELECT 
         pid, 
@@ -110,7 +114,8 @@ app.post('/api/server-stats', async (req, res) => {
         extract(epoch from COALESCE((now() - query_start), '0s'::interval)) * 1000 as duration_ms,
         state, 
         COALESCE(query, '') as query, 
-        COALESCE(wait_event_type, 'None') as wait_event,
+        COALESCE(wait_event_type, 'None') as wait_event_type,
+        COALESCE(wait_event, 'None') as wait_event,
         pg_blocking_pids(pid) as blocking_pids,
         backend_type
       FROM pg_stat_activity 
@@ -118,22 +123,37 @@ app.post('/api/server-stats', async (req, res) => {
       ORDER BY duration_ms DESC;`;
     const procRes = await client.query(processesQuery, [credentials.database]);
 
-    // 3. Table Insights (Maiores tabelas)
+    // 3. Table Insights com Bloat e Autovacuum
     const bloatQuery = `
       SELECT 
         relname as table_name,
         pg_size_pretty(pg_total_relation_size(relid)) as total_size,
         pg_size_pretty(pg_relation_size(relid)) as table_size,
         pg_size_pretty(pg_total_relation_size(relid) - pg_relation_size(relid)) as index_size,
-        COALESCE(n_live_tup, 0) as estimated_rows
+        COALESCE(n_live_tup, 0) as estimated_rows,
+        COALESCE(n_dead_tup, 0) as dead_tuples,
+        COALESCE(last_autovacuum::text, 'Nunca') as last_vacuum
       FROM pg_stat_user_tables 
-      ORDER BY pg_total_relation_size(relid) DESC LIMIT 5;`;
+      ORDER BY pg_total_relation_size(relid) DESC LIMIT 10;`;
     const bloatRes = await client.query(bloatQuery);
+
+    // 4. Índices Não Utilizados
+    const unusedIndexesQuery = `
+      SELECT 
+        relname as table_name, 
+        indexrelname as index_name, 
+        pg_size_pretty(pg_relation_size(indexrelid)) as index_size
+      FROM pg_stat_user_indexes 
+      JOIN pg_index USING (indexrelid)
+      WHERE idx_scan = 0 AND indisunique IS FALSE
+      ORDER BY pg_relation_size(indexrelid) DESC LIMIT 5;`;
+    const unusedRes = await client.query(unusedIndexesQuery);
 
     res.json({
       summary: statsRes.rows[0],
       processes: procRes.rows,
-      tableInsights: bloatRes.rows
+      tableInsights: bloatRes.rows,
+      unusedIndexes: unusedRes.rows
     });
   } catch (err) { res.status(500).json({ error: err.message }); } finally { try { await client.end(); } catch (e) {} }
 });

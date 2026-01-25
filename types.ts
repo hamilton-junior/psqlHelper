@@ -30,13 +30,16 @@ export interface DbCredentials {
 
 export interface ServerStats {
   connections: number;
+  maxConnections: number;
   dbSize: string;
   activeQueries: number;
   maxQueryDuration: string;
   transactionsCommit: number;
   transactionsRollback: number;
   cacheHitRate: string;
-  tps: number; // Transactions per second (estimate)
+  tps: number;
+  wraparoundAge: number;
+  wraparoundPercent: number;
 }
 
 export interface TableInsight {
@@ -45,6 +48,14 @@ export interface TableInsight {
   tableSize: string;
   indexSize: string;
   estimatedRows: number;
+  deadTuples: number;
+  lastVacuum?: string;
+}
+
+export interface UnusedIndex {
+  table: string;
+  index: string;
+  size: string;
 }
 
 export interface ActiveProcess {
@@ -56,12 +67,12 @@ export interface ActiveProcess {
   state: string;
   query: string;
   waitEvent: string;
+  waitEventType: string;
   isBlocked: boolean;
   blockingPids: number[];
   backendType: string;
 }
 
-// Fix line 63: Changed interface to type for union declaration
 export type AppStep = 'connection' | 'builder' | 'preview' | 'results' | 'datadiff' | 'dashboard' | 'serverhealth' | 'roadmap';
 
 export interface AppSettings {
@@ -106,7 +117,6 @@ export const DEFAULT_SETTINGS: AppSettings = {
   updateBranch: 'stable'
 };
 
-// Fix line 102: Added validation property to QueryResult interface to fix PreviewStep TS error
 export interface QueryResult {
   sql: string;
   explanation: string;
@@ -118,7 +128,6 @@ export interface QueryResult {
   };
 }
 
-// Missing Types for Builder and other components
 export type JoinType = 'INNER' | 'LEFT' | 'RIGHT' | 'FULL';
 
 export interface ExplicitJoin {
@@ -187,7 +196,6 @@ export enum MessageRole {
   ASSISTANT = 'assistant'
 }
 
-// Fix line 186: Simplified ChatMessage queryResult type as QueryResult now includes validation
 export interface ChatMessage {
   id: string;
   role: MessageRole;

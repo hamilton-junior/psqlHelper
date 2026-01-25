@@ -1,5 +1,5 @@
 
-import { DatabaseSchema, DbCredentials, ExplainNode, IntersectionResult, ServerStats, ActiveProcess, TableInsight } from "../types";
+import { DatabaseSchema, DbCredentials, ExplainNode, IntersectionResult, ServerStats, ActiveProcess, TableInsight, UnusedIndex } from "../types";
 
 const API_URL = 'http://127.0.0.1:3000/api';
 
@@ -51,8 +51,12 @@ export const executeQueryReal = async (creds: DbCredentials, sql: string): Promi
   }
 };
 
-// Fix line 68 & line 49 errors: Added tableInsights and tps to return object
-export const getServerHealth = async (creds: DbCredentials): Promise<{ summary: ServerStats, processes: ActiveProcess[], tableInsights: TableInsight[] }> => {
+export const getServerHealth = async (creds: DbCredentials): Promise<{ 
+  summary: ServerStats, 
+  processes: ActiveProcess[], 
+  tableInsights: TableInsight[],
+  unusedIndexes: UnusedIndex[]
+}> => {
   const normalizedCreds = ensureIpv4(creds);
   try {
     const response = await fetch(`${API_URL}/server-stats`, {
@@ -68,13 +72,16 @@ export const getServerHealth = async (creds: DbCredentials): Promise<{ summary: 
     return {
        summary: {
           connections: parseInt(data.summary.connections) || 0,
+          maxConnections: parseInt(data.summary.max_connections) || 100,
           dbSize: data.summary.db_size || '0 MB',
           activeQueries: parseInt(data.summary.active_queries) || 0,
           maxQueryDuration: data.summary.max_duration || '0s',
           transactionsCommit: parseInt(data.summary.xact_commit) || 0,
           transactionsRollback: parseInt(data.summary.xact_rollback) || 0,
           cacheHitRate: `${data.summary.cache_hit_rate || 0}%`,
-          tps: parseInt(data.summary.xact_commit) || 0 
+          tps: parseInt(data.summary.xact_commit) || 0,
+          wraparoundAge: parseInt(data.summary.wraparound_age) || 0,
+          wraparoundPercent: parseFloat(data.summary.wraparound_percent) || 0
        },
        processes: (data.processes || []).map((p: any) => ({
           pid: p.pid,
@@ -85,6 +92,7 @@ export const getServerHealth = async (creds: DbCredentials): Promise<{ summary: 
           state: p.state || 'unknown',
           query: p.query || '',
           waitEvent: p.wait_event || 'None',
+          waitEventType: p.wait_event_type || 'None',
           blockingPids: p.blocking_pids || [] as number[],
           backendType: p.backend_type || 'unknown'
        })),
@@ -93,7 +101,14 @@ export const getServerHealth = async (creds: DbCredentials): Promise<{ summary: 
           totalSize: ti.total_size || '0 B',
           tableSize: ti.table_size || '0 B',
           indexSize: ti.index_size || '0 B',
-          estimatedRows: parseInt(ti.estimated_rows) || 0
+          estimatedRows: parseInt(ti.estimated_rows) || 0,
+          deadTuples: parseInt(ti.dead_tuples) || 0,
+          lastVacuum: ti.last_vacuum
+       })),
+       unusedIndexes: (data.unusedIndexes || []).map((ui: any) => ({
+          table: ui.table_name,
+          index: ui.index_name,
+          size: ui.index_size
        }))
     };
   } catch (error: any) {
