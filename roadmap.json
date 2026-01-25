@@ -6,36 +6,24 @@
       "icon": "Bot",
       "items": [
         {
+          "title": "Exportação de Snapshot de Diagnóstico",
+          "desc": "Gerador de relatórios técnicos em PDF/JSON contendo métricas, locks e plano de saúde do banco para compartilhamento com equipes de infra.",
+          "status": "Planejado",
+          "implementationPlan": [
+            "UI: Botão de exportação no topo da tela de Saúde.",
+            "Técnica: Captura do estado atual do componente e formatação via jspdf/html2canvas.",
+            "Recurso: Possibilidade de anexar queries lentas detectadas no período."
+          ]
+        },
+        {
           "title": "Monitor de Saúde em Tempo Real (Live Stats)",
           "desc": "Telemetria do servidor Postgres: consumo de memória, conexões ativas e detecção de queries travadas (Long Running Queries).",
-          "status": "Planejado",
+          "status": "Finalizado",
           "implementationPlan": [
             "Técnica: Consultas periódicas à view pg_stat_activity e pg_stat_database.",
             "UI: Dashboard de métricas em tempo real com gráficos de linha para carga do servidor.",
             "Alerta: Notificação visual quando uma query ultrapassa o limite de tempo configurado.",
             "DBA Tool: Botão para 'Terminar Processo' (PID) diretamente da interface."
-          ]
-        },
-        {
-          "title": "Auto-Indexador Sugestivo",
-          "desc": "Análise de query via IA para sugerir comandos 'CREATE INDEX' baseados no uso de WHERE/JOIN.",
-          "status": "Planejado",
-          "implementationPlan": [
-            "Técnica: A IA analisa o plano de execução (EXPLAIN) em busca de 'Sequential Scans' em tabelas grandes.",
-            "Comportamento: Botão 'Otimizar' sugere índices específicos para as colunas filtradas.",
-            "UI: Painel lateral com código SQL pronto e botão 'Executar Agora'.",
-            "Segurança: Validação de existência prévia de índices para evitar duplicidade."
-          ]
-        },
-        {
-          "title": "Database Semantic Search",
-          "desc": "Busque tabelas e colunas pelo significado em vez do nome exato (ex: buscar 'cobrança' para achar 'invoice_headers').",
-          "status": "Em Pesquisa",
-          "implementationPlan": [
-            "Técnica: Geração de Embeddings vetoriais dos metadados e nomes de colunas.",
-            "Busca: Comparação de cosseno entre a query de busca natural e o mapa vetorial do banco.",
-            "UI: Barra de busca inteligente no topo do SchemaViewer.",
-            "IA: Uso de modelos Gemini para interpretar sinônimos e contextos de negócio."
           ]
         }
       ]
@@ -47,99 +35,7 @@
         {
           "title": "Visual Explain Timeline (Gantt)",
           "desc": "Transforme o EXPLAIN ANALYZE em um gráfico de Gantt visual, mostrando cronologicamente onde cada Join ou Scan gastou tempo.",
-          "status": "Planejado",
-          "implementationPlan": [
-            "Lógica: Parsing do JSON retornado pelo PostgreSQL EXPLAIN (ANALYZE, FORMAT JSON).",
-            "Gráfico: Timeline horizontal comparando tempo de execução vs tempo de planejamento.",
-            "Highlight: Identificação visual de 'Hotspots' onde o banco está perdendo mais milissegundos.",
-            "UI: Integração com a aba de Performance no ResultsStep."
-          ]
-        },
-        {
-          "title": "Edição em Massa (Bulk Edit)",
-          "desc": "Manipulação de dados estilo planilha (arrastar valor para baixo) com geração de script de transação única para o banco.",
-          "status": "Planejado",
-          "implementationPlan": [
-            "UI: Adição de 'Drag Handle' nas células da VirtualTable para propagação de valores.",
-            "Recurso: 'Localizar e Substituir' em colunas inteiras da amostragem de resultados.",
-            "Segurança: Todas as alterações são agrupadas em um bloco BEGIN/COMMIT automático.",
-            "Diferencial: Preview do impacto (número de linhas afetadas) antes da confirmação."
-          ]
-        },
-        {
-          "title": "Fixar Colunas (Column Pinning)",
-          "desc": "Congele colunas identificadoras à esquerda para manter o contexto enquanto navega horizontalmente em tabelas largas.",
-          "status": "Em Desenvolvimento",
-          "implementationPlan": [
-            "UI: Ícone de 'Pin' sutil em cada cabeçalho de coluna da VirtualTable.",
-            "Comportamento: Empilhamento inteligente via CSS 'sticky' com 'left' dinâmico.",
-            "Visual: Sombra interna e borda de destaque na última coluna fixada.",
-            "Persistência: Estado salvo via LocalStorage indexado pelo nome da tabela."
-          ]
-        }
-      ]
-    },
-    {
-      "title": "Produtividade & DevTools",
-      "icon": "Zap",
-      "items": [
-        {
-          "title": "Biblioteca de Trechos (Snippets)",
-          "desc": "Repositório de fragmentos de código SQL favoritos (ex: filtros de data complexos) para inserção rápida no editor.",
-          "status": "Planejado",
-          "implementationPlan": [
-            "UI: Novo painel lateral no Editor Monaco com lista de categorias de SQL.",
-            "Integração: Inserção de texto na posição atual do cursor (range insertion).",
-            "IA: Sugestão de snippets baseada nas tabelas que o usuário mais utiliza.",
-            "Favoritos: Sistema de 'estrela' para os trechos mais usados no dia a dia."
-          ]
-        },
-        {
-          "title": "Multi-Query Scratchpad",
-          "desc": "Abas de rascunho rápido para testar snippets SQL sem perder a query principal do builder.",
-          "status": "Planejado",
-          "implementationPlan": [
-            "UI: Lateral expansível com abas numeradas de 'Scratchpad'.",
-            "Recurso: Cada aba mantém seu próprio estado de editor Monaco.",
-            "Funcionalidade: 'Promover para Builder' permite levar o código do rascunho para o fluxo principal."
-          ]
-        },
-        {
-          "title": "Natural Language Data Cleaning",
-          "desc": "Diga 'limpe os espaços em branco' ou 'normalize CPFs' e a IA gera os comandos de UPDATE necessários.",
-          "status": "Sugestão",
-          "implementationPlan": [
-            "IA: Prompt especializado em higienização de strings e regex Postgres.",
-            "Preview: Exibição 'Antes vs Depois' em uma amostra de 5 linhas antes de executar.",
-            "Segurança: Geração obrigatória de transação com BEGIN/ROLLBACK sugerido."
-          ]
-        }
-      ]
-    },
-    {
-      "title": "DevOps & Governança",
-      "icon": "Layers",
-      "items": [
-        {
-          "title": "Máscaras de Dados e Privacidade (LGPD)",
-          "desc": "Toggle para 'Anonimizar Amostra', mascarando nomes, emails e documentos antes de enviar para análise de IA ou exportação.",
-          "status": "Planejado",
-          "implementationPlan": [
-            "Técnica: Motor local de substituição via Regex para padrões comuns (PII).",
-            "Segurança: Dados sensíveis nunca saem do cliente original se o modo estiver ativo.",
-            "IA: A IA recebe apenas os metadados e dados anonimizados para sugerir lógicas sem violar privacidade.",
-            "Exportação: Suporte a CSV/JSON anonimizado para relatórios compartilháveis."
-          ]
-        },
-        {
-          "title": "DML Safety Lock",
-          "desc": "Trava inteligente que detecta UPDATE/DELETE sem WHERE e exige confirmação dupla.",
-          "status": "Planejado",
-          "implementationPlan": [
-            "Lógica: Analisador sintático (Parser) identifica comandos destrutivos sem cláusula de filtro.",
-            "UI: Banner de alerta vermelho 'Critical Risk' impedindo o botão de execução imediata.",
-            "Protection: Bloqueio opcional de comandos TRUNCATE ou DROP em produção."
-          ]
+          "status": "Planejado"
         }
       ]
     }

@@ -1,5 +1,5 @@
 
-import { DatabaseSchema, DbCredentials, ExplainNode, IntersectionResult, ServerStats, ActiveProcess } from "../types";
+import { DatabaseSchema, DbCredentials, ExplainNode, IntersectionResult, ServerStats, ActiveProcess, TableInsight } from "../types";
 
 const API_URL = 'http://127.0.0.1:3000/api';
 
@@ -51,7 +51,8 @@ export const executeQueryReal = async (creds: DbCredentials, sql: string): Promi
   }
 };
 
-export const getServerHealth = async (creds: DbCredentials): Promise<{ summary: ServerStats, processes: ActiveProcess[] }> => {
+// Fix line 68 & line 49 errors: Added tableInsights and tps to return object
+export const getServerHealth = async (creds: DbCredentials): Promise<{ summary: ServerStats, processes: ActiveProcess[], tableInsights: TableInsight[] }> => {
   const normalizedCreds = ensureIpv4(creds);
   try {
     const response = await fetch(`${API_URL}/server-stats`, {
@@ -72,7 +73,8 @@ export const getServerHealth = async (creds: DbCredentials): Promise<{ summary: 
           maxQueryDuration: data.summary.max_duration,
           transactionsCommit: parseInt(data.summary.xact_commit),
           transactionsRollback: parseInt(data.summary.xact_rollback),
-          cacheHitRate: `${data.summary.cache_hit_rate}%`
+          cacheHitRate: `${data.summary.cache_hit_rate}%`,
+          tps: parseInt(data.summary.xact_commit) || 0 // Fix: Added missing tps property
        },
        processes: data.processes.map((p: any) => ({
           pid: p.pid,
@@ -82,7 +84,15 @@ export const getServerHealth = async (creds: DbCredentials): Promise<{ summary: 
           durationMs: p.duration_ms,
           state: p.state,
           query: p.query,
-          waitEvent: p.wait_event || 'None'
+          waitEvent: p.wait_event || 'None',
+          blockingPids: p.blocking_pids || []
+       })),
+       tableInsights: (data.tableInsights || []).map((ti: any) => ({ // Fix: Added tableInsights processing
+          name: ti.table_name,
+          totalSize: ti.total_size,
+          tableSize: ti.table_size,
+          indexSize: ti.index_size,
+          estimatedRows: parseInt(ti.estimated_rows) || 0
        }))
     };
   } catch (error: any) {
