@@ -85,7 +85,8 @@ export const getServerHealth = async (creds: DbCredentials): Promise<{ summary: 
           state: p.state || 'unknown',
           query: p.query || '',
           waitEvent: p.wait_event || 'None',
-          blockingPids: p.blocking_pids || []
+          blockingPids: p.blocking_pids || [] as number[],
+          backendType: p.backend_type || 'unknown'
        })),
        tableInsights: (data.tableInsights || []).map((ti: any) => ({ 
           name: ti.table_name || 'unknown',

@@ -111,9 +111,10 @@ app.post('/api/server-stats', async (req, res) => {
         state, 
         COALESCE(query, '') as query, 
         COALESCE(wait_event_type, 'None') as wait_event,
-        pg_blocking_pids(pid) as blocking_pids
+        pg_blocking_pids(pid) as blocking_pids,
+        backend_type
       FROM pg_stat_activity 
-      WHERE datname = $1 AND pid <> pg_backend_pid()
+      WHERE (datname = $1 OR datname IS NULL) AND pid <> pg_backend_pid()
       ORDER BY duration_ms DESC;`;
     const procRes = await client.query(processesQuery, [credentials.database]);
 

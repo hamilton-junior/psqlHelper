@@ -58,6 +58,7 @@ export interface ActiveProcess {
   waitEvent: string;
   isBlocked: boolean;
   blockingPids: number[];
+  backendType: string;
 }
 
 // Fix line 63: Changed interface to type for union declaration

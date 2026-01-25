@@ -4,7 +4,7 @@ import {
   HeartPulse, Activity, Database, Users, Clock, 
   RefreshCw, Trash2, Search, AlertCircle, 
   Loader2, Zap, ShieldAlert, Terminal, ZapOff, 
-  Cpu, BarChart3, AlertTriangle, Ghost, ListOrdered, Sparkles, X, ChevronDown, CheckCircle2, Timer
+  Cpu, BarChart3, AlertTriangle, Ghost, ListOrdered, Sparkles, X, ChevronDown, CheckCircle2, Timer, Settings
 } from 'lucide-react';
 import { DbCredentials, ServerStats, ActiveProcess, TableInsight } from '../../types';
 import { getServerHealth, terminateProcess } from '../../services/dbService';
@@ -24,6 +24,7 @@ const ServerHealthStep: React.FC<ServerHealthStepProps> = ({ credentials }) => {
   const [error, setError] = useState<string | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [refreshInterval, setRefreshInterval] = useState(5000); // ms
+  const [showSystemProcesses, setShowSystemProcesses] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [terminatingPid, setTerminatingPid] = useState<number | null>(null);
   
@@ -115,12 +116,24 @@ const ServerHealthStep: React.FC<ServerHealthStepProps> = ({ credentials }) => {
   };
 
   const filteredProcesses = useMemo(() => {
-    return processes.filter(p => 
-       (p.query || '').toLowerCase().includes(searchTerm.toLowerCase()) || 
-       (p.user || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-       (p.pid || '').toString().includes(searchTerm)
-    );
-  }, [processes, searchTerm]);
+    return processes.filter(p => {
+       // 1. Filtro de Busca
+       const matchesSearch = 
+          (p.query || '').toLowerCase().includes(searchTerm.toLowerCase()) || 
+          (p.user || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+          (p.pid || '').toString().includes(searchTerm);
+
+       if (!matchesSearch) return false;
+
+       // 2. Filtro de Processos do Sistema (Native)
+       // No Postgres, 'client backend' são sessões de usuários. Todo o resto é nativo/sistema.
+       if (!showSystemProcesses && p.backendType !== 'client backend') {
+          return false;
+       }
+
+       return true;
+    });
+  }, [processes, searchTerm, showSystemProcesses]);
 
   const formatDurationDisplay = (duration: any): string => {
     if (!duration) return '0s';
@@ -285,21 +298,33 @@ const ServerHealthStep: React.FC<ServerHealthStepProps> = ({ credentials }) => {
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 flex-1 min-h-0">
-               {/* Painel de Processos (Restaurado com Destaque para Zumbis e Bloqueios) */}
+               {/* Painel de Processos */}
                <div className="lg:col-span-2 flex flex-col bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-[2.5rem] shadow-sm overflow-hidden">
-                  <div className="px-8 py-5 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 flex justify-between items-center shrink-0">
+                  <div className="px-8 py-5 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 shrink-0">
                      <div className="flex items-center gap-3">
                         <Terminal className="w-5 h-5 text-indigo-500" />
                         <h3 className="font-black text-slate-700 dark:text-slate-200 uppercase tracking-tighter">Processos Ativos</h3>
                         <span className="text-[10px] bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full font-black uppercase">{filteredProcesses.length} Sessões</span>
                      </div>
-                     <div className="relative group">
-                        <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
-                        <input 
-                           type="text" value={searchTerm} onChange={e => setSearchTerm(e.target.value)}
-                           placeholder="Filtrar processos..."
-                           className="pl-10 pr-4 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs outline-none focus:ring-2 focus:ring-indigo-500 w-48 shadow-inner"
-                        />
+                     <div className="flex items-center gap-3 w-full md:w-auto">
+                        {/* Toggle de Processos Nativos */}
+                        <div className="flex items-center gap-2 bg-slate-100 dark:bg-slate-800 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700" title="Exibir/Ocultar processos internos do PostgreSQL (autovacuum, etc)">
+                           <Settings className={`w-3.5 h-3.5 ${showSystemProcesses ? 'text-indigo-500' : 'text-slate-400'}`} />
+                           <span className="text-[10px] font-black text-slate-500 uppercase">Internos</span>
+                           <label className="relative inline-flex items-center cursor-pointer scale-75">
+                              <input type="checkbox" checked={showSystemProcesses} onChange={e => setShowSystemProcesses(e.target.checked)} className="sr-only peer" />
+                              <div className="w-11 h-6 bg-slate-200 dark:bg-slate-700 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500"></div>
+                           </label>
+                        </div>
+                        
+                        <div className="relative group flex-1 md:flex-none">
+                           <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
+                           <input 
+                              type="text" value={searchTerm} onChange={e => setSearchTerm(e.target.value)}
+                              placeholder="Filtrar..."
+                              className="pl-10 pr-4 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs outline-none focus:ring-2 focus:ring-indigo-500 w-full md:w-48 shadow-inner"
+                           />
+                        </div>
                      </div>
                   </div>
 
@@ -318,12 +343,19 @@ const ServerHealthStep: React.FC<ServerHealthStepProps> = ({ credentials }) => {
                            {filteredProcesses.map(proc => {
                               const isZombie = proc.state === 'idle in transaction';
                               const isBlocked = proc.blockingPids && proc.blockingPids.length > 0;
+                              const isNative = proc.backendType !== 'client backend';
+                              
                               return (
-                                 <tr key={proc.pid} className="group hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
-                                    <td className="px-6 py-4 text-xs font-mono font-bold text-slate-400">{proc.pid}</td>
+                                 <tr key={proc.pid} className={`group transition-colors ${isNative ? 'bg-slate-50/30 dark:bg-slate-800/20' : 'hover:bg-slate-50 dark:hover:bg-slate-800/50'}`}>
+                                    <td className="px-6 py-4 text-xs font-mono font-bold text-slate-400">
+                                       <div className="flex items-center gap-2">
+                                          {proc.pid}
+                                          {isNative && <Cpu className="w-3 h-3 text-slate-300" title="Processo do Sistema" />}
+                                       </div>
+                                    </td>
                                     <td className="px-6 py-4">
                                        <div className="flex flex-col">
-                                          <span className="text-xs font-bold text-slate-700 dark:text-slate-200">{proc.user || 'system'}</span>
+                                          <span className={`text-xs font-bold ${isNative ? 'text-slate-400' : 'text-slate-700 dark:text-slate-200'}`}>{proc.user || 'system'}</span>
                                           <span className="text-[9px] text-slate-400 font-mono">{(proc.duration || '0s').split('.')[0]}</span>
                                        </div>
                                     </td>
@@ -337,8 +369,8 @@ const ServerHealthStep: React.FC<ServerHealthStepProps> = ({ credentials }) => {
                                     </td>
                                     <td className="px-6 py-4">
                                        <div className="max-w-[300px] xl:max-w-[500px]">
-                                          <code className="text-[11px] font-mono text-slate-600 dark:text-slate-400 block truncate group-hover:whitespace-normal group-hover:break-all">
-                                             {proc.query || '(vazio)'}
+                                          <code className={`text-[11px] font-mono block truncate group-hover:whitespace-normal group-hover:break-all ${isNative ? 'text-slate-400 italic' : 'text-slate-600 dark:text-slate-400'}`}>
+                                             {isNative && !proc.query ? `[${proc.backendType}]` : (proc.query || '(vazio)')}
                                           </code>
                                           {isBlocked && (
                                              <div className="flex items-center gap-1.5 text-[9px] text-rose-600 font-black mt-1 uppercase bg-rose-50 dark:bg-rose-900/30 px-2 py-0.5 rounded-lg w-fit border border-rose-100 dark:border-rose-800">
@@ -348,14 +380,16 @@ const ServerHealthStep: React.FC<ServerHealthStepProps> = ({ credentials }) => {
                                        </div>
                                     </td>
                                     <td className="px-6 py-4">
-                                       <button 
-                                          onClick={() => handleKill(proc.pid)}
-                                          disabled={terminatingPid === proc.pid}
-                                          className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/30 rounded-xl transition-all"
-                                          title="Kill Connection"
-                                       >
-                                          {terminatingPid === proc.pid ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
-                                       </button>
+                                       {!isNative && (
+                                          <button 
+                                             onClick={() => handleKill(proc.pid)}
+                                             disabled={terminatingPid === proc.pid}
+                                             className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/30 rounded-xl transition-all"
+                                             title="Kill Connection"
+                                          >
+                                             {terminatingPid === proc.pid ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                                          </button>
+                                       )}
                                     </td>
                                  </tr>
                               );
