@@ -68,6 +68,31 @@ const ServerHealthStep: React.FC<ServerHealthStepProps> = ({ credentials }) => {
     return () => clearInterval(interval);
   }, [autoRefresh, credentials]);
 
+  /**
+   * Formata com segurança a duração de uma query.
+   * Lida com strings brutas do Postgres e objetos retornados pelo driver.
+   */
+  const formatDurationDisplay = (duration: any): string => {
+    if (!duration) return '0s';
+    
+    // Se for um objeto (comum no driver pg para intervalos), tenta converter para algo legível
+    if (typeof duration === 'object') {
+       const parts = [];
+       if (duration.hours) parts.push(`${duration.hours}h`);
+       if (duration.minutes) parts.push(`${duration.minutes}m`);
+       if (duration.seconds) parts.push(`${duration.seconds}s`);
+       if (duration.milliseconds) parts.push(`${Math.round(duration.milliseconds)}ms`);
+       return parts.length > 0 ? parts.join(' ') : '0s';
+    }
+
+    // Se for string, remove os milissegundos excedentes do formato Postgres (ex: 00:00:05.123 -> 00:00:05)
+    if (typeof duration === 'string') {
+       return duration.split('.')[0];
+    }
+
+    return String(duration);
+  };
+
   const handleKill = async (pid: number) => {
     if (!credentials) return;
     if (!confirm(`Deseja forçar o encerramento do processo ${pid}?`)) return;
@@ -191,7 +216,7 @@ const ServerHealthStep: React.FC<ServerHealthStepProps> = ({ credentials }) => {
                />
                <StatCard 
                   title="Query Mais Longa" 
-                  value={stats?.maxQueryDuration?.split('.')[0] || '0s'} 
+                  value={formatDurationDisplay(stats?.maxQueryDuration)} 
                   sub="Tempo de execução do topo"
                   icon={Clock}
                   colorClass="bg-rose-50 text-rose-600 dark:bg-rose-900/30"
@@ -248,7 +273,7 @@ const ServerHealthStep: React.FC<ServerHealthStepProps> = ({ credentials }) => {
                                  </td>
                                  <td className="px-6 py-4">
                                     <span className={`text-xs font-bold font-mono ${proc.durationMs > 30000 ? 'text-rose-500' : proc.durationMs > 5000 ? 'text-amber-500' : 'text-slate-500'}`}>
-                                       {proc.duration.split('.')[0]}
+                                       {formatDurationDisplay(proc.duration)}
                                     </span>
                                  </td>
                                  <td className="px-6 py-4">

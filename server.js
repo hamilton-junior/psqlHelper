@@ -187,12 +187,13 @@ app.post('/api/server-stats', async (req, res) => {
     await client.connect();
     
     // 1. Estatísticas Gerais
+    // O cast ::text garante que o driver pg retorne a string formatada do Postgres em vez de um objeto de intervalo
     const statsQuery = `
       SELECT 
         (SELECT numbackends FROM pg_stat_database WHERE datname = $1) as connections,
         pg_size_pretty(pg_database_size($1)) as db_size,
         (SELECT count(*) FROM pg_stat_activity WHERE state = 'active' AND datname = $1) as active_queries,
-        (SELECT COALESCE(max(now() - query_start), '0s'::interval) FROM pg_stat_activity WHERE state = 'active' AND datname = $1) as max_duration,
+        (SELECT COALESCE(max(now() - query_start), '0s'::interval)::text FROM pg_stat_activity WHERE state = 'active' AND datname = $1) as max_duration,
         xact_commit, xact_rollback,
         round(100.0 * blks_hit / NULLIF(blks_read + blks_hit, 0), 2) as cache_hit_rate
       FROM pg_stat_database 
@@ -204,7 +205,7 @@ app.post('/api/server-stats', async (req, res) => {
     const processesQuery = `
       SELECT 
         pid, usename as user, client_addr as client,
-        now() - query_start as duration,
+        (now() - query_start)::text as duration,
         extract(epoch from (now() - query_start)) * 1000 as duration_ms,
         state, query, wait_event_type as wait_event
       FROM pg_stat_activity 
