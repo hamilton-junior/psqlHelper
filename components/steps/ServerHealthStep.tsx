@@ -4,7 +4,7 @@ import {
   HeartPulse, Activity, Database, Users, Clock, 
   RefreshCw, Trash2, Search, AlertCircle, 
   Loader2, Zap, ShieldAlert, Terminal, ZapOff, 
-  Cpu, BarChart3, AlertTriangle, Ghost, ListOrdered, Sparkles, X, ChevronDown, CheckCircle2
+  Cpu, BarChart3, AlertTriangle, Ghost, ListOrdered, Sparkles, X, ChevronDown, CheckCircle2, Timer
 } from 'lucide-react';
 import { DbCredentials, ServerStats, ActiveProcess, TableInsight } from '../../types';
 import { getServerHealth, terminateProcess } from '../../services/dbService';
@@ -23,6 +23,7 @@ const ServerHealthStep: React.FC<ServerHealthStepProps> = ({ credentials }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(true);
+  const [refreshInterval, setRefreshInterval] = useState(5000); // ms
   const [searchTerm, setSearchTerm] = useState('');
   const [terminatingPid, setTerminatingPid] = useState<number | null>(null);
   
@@ -65,10 +66,30 @@ const ServerHealthStep: React.FC<ServerHealthStepProps> = ({ credentials }) => {
   useEffect(() => {
     let interval: any;
     if (autoRefresh && credentials && credentials.host !== 'simulated') {
-       interval = setInterval(() => fetchHealth(), 5000);
+       console.log(`[HEALTH] Iniciando polling com intervalo de ${refreshInterval}ms`);
+       interval = setInterval(() => fetchHealth(), refreshInterval);
     }
-    return () => clearInterval(interval);
-  }, [autoRefresh, credentials]);
+    return () => {
+      if (interval) {
+        console.log(`[HEALTH] Limpando polling anterior`);
+        clearInterval(interval);
+      }
+    };
+  }, [autoRefresh, credentials, refreshInterval]);
+
+  const handleIntervalChange = (val: string) => {
+    const num = parseInt(val);
+    if (isNaN(num)) return;
+
+    // Sanitização: Mínimo 2s (2000ms), Máximo 60s (60000ms)
+    const sanitized = Math.max(2000, Math.min(60000, num));
+    console.log(`[HEALTH] Usuário solicitou intervalo de ${num}ms. Sanitizado para: ${sanitized}ms`);
+    setRefreshInterval(sanitized);
+    
+    if (num < 2000) {
+      toast("Intervalo mínimo de 2s para preservar performance do banco.", { icon: '🛡️', id: 'health-min-warn' });
+    }
+  };
 
   const handleAiDiagnosis = async () => {
      if (!stats || processes.length === 0) return;
@@ -174,13 +195,30 @@ const ServerHealthStep: React.FC<ServerHealthStepProps> = ({ credentials }) => {
                {isDiagnosing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
                Analisar com Gemini
             </button>
-            <div className="flex items-center gap-2 bg-white dark:bg-slate-800 p-2 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm">
-               <span className="text-[10px] font-black text-slate-400 uppercase px-2">Auto-Refresh</span>
-               <label className="relative inline-flex items-center cursor-pointer scale-90 mr-1">
-                  <input type="checkbox" checked={autoRefresh} onChange={e => setAutoRefresh(e.target.checked)} className="sr-only peer" />
-                  <div className="w-11 h-6 bg-slate-200 dark:bg-slate-700 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500"></div>
-               </label>
+            
+            {/* Seção de Configuração de Refresh */}
+            <div className="flex items-center gap-3 bg-white dark:bg-slate-800 p-2 px-4 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm">
+               <div className="flex items-center gap-2 border-r border-slate-100 dark:border-slate-700 pr-3">
+                  <Timer className={`w-3.5 h-3.5 ${autoRefresh ? 'text-indigo-500' : 'text-slate-400'}`} />
+                  <input 
+                     type="number"
+                     step="500"
+                     value={refreshInterval}
+                     onChange={(e) => handleIntervalChange(e.target.value)}
+                     className="w-16 bg-transparent text-xs font-black text-slate-700 dark:text-slate-200 outline-none"
+                     title="Intervalo em milissegundos (Mín 2000, Máx 60000)"
+                  />
+                  <span className="text-[10px] font-black text-slate-400 uppercase">ms</span>
+               </div>
+               <div className="flex items-center gap-2">
+                  <span className="text-[10px] font-black text-slate-400 uppercase">Live</span>
+                  <label className="relative inline-flex items-center cursor-pointer scale-90">
+                     <input type="checkbox" checked={autoRefresh} onChange={e => setAutoRefresh(e.target.checked)} className="sr-only peer" />
+                     <div className="w-11 h-6 bg-slate-200 dark:bg-slate-700 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500"></div>
+                  </label>
+               </div>
             </div>
+
             <button onClick={() => fetchHealth(true)} disabled={loading} className="p-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 rounded-2xl hover:bg-slate-50 dark:hover:bg-slate-700 shadow-sm transition-all">
                {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <RefreshCw className="w-5 h-5" />}
             </button>
