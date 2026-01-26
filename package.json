@@ -81,7 +81,7 @@
       "target": "nsis"
     },
     "nsis": {
-      "oneOneClick": false,
+      "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
