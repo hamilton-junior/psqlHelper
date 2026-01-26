@@ -1,7 +1,7 @@
 # 🚀 PSQL Buddy
 
-![Versão](https://img.shields.io/badge/versão-0.2.21-indigo?style=for-the-badge)
-![Licença](https://img.shields.io/badge/licença-Não--Comercial-orange?style=for-the-badge)
+[![GitHub Release](https://img.shields.io/github/v/release/Hamilton-Junior/psqlBuddy?style=for-the-badge&color=indigo&label=versão)](https://github.com/Hamilton-Junior/psqlBuddy/releases)
+[![GitHub License](https://img.shields.io/github/license/Hamilton-Junior/psqlBuddy?style=for-the-badge&color=orange&label=licença)](https://github.com/Hamilton-Junior/psqlBuddy/blob/main/LICENSE.txt)
 ![React](https://img.shields.io/badge/React-19-61DAFB?style=for-the-badge&logo=react)
 ![Electron](https://img.shields.io/badge/Electron-34-47848F?style=for-the-badge&logo=electron)
 

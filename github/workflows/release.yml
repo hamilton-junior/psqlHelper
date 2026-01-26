@@ -1,0 +1,42 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'release' # Dispara quando você rodar: git tag release && git push origin release
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # CRUCIAL: Necessário para o 'git rev-list' contar os commits corretamente
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build and Publish
+        run: npm run dist
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VITE_API_KEY: ${{ secrets.VITE_API_KEY }}
+
+      - name: Cleanup Release Tag
+        if: always()
+        shell: bash
+        run: |
+          gh api -X DELETE repos/${{ github.repository }}/git/refs/tags/release || true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
