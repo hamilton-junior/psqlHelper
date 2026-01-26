@@ -520,7 +520,6 @@ const ServerHealthStep: React.FC<ServerHealthStepProps> = ({ credentials }) => {
                                  <td className="px-6 py-4 w-full max-w-0">
                                     <div className="flex flex-col gap-1.5">
                                        <code 
-                                          title={isNative && !proc.query ? proc.backendType : proc.query}
                                           className={`text-[11px] font-mono block truncate group-hover:whitespace-pre-wrap group-hover:break-all transition-all duration-200 ${isNative ? 'text-slate-400 italic' : 'text-slate-600 dark:text-slate-400'}`}
                                        >
                                           {isNative && !proc.query ? `[${proc.backendType}]` : (proc.query || '(vazio)')}
