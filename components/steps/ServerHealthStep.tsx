@@ -517,9 +517,12 @@ const ServerHealthStep: React.FC<ServerHealthStepProps> = ({ credentials }) => {
                                        {isZombie && <span className="flex items-center gap-1 text-[8px] text-rose-500 font-black animate-pulse"><Ghost className="w-2.5 h-2.5" /> ZUMBI</span>}
                                     </div>
                                  </td>
-                                 <td className="px-6 py-4">
+                                 <td className="px-6 py-4 w-full max-w-0">
                                     <div className="flex flex-col gap-1.5">
-                                       <code className={`text-[11px] font-mono block truncate group-hover:whitespace-normal group-hover:break-all ${isNative ? 'text-slate-400 italic' : 'text-slate-600 dark:text-slate-400'}`}>
+                                       <code 
+                                          title={isNative && !proc.query ? proc.backendType : proc.query}
+                                          className={`text-[11px] font-mono block truncate group-hover:whitespace-pre-wrap group-hover:break-all transition-all duration-200 ${isNative ? 'text-slate-400 italic' : 'text-slate-600 dark:text-slate-400'}`}
+                                       >
                                           {isNative && !proc.query ? `[${proc.backendType}]` : (proc.query || '(vazio)')}
                                        </code>
                                        <div className="flex items-center gap-2">
@@ -536,7 +539,7 @@ const ServerHealthStep: React.FC<ServerHealthStepProps> = ({ credentials }) => {
                                        </div>
                                     </div>
                                  </td>
-                                 <td className="px-6 py-4 text-center">
+                                 <td className="px-6 py-4 text-center shrink-0">
                                     {!isNative && (
                                        <button onClick={() => handleKill(proc.pid)} disabled={terminatingPid === proc.pid} className="p-2 text-slate-300 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/20 rounded-xl transition-all">
                                           {terminatingPid === proc.pid ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
