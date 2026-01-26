@@ -107,6 +107,7 @@ export const getServerHealth = async (creds: DbCredentials): Promise<{
           backendType: p.backend_type || 'unknown'
        })),
        tableInsights: (data.tableInsights || []).map((ti: any) => ({ 
+          schema: ti.schema_name || 'public',
           name: ti.table_name || 'unknown',
           totalSize: ti.total_size || '0 B',
           tableSize: ti.table_size || '0 B',
@@ -116,6 +117,7 @@ export const getServerHealth = async (creds: DbCredentials): Promise<{
           lastVacuum: ti.last_vacuum
        })),
        unusedIndexes: (data.unusedIndexes || []).map((ui: any) => ({
+          schema: ui.schema_name || 'public',
           table: ui.table_name,
           index: ui.index_name,
           size: ui.index_size
@@ -138,6 +140,40 @@ export const terminateProcess = async (creds: DbCredentials, pid: number): Promi
     if (!response.ok) {
       const err = await response.json();
       throw new Error(err.error || 'Failed to terminate process');
+    }
+  } catch (error: any) {
+    throw error;
+  }
+};
+
+export const vacuumTable = async (creds: DbCredentials, schema: string, table: string): Promise<void> => {
+  const normalizedCreds = ensureIpv4(creds);
+  try {
+    const response = await fetch(`${API_URL}/vacuum-table`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ credentials: normalizedCreds, schema, table })
+    });
+    if (!response.ok) {
+      const err = await response.json();
+      throw new Error(err.error || 'Failed to vacuum table');
+    }
+  } catch (error: any) {
+    throw error;
+  }
+};
+
+export const dropIndex = async (creds: DbCredentials, schema: string, index: string): Promise<void> => {
+  const normalizedCreds = ensureIpv4(creds);
+  try {
+    const response = await fetch(`${API_URL}/drop-index`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ credentials: normalizedCreds, schema, index })
+    });
+    if (!response.ok) {
+      const err = await response.json();
+      throw new Error(err.error || 'Failed to drop index');
     }
   } catch (error: any) {
     throw error;

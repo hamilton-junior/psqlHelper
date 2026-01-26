@@ -141,6 +141,7 @@ app.post('/api/server-stats', async (req, res) => {
     // 3. Table Insights
     const bloatQuery = `
       SELECT 
+        schemaname as schema_name,
         relname as table_name,
         pg_size_pretty(pg_total_relation_size(relid)) as total_size,
         pg_size_pretty(pg_relation_size(relid)) as table_size,
@@ -155,6 +156,7 @@ app.post('/api/server-stats', async (req, res) => {
     // 4. Índices Não Utilizados
     const unusedIndexesQuery = `
       SELECT 
+        schemaname as schema_name,
         relname as table_name, 
         indexrelname as index_name, 
         pg_size_pretty(pg_relation_size(indexrelid)) as index_size
@@ -186,6 +188,36 @@ app.post('/api/terminate-process', async (req, res) => {
     res.json({ success: true });
   } catch (err) { 
     serverError('POST', '/api/terminate-process', err);
+    res.status(500).json({ error: err.message }); 
+  } finally { try { await client.end(); } catch (e) {} }
+});
+
+app.post('/api/vacuum-table', async (req, res) => {
+  const { credentials, schema, table } = req.body;
+  if (!credentials || !table) return res.status(400).json({ error: 'Missing table or credentials' });
+  const client = new Client(credentials);
+  try {
+    await client.connect();
+    serverLog('POST', '/api/vacuum-table', `Executando VACUUM ANALYZE em ${schema || 'public'}.${table}`);
+    await client.query(`VACUUM ANALYZE "${schema || 'public'}"."${table}"`);
+    res.json({ success: true });
+  } catch (err) { 
+    serverError('POST', '/api/vacuum-table', err);
+    res.status(500).json({ error: err.message }); 
+  } finally { try { await client.end(); } catch (e) {} }
+});
+
+app.post('/api/drop-index', async (req, res) => {
+  const { credentials, schema, index } = req.body;
+  if (!credentials || !index) return res.status(400).json({ error: 'Missing index or credentials' });
+  const client = new Client(credentials);
+  try {
+    await client.connect();
+    serverLog('POST', '/api/drop-index', `Executando DROP INDEX em ${schema || 'public'}.${index}`);
+    await client.query(`DROP INDEX IF EXISTS "${schema || 'public'}"."${index}"`);
+    res.json({ success: true });
+  } catch (err) { 
+    serverError('POST', '/api/drop-index', err);
     res.status(500).json({ error: err.message }); 
   } finally { try { await client.end(); } catch (e) {} }
 });

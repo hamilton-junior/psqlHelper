@@ -43,6 +43,7 @@ export interface ServerStats {
 }
 
 export interface TableInsight {
+  schema: string;
   name: string;
   totalSize: string;
   tableSize: string;
@@ -53,6 +54,7 @@ export interface TableInsight {
 }
 
 export interface UnusedIndex {
+  schema: string;
   table: string;
   index: string;
   size: string;

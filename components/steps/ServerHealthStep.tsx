@@ -5,10 +5,10 @@ import {
   RefreshCw, Trash2, Search, AlertCircle, 
   Loader2, Zap, ShieldAlert, Terminal, ZapOff, 
   Cpu, BarChart3, AlertTriangle, Ghost, ListOrdered, Sparkles, X, ChevronDown, CheckCircle2, Timer, Settings,
-  FileJson, FileText, Download, Share2, Layers, Anchor, ActivitySquare, Gauge, ShieldCheck, Info
+  FileJson, FileText, Download, Share2, Layers, Anchor, ActivitySquare, Gauge, ShieldCheck, Info, Sparkle, Brush
 } from 'lucide-react';
 import { DbCredentials, ServerStats, ActiveProcess, TableInsight, UnusedIndex } from '../../types';
-import { getServerHealth, terminateProcess } from '../../services/dbService';
+import { getServerHealth, terminateProcess, vacuumTable, dropIndex } from '../../services/dbService';
 import { getHealthDiagnosis } from '../../services/geminiService';
 import { LineChart, Line, ResponsiveContainer, YAxis, XAxis, Tooltip, AreaChart, Area, PieChart, Pie, Cell } from 'recharts';
 import { toast } from 'react-hot-toast';
@@ -29,6 +29,7 @@ const ServerHealthStep: React.FC<ServerHealthStepProps> = ({ credentials }) => {
   const [showSystemProcesses, setShowSystemProcesses] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [terminatingPid, setTerminatingPid] = useState<number | null>(null);
+  const [optimizingItems, setOptimizingItems] = useState<Set<string>>(new Set());
   
   // IA Diagnosis
   const [aiDiagnosis, setAiDiagnosis] = useState<string | null>(null);
@@ -122,6 +123,54 @@ const ServerHealthStep: React.FC<ServerHealthStepProps> = ({ credentials }) => {
       console.error(`[SERVER_HEALTH] Erro ao encerrar PID ${pid}:`, err);
       toast.error(`Falha ao matar processo: ${err.message}`);
     } finally { setTerminatingPid(null); }
+  };
+
+  const handleVacuum = async (schema: string, table: string) => {
+    if (!credentials) return;
+    const itemKey = `vacuum-${schema}.${table}`;
+    if (optimizingItems.has(itemKey)) return;
+    
+    console.log(`[SERVER_HEALTH] Solicitando VACUUM em ${schema}.${table}`);
+    setOptimizingItems(prev => new Set(prev).add(itemKey));
+    try {
+      await vacuumTable(credentials, schema, table);
+      toast.success(`Tabela ${table} otimizada.`);
+      fetchHealth();
+    } catch (err: any) {
+      console.error("[SERVER_HEALTH] Erro ao executar vacuum:", err);
+      toast.error(`Falha na limpeza: ${err.message}`);
+    } finally {
+      setOptimizingItems(prev => {
+        const next = new Set(prev);
+        next.delete(itemKey);
+        return next;
+      });
+    }
+  };
+
+  const handleDropUnusedIndex = async (schema: string, index: string) => {
+    if (!credentials) return;
+    if (!confirm(`Deseja realmente remover o índice ${index}? Esta ação não pode ser desfeita.`)) return;
+    
+    const itemKey = `drop-${schema}.${index}`;
+    if (optimizingItems.has(itemKey)) return;
+    
+    console.log(`[SERVER_HEALTH] Removendo índice ocioso ${schema}.${index}`);
+    setOptimizingItems(prev => new Set(prev).add(itemKey));
+    try {
+      await dropIndex(credentials, schema, index);
+      toast.success(`Índice ${index} removido.`);
+      fetchHealth();
+    } catch (err: any) {
+      console.error("[SERVER_HEALTH] Erro ao remover índice:", err);
+      toast.error(`Falha ao remover índice: ${err.message}`);
+    } finally {
+      setOptimizingItems(prev => {
+        const next = new Set(prev);
+        next.delete(itemKey);
+        return next;
+      });
+    }
   };
 
   const exportSnapshot = (format: 'json' | 'txt') => {
@@ -497,10 +546,20 @@ const ServerHealthStep: React.FC<ServerHealthStepProps> = ({ credentials }) => {
                         <div key={i} className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-700 group hover:border-indigo-400 transition-all">
                            <div className="flex justify-between items-start mb-2">
                               <span className="text-[11px] font-black text-slate-700 dark:text-white truncate pr-2">{idx.index}</span>
-                              <span className="text-[10px] font-black text-rose-500 uppercase px-2 py-0.5 bg-rose-50 dark:bg-rose-900/30 rounded-lg">{idx.size}</span>
+                              <div className="flex items-center gap-2">
+                                <span className="text-[10px] font-black text-rose-500 uppercase px-2 py-0.5 bg-rose-50 dark:bg-rose-900/30 rounded-lg">{idx.size}</span>
+                                <button 
+                                  onClick={() => handleDropUnusedIndex(idx.schema, idx.index)} 
+                                  disabled={optimizingItems.has(`drop-${idx.schema}.${idx.index}`)}
+                                  className="p-1.5 text-slate-400 hover:text-rose-500 hover:bg-rose-100 dark:hover:bg-rose-900/40 rounded-lg transition-all"
+                                  title="Remover índice ocioso"
+                                >
+                                  {optimizingItems.has(`drop-${idx.schema}.${idx.index}`) ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                                </button>
+                              </div>
                            </div>
                            <div className="text-[9px] text-slate-400 flex items-center gap-1">
-                              <Database className="w-3 h-3" /> Tabela: <strong>{idx.table}</strong>
+                              <Database className="w-3 h-3" /> Tabela: <strong>{idx.schema}.{idx.table}</strong>
                            </div>
                            <div className="mt-3 text-[8px] font-bold text-slate-400 uppercase bg-white dark:bg-slate-900 px-2 py-0.5 rounded-full w-fit border border-slate-100 dark:border-slate-800">Nunca Escaneado</div>
                         </div>
@@ -521,12 +580,20 @@ const ServerHealthStep: React.FC<ServerHealthStepProps> = ({ credentials }) => {
                          <p className="text-[10px] font-bold uppercase">Nenhum dado de tabela carregado.</p>
                       </div>
                   ) : tableInsights.map((tbl, idx) => (
-                     <div key={idx} className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-700">
+                     <div key={idx} className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-700 group hover:border-emerald-400/50 transition-all">
                         <div className="flex justify-between items-center mb-3">
-                           <span className="text-[11px] font-black text-slate-600 dark:text-slate-200 truncate">{tbl.name}</span>
+                           <span className="text-[11px] font-black text-slate-600 dark:text-slate-200 truncate">{tbl.schema}.{tbl.name}</span>
                            <div className="flex items-center gap-1.5">
                               <span className={`w-2 h-2 rounded-full ${tbl.deadTuples > 10000 ? 'bg-rose-500 animate-pulse' : 'bg-emerald-500'}`} />
                               <span className="text-[9px] font-black text-slate-400 uppercase">{tbl.deadTuples.toLocaleString()} dead tuples</span>
+                              <button 
+                                onClick={() => handleVacuum(tbl.schema, tbl.name)} 
+                                disabled={optimizingItems.has(`vacuum-${tbl.schema}.${tbl.name}`)}
+                                className="ml-1 p-1.5 text-slate-400 hover:text-emerald-500 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 rounded-lg transition-all"
+                                title="Executar VACUUM ANALYZE manual"
+                              >
+                                {optimizingItems.has(`vacuum-${tbl.schema}.${tbl.name}`) ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Brush className="w-3.5 h-3.5" />}
+                              </button>
                            </div>
                         </div>
                         <div className="h-2 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
