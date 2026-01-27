@@ -68,8 +68,8 @@ const App: React.FC = () => {
   
   const [settings, setSettings] = useState<AppSettings>(() => {
     try {
-      const stored = localStorage.getItem('psqlBuddy-settings');
-      return stored ? { ...DEFAULT_SETTINGS, ...JSON.parse(stored) } : DEFAULT_SETTINGS;
+      const savedSettings = localStorage.getItem('psqlBuddy-settings');
+      return savedSettings ? { ...DEFAULT_SETTINGS, ...JSON.parse(savedSettings) } : DEFAULT_SETTINGS;
     } catch { return DEFAULT_SETTINGS; }
   });
 
@@ -259,7 +259,7 @@ const App: React.FC = () => {
     if (!credentials || !schema) return;
     const sqlToRun = sqlOverride || queryResult?.sql;
     if (!sqlToRun) return;
-    setIsExecuting)true);
+    setIsExecuting(true);
     try {
        let data = credentials.host === 'simulated'
           ? executeOfflineQuery(schema, simulationData, builderState)
@@ -333,6 +333,7 @@ const App: React.FC = () => {
            {currentStep === 'datadiff' && schema && <DataDiffStep schema={schema} credentials={credentials} simulationData={simulationData} settings={settings} />}
            {currentStep === 'dashboard' && <DashboardStep items={dashboardItems} onRemoveItem={(id) => setDashboardItems(prev => prev.filter(i => i.id !== id))} onClearAll={() => setDashboardItems([])} />}
            {currentStep === 'serverhealth' && <ServerHealthStep credentials={credentials} />}
+           {/* Fix: Replace Rocket (icon) with RoadmapStep component */}
            {currentStep === 'roadmap' && <RoadmapStep />}
         </div>
       </main>
