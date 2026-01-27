@@ -74,7 +74,7 @@
         {
           "title": "Estados de 'Skeleton Loading' Refinados",
           "desc": "Melhoria na percepção de velocidade através de carregamentos que mimetizam a estrutura final dos dados.",
-          "status": "Planejado",
+          "status": "Finalizado",
           "implementationPlan": [
             "Criação de componentes de skeleton para tabelas e gráficos.",
             "Transições suaves entre estados de carregamento e dados reais.",

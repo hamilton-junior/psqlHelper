@@ -52,14 +52,21 @@ const ServerHealthStep: React.FC<ServerHealthStepProps> = ({ credentials }) => {
 
   const fetchHealth = async (isManual = false) => {
     if (!credentials || credentials.host === 'simulated') {
+       console.log("[SERVER_HEALTH] Telemetria real não disponível em modo simulação.");
        setError("Telemetria real disponível apenas em conexões ativas do PostgreSQL.");
        setLoading(false);
        return;
     }
-    if (isManual) {
-        console.log("[SERVER_HEALTH] Iniciando busca manual de telemetria...");
+    
+    // Se for manual ou o primeiro carregamento, ativa o estado de loading
+    // Mas os skeletons só aparecerão se stats for null (lógica no JSX)
+    if (isManual || !stats) {
+        console.log(`[SERVER_HEALTH] Iniciando busca ${isManual ? 'manual' : 'inicial'} de telemetria...`);
         setLoading(true);
+    } else {
+        console.log("[SERVER_HEALTH] Atualizando telemetria em background...");
     }
+
     try {
       const data = await getServerHealth(credentials);
       const cacheVal = parseFloat((data.summary.cacheHitRate || '0').replace('%', '')) || 0;
@@ -77,21 +84,20 @@ const ServerHealthStep: React.FC<ServerHealthStepProps> = ({ credentials }) => {
            tps: data.summary.transactionsCommit,
            time: new Date().toLocaleTimeString()
          }];
-         return next.slice(-100); // Guardamos mais pontos para o gráfico expandido
+         return next.slice(-100); 
       });
+      console.log("[SERVER_HEALTH] Telemetria sincronizada com sucesso.");
     } catch (err: any) {
       console.error("[SERVER_HEALTH] Falha ao sincronizar telemetria:", err);
       setError(err.message || "Falha ao sincronizar telemetria.");
     } finally {
-      // Suaviza a transição
-      if (isManual) setTimeout(() => setLoading(false), 300);
-      else setLoading(false);
+      setLoading(false);
     }
   };
 
   useEffect(() => { 
     console.log("[SERVER_HEALTH] Componente montado. Credenciais:", credentials?.host);
-    fetchHealth(true); 
+    fetchHealth(false); 
   }, [credentials]);
 
   useEffect(() => {
@@ -259,7 +265,6 @@ const ServerHealthStep: React.FC<ServerHealthStepProps> = ({ credentials }) => {
     });
   }, [processes, searchTerm, showSystemProcesses]);
 
-  // Árvore de Bloqueios
   const blockingTree = useMemo(() => {
      const tree: Record<number, number[]> = {};
      processes.forEach(p => {
@@ -319,7 +324,7 @@ const ServerHealthStep: React.FC<ServerHealthStepProps> = ({ credentials }) => {
     );
   };
 
-  if (error && !loading) {
+  if (error && !loading && !stats) {
     return (
        <div className="h-full flex flex-col items-center justify-center text-center p-8 bg-slate-50 dark:bg-slate-950">
           <div className="w-24 h-24 bg-red-50 dark:bg-red-900/20 rounded-full flex items-center justify-center mb-6">
@@ -419,7 +424,7 @@ const ServerHealthStep: React.FC<ServerHealthStepProps> = ({ credentials }) => {
          
          {/* Stats Grid */}
          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 shrink-0">
-            {loading ? (
+            {(loading && !stats) ? (
                [1, 2, 3, 4].map(i => <CardSkeleton key={i} />)
             ) : (
                <>
@@ -456,7 +461,7 @@ const ServerHealthStep: React.FC<ServerHealthStepProps> = ({ credentials }) => {
             )}
          </div>
 
-         {/* Grid de Operação Principal (Processos e Gráfico de Carga) */}
+         {/* Grid de Operação Principal */}
          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 min-h-0 shrink-0">
             {/* Processos Ativos e Wait Events */}
             <div className="lg:col-span-2 flex flex-col bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-[2.5rem] shadow-sm overflow-hidden h-[480px]">
@@ -485,7 +490,7 @@ const ServerHealthStep: React.FC<ServerHealthStepProps> = ({ credentials }) => {
                </div>
 
                <div className="flex-1 overflow-auto custom-scrollbar">
-                  {loading ? (
+                  {(loading && processes.length === 0) ? (
                      <div className="p-8"><TableSkeleton rows={8} cols={4} /></div>
                   ) : (
                      <table className="w-full text-left border-collapse">
@@ -567,7 +572,7 @@ const ServerHealthStep: React.FC<ServerHealthStepProps> = ({ credentials }) => {
                </div>
             </div>
 
-            {/* Gráfico de TPS - Redimensionado para acompanhar a altura da tabela */}
+            {/* Gráfico de TPS */}
             <div className="bg-slate-950 rounded-[2.5rem] p-8 border border-slate-800 shadow-2xl flex flex-col h-[480px]">
                <div className="flex items-center justify-between mb-8">
                   <div>
@@ -577,7 +582,7 @@ const ServerHealthStep: React.FC<ServerHealthStepProps> = ({ credentials }) => {
                   <span className="text-[10px] font-bold text-slate-500 bg-slate-900 px-3 py-1 rounded-full border border-slate-800">Last 100 samples</span>
                </div>
                <div className="flex-1 w-full">
-                  {loading ? (
+                  {(loading && history.length === 0) ? (
                      <Skeleton className="w-full h-full rounded-2xl" />
                   ) : (
                      <ResponsiveContainer width="100%" height="100%">
@@ -595,18 +600,14 @@ const ServerHealthStep: React.FC<ServerHealthStepProps> = ({ credentials }) => {
             </div>
          </div>
 
-         {/* Nova Grade Inferior: Otimização e Manutenção lado a lado */}
+         {/* Nova Grade Inferior: Otimização e Manutenção */}
          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 shrink-0">
             {/* Índices Não Utilizados */}
-            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-[2.5rem] shadow-sm flex flex-col overflow-hidden h-[380px]">
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-[2.5rem] shadow-sm flex flex-col overflow-hidden h-[380px]">
                <div className="px-8 py-5 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 shrink-0 flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <h3 className="text-xs font-black text-slate-700 dark:text-slate-200 uppercase tracking-widest flex items-center gap-2"><Anchor className="w-4 h-4 text-indigo-500" /> Otimização: Índices Não Utilizados</h3>
-                    <button 
-                      onClick={() => setShowIndexWarningInfo(!showIndexWarningInfo)}
-                      className="p-1 text-slate-400 hover:text-indigo-500 transition-colors"
-                      title="Por que o scan pode ser zero?"
-                    >
+                    <button onClick={() => setShowIndexWarningInfo(!showIndexWarningInfo)} className="p-1 text-slate-400 hover:text-indigo-500 transition-colors">
                       <HelpCircle className="w-3.5 h-3.5" />
                     </button>
                   </div>
@@ -617,16 +618,8 @@ const ServerHealthStep: React.FC<ServerHealthStepProps> = ({ credentials }) => {
                   )}
                </div>
                
-               {showIndexWarningInfo && (
-                  <div className="px-6 py-3 bg-indigo-50 dark:bg-indigo-900/20 border-b border-indigo-100 dark:border-indigo-800 animate-in slide-in-from-top-1">
-                     <p className="text-[10px] text-indigo-700 dark:text-indigo-300 leading-relaxed">
-                       <strong>Atenção:</strong> Índices com 0 scans podem ainda ser úteis para garantir integridade (Unique), chaves estrangeiras (Foreign Keys) ou queries muito raras. Verifique a data de reset das estatísticas antes de excluir.
-                     </p>
-                  </div>
-               )}
-
                <div className="flex-1 p-6 overflow-y-auto custom-scrollbar space-y-4">
-                  {loading ? (
+                  {(loading && unusedIndexes.length === 0) ? (
                      [1, 2].map(i => (
                         <div key={i} className="p-4 border border-slate-100 dark:border-slate-800 rounded-2xl space-y-3">
                            <Skeleton className="w-1/2 h-4" />
@@ -649,7 +642,6 @@ const ServerHealthStep: React.FC<ServerHealthStepProps> = ({ credentials }) => {
                                   onClick={() => handleDropUnusedIndex(idx.schema, idx.index)} 
                                   disabled={optimizingItems.has(`drop-${idx.schema}.${idx.index}`)}
                                   className="p-1.5 text-slate-400 hover:text-rose-500 hover:bg-rose-100 dark:hover:bg-rose-900/40 rounded-lg transition-all"
-                                  title="Remover índice ocioso"
                                 >
                                   {optimizingItems.has(`drop-${idx.schema}.${idx.index}`) ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
                                 </button>
@@ -658,7 +650,6 @@ const ServerHealthStep: React.FC<ServerHealthStepProps> = ({ credentials }) => {
                            <div className="text-[9px] text-slate-400 flex items-center gap-1">
                               <Database className="w-3 h-3" /> Tabela: <strong>{idx.schema}.{idx.table}</strong>
                            </div>
-                           <div className="mt-3 text-[8px] font-bold text-slate-400 uppercase bg-white dark:bg-slate-900 px-2 py-0.5 rounded-full w-fit border border-slate-100 dark:border-slate-800">Nunca Escaneado</div>
                         </div>
                      ))
                   )}
@@ -671,48 +662,35 @@ const ServerHealthStep: React.FC<ServerHealthStepProps> = ({ credentials }) => {
                   <h3 className="text-xs font-black text-slate-700 dark:text-slate-200 uppercase tracking-widest flex items-center gap-2"><Gauge className="w-4 h-4 text-emerald-500" /> Autovacuum & Bloat</h3>
                </div>
                <div className="flex-1 p-6 overflow-y-auto custom-scrollbar space-y-4">
-                  {loading ? (
+                  {(loading && tableInsights.length === 0) ? (
                      [1, 2].map(i => (
                         <div key={i} className="p-4 border border-slate-100 dark:border-slate-800 rounded-2xl space-y-3">
                            <div className="flex justify-between"><Skeleton className="w-1/3 h-3" /><Skeleton className="w-1/4 h-3" /></div>
                            <Skeleton className="w-full h-2 rounded-full" />
                         </div>
                      ))
-                  ) : tableInsights.length === 0 ? (
-                      <div className="h-full flex flex-col items-center justify-center text-center opacity-40">
-                         <Info className="w-8 h-8 mb-2" />
-                         <p className="text-[10px] font-bold uppercase">Nenhum dado de tabela carregado.</p>
-                      </div>
-                  ) : tableInsights.map((tbl, idx) => (
-                     <div key={idx} className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-700 group hover:border-emerald-400/50 transition-all">
-                        <div className="flex justify-between items-center mb-3">
-                           <span className="text-[11px] font-black text-slate-600 dark:text-slate-200 truncate">{tbl.schema}.{tbl.name}</span>
-                           <div className="flex items-center gap-1.5">
-                              <span className={`w-2 h-2 rounded-full ${tbl.deadTuples > 10000 ? 'bg-rose-500 animate-pulse' : 'bg-emerald-500'}`} />
-                              <span className="text-[9px] font-black text-slate-400 uppercase">{tbl.deadTuples.toLocaleString()} dead tuples</span>
-                              <button 
-                                onClick={() => handleVacuum(tbl.schema, tbl.name)} 
-                                disabled={optimizingItems.has(`vacuum-${tbl.schema}.${tbl.name}`)}
-                                className="ml-1 p-1.5 text-slate-400 hover:text-emerald-500 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 rounded-lg transition-all"
-                                title="Executar VACUUM ANALYZE manual"
-                              >
-                                {optimizingItems.has(`vacuum-${tbl.schema}.${tbl.name}`) ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Brush className="w-3.5 h-3.5" />}
-                              </button>
+                  ) : (
+                     tableInsights.map((tbl, idx) => (
+                        <div key={idx} className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-700 group hover:border-emerald-400/50 transition-all">
+                           <div className="flex justify-between items-center mb-3">
+                              <span className="text-[11px] font-black text-slate-600 dark:text-slate-200 truncate">{tbl.schema}.{tbl.name}</span>
+                              <div className="flex items-center gap-1.5">
+                                 <span className={`w-2 h-2 rounded-full ${tbl.deadTuples > 10000 ? 'bg-rose-500 animate-pulse' : 'bg-emerald-500'}`} />
+                                 <span className="text-[9px] font-black text-slate-400 uppercase">{tbl.deadTuples.toLocaleString()} dead tuples</span>
+                                 <button onClick={() => handleVacuum(tbl.schema, tbl.name)} disabled={optimizingItems.has(`vacuum-${tbl.schema}.${tbl.name}`)} className="ml-1 p-1.5 text-slate-400 hover:text-emerald-500 rounded-lg transition-all">
+                                   {optimizingItems.has(`vacuum-${tbl.schema}.${tbl.name}`) ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Brush className="w-3.5 h-3.5" />}
+                                 </button>
+                              </div>
+                           </div>
+                           <div className="h-2 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
+                              <div className={`h-full transition-all ${tbl.deadTuples > 10000 ? 'bg-rose-500' : 'bg-indigo-500'}`} style={{ width: `${Math.min((tbl.deadTuples / (tbl.estimatedRows || 1)) * 100, 100)}%` }} />
                            </div>
                         </div>
-                        <div className="h-2 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
-                           <div className={`h-full transition-all ${tbl.deadTuples > 10000 ? 'bg-rose-500' : 'bg-indigo-500'}`} style={{ width: `${Math.min((tbl.deadTuples / (tbl.estimatedRows || 1)) * 100, 100)}%` }} />
-                        </div>
-                        <div className="mt-3 flex justify-between items-center text-[8px] font-bold text-slate-400 uppercase tracking-tighter">
-                           <span className="flex items-center gap-1"><ListOrdered className="w-2.5 h-2.5" /> Linhagem: {tbl.estimatedRows.toLocaleString()}</span>
-                           <span className="flex items-center gap-1"><Clock className="w-2.5 h-2.5" /> Vacuum: {tbl.lastVacuum}</span>
-                        </div>
-                     </div>
-                  ))}
+                     ))
+                  )}
                </div>
             </div>
          </div>
-
       </div>
     </div>
   );
