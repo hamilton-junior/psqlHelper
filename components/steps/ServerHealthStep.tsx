@@ -13,6 +13,7 @@ import { getHealthDiagnosis } from '../../services/geminiService';
 import { LineChart, Line, ResponsiveContainer, YAxis, XAxis, Tooltip, AreaChart, Area, PieChart, Pie, Cell } from 'recharts';
 import { toast } from 'react-hot-toast';
 import Dialog from '../common/Dialog';
+import { Skeleton, CardSkeleton, TableSkeleton } from '../common/Skeleton';
 
 interface ServerHealthStepProps {
   credentials: DbCredentials | null;
@@ -82,7 +83,9 @@ const ServerHealthStep: React.FC<ServerHealthStepProps> = ({ credentials }) => {
       console.error("[SERVER_HEALTH] Falha ao sincronizar telemetria:", err);
       setError(err.message || "Falha ao sincronizar telemetria.");
     } finally {
-      setLoading(false);
+      // Suaviza a transição
+      if (isManual) setTimeout(() => setLoading(false), 300);
+      else setLoading(false);
     }
   };
 
@@ -316,17 +319,18 @@ const ServerHealthStep: React.FC<ServerHealthStepProps> = ({ credentials }) => {
     );
   };
 
-  if (credentials?.host === 'simulated') {
-     return (
-        <div className="h-full flex flex-col items-center justify-center text-center p-8 bg-slate-50 dark:bg-slate-950">
-           <div className="w-24 h-24 bg-indigo-50 dark:bg-indigo-900/20 rounded-full flex items-center justify-center mb-6">
-              <ZapOff className="w-12 h-12 text-indigo-400" />
-           </div>
-           <h3 className="text-2xl font-black text-slate-700 dark:text-slate-300 mb-2">Telemetria Offline</h3>
-           <p className="text-slate-500 max-w-md">O monitor de saúde requer uma conexão real com o PostgreSQL para ler as estatísticas de sistema.</p>
-        </div>
-     );
-  }
+  if (error && !loading) {
+    return (
+       <div className="h-full flex flex-col items-center justify-center text-center p-8 bg-slate-50 dark:bg-slate-950">
+          <div className="w-24 h-24 bg-red-50 dark:bg-red-900/20 rounded-full flex items-center justify-center mb-6">
+             <AlertTriangle className="w-12 h-12 text-red-500" />
+          </div>
+          <h3 className="text-2xl font-black text-slate-700 dark:text-slate-300 mb-2">Erro de Telemetria</h3>
+          <p className="text-slate-500 max-w-md mb-6">{error}</p>
+          <button onClick={() => fetchHealth(true)} className="px-6 py-2 bg-indigo-600 text-white rounded-xl font-bold">Tentar Reconectar</button>
+       </div>
+    );
+ }
 
   return (
     <div className="flex flex-col h-full animate-in fade-in duration-500 pb-10">
@@ -415,41 +419,47 @@ const ServerHealthStep: React.FC<ServerHealthStepProps> = ({ credentials }) => {
          
          {/* Stats Grid */}
          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 shrink-0">
-            <StatCard 
-               title="Pool de Conexões" 
-               value={`${stats?.connections || 0}/${stats?.maxConnections || '--'}`} 
-               sub={`${Math.round(((stats?.connections || 0) / (stats?.maxConnections || 1)) * 100)}% de ocupação`}
-               icon={Users}
-               historyKey="conn"
-            />
-            <StatCard 
-               title="Cache Hit Rate" 
-               value={stats?.cacheHitRate || '---'} 
-               sub="Eficiência de Buffer Pool"
-               icon={Activity}
-               type="cache"
-               historyKey="cache"
-            />
-            <StatCard 
-               title="Transações (Commit)" 
-               value={stats?.transactionsCommit ? stats.transactionsCommit.toLocaleString() : '---'} 
-               sub="Throughput operacional"
-               icon={BarChart3}
-               historyKey="tps"
-            />
-            <StatCard 
-               title="Wraparound Danger" 
-               value={`${stats?.wraparoundPercent || 0}%`} 
-               sub={`${(stats?.wraparoundAge || 0).toLocaleString()} IDs de idade`}
-               icon={ShieldCheck}
-               type="wraparound"
-            />
+            {loading ? (
+               [1, 2, 3, 4].map(i => <CardSkeleton key={i} />)
+            ) : (
+               <>
+                  <StatCard 
+                     title="Pool de Conexões" 
+                     value={`${stats?.connections || 0}/${stats?.maxConnections || '--'}`} 
+                     sub={`${Math.round(((stats?.connections || 0) / (stats?.maxConnections || 1)) * 100)}% de ocupação`}
+                     icon={Users}
+                     historyKey="conn"
+                  />
+                  <StatCard 
+                     title="Cache Hit Rate" 
+                     value={stats?.cacheHitRate || '---'} 
+                     sub="Eficiência de Buffer Pool"
+                     icon={Activity}
+                     type="cache"
+                     historyKey="cache"
+                  />
+                  <StatCard 
+                     title="Transações (Commit)" 
+                     value={stats?.transactionsCommit ? stats.transactionsCommit.toLocaleString() : '---'} 
+                     sub="Throughput operacional"
+                     icon={BarChart3}
+                     historyKey="tps"
+                  />
+                  <StatCard 
+                     title="Wraparound Danger" 
+                     value={`${stats?.wraparoundPercent || 0}%`} 
+                     sub={`${(stats?.wraparoundAge || 0).toLocaleString()} IDs de idade`}
+                     icon={ShieldCheck}
+                     type="wraparound"
+                  />
+               </>
+            )}
          </div>
 
          {/* Grid de Operação Principal (Processos e Gráfico de Carga) */}
          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 min-h-0 shrink-0">
             {/* Processos Ativos e Wait Events */}
-            <div className="lg:col-span-2 flex flex-col bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-[2.5rem] shadow-sm overflow-hidden h-[480px]">
+            <div className="lg:col-span-2 flex flex-col bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-[2.5rem] shadow-sm overflow-hidden h-[480px]">
                <div className="px-8 py-5 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 shrink-0">
                   <div className="flex items-center gap-3">
                      <Terminal className="w-5 h-5 text-indigo-500" />
@@ -475,81 +485,85 @@ const ServerHealthStep: React.FC<ServerHealthStepProps> = ({ credentials }) => {
                </div>
 
                <div className="flex-1 overflow-auto custom-scrollbar">
-                  <table className="w-full text-left border-collapse">
-                     <thead className="bg-slate-50/80 dark:bg-slate-800/80 sticky top-0 z-10 text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] border-b border-slate-100 dark:border-slate-700">
-                        <tr>
-                           <th className="px-6 py-4 w-20">PID</th>
-                           <th className="px-6 py-4 w-32">Usuário / Wait</th>
-                           <th className="px-6 py-4 w-24">Estado</th>
-                           <th className="px-6 py-4">Query / Árvore</th>
-                           <th className="px-6 py-4 w-20 text-center">Ação</th>
-                        </tr>
-                     </thead>
-                     <tbody className="divide-y divide-slate-50 dark:divide-slate-800 font-medium">
-                        {filteredProcesses.map(proc => {
-                           const isZombie = proc.state === 'idle in transaction';
-                           const isBlocked = proc.blockingPids && proc.blockingPids.length > 0;
-                           const blockingOthers = blockingTree[proc.pid];
-                           const isNative = proc.backendType !== 'client backend';
-                           const waitColor = proc.waitEventType === 'Lock' ? 'text-rose-500' : proc.waitEventType === 'IO' ? 'text-amber-500' : 'text-slate-400';
-                           
-                           return (
-                              <tr key={proc.pid} className={`group transition-colors ${isBlocked ? 'bg-rose-50/30 dark:bg-rose-900/10' : blockingOthers ? 'bg-amber-50/30 dark:bg-amber-900/10' : 'hover:bg-slate-50 dark:hover:bg-slate-800/50'}`}>
-                                 <td className="px-6 py-4 text-xs font-mono font-bold text-slate-400">
-                                    <div className="flex items-center gap-2">
-                                       {proc.pid}
-                                       {isNative && <Cpu className="w-3 h-3 text-slate-300" />}
-                                    </div>
-                                 </td>
-                                 <td className="px-6 py-4">
-                                    <div className="flex flex-col">
-                                       <span className={`text-xs font-bold ${isNative ? 'text-slate-400' : 'text-slate-700 dark:text-slate-200'}`}>{proc.user || 'system'}</span>
-                                       <span className={`text-[9px] font-mono flex items-center gap-1 ${waitColor}`}>
-                                          <Anchor className="w-2.5 h-2.5" /> {proc.waitEvent === 'None' ? 'CPU Bound' : proc.waitEvent}
-                                       </span>
-                                    </div>
-                                 </td>
-                                 <td className="px-6 py-4">
-                                    <div className="flex flex-col gap-1">
-                                       <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-full border text-center
-                                          ${proc.state === 'active' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-slate-50 text-slate-400 border-slate-100'}
-                                       `}>{proc.state}</span>
-                                       {isZombie && <span className="flex items-center gap-1 text-[8px] text-rose-500 font-black animate-pulse"><Ghost className="w-2.5 h-2.5" /> ZUMBI</span>}
-                                    </div>
-                                 </td>
-                                 <td className="px-6 py-4 w-full max-w-0">
-                                    <div className="flex flex-col gap-1.5">
-                                       <code 
-                                          className={`text-[11px] font-mono block truncate group-hover:whitespace-pre-wrap group-hover:break-all transition-all duration-200 ${isNative ? 'text-slate-400 italic' : 'text-slate-600 dark:text-slate-400'}`}
-                                       >
-                                          {isNative && !proc.query ? `[${proc.backendType}]` : (proc.query || '(vazio)')}
-                                       </code>
+                  {loading ? (
+                     <div className="p-8"><TableSkeleton rows={8} cols={4} /></div>
+                  ) : (
+                     <table className="w-full text-left border-collapse">
+                        <thead className="bg-slate-50/80 dark:bg-slate-800/80 sticky top-0 z-10 text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] border-b border-slate-100 dark:border-slate-700">
+                           <tr>
+                              <th className="px-6 py-4 w-20">PID</th>
+                              <th className="px-6 py-4 w-32">Usuário / Wait</th>
+                              <th className="px-6 py-4 w-24">Estado</th>
+                              <th className="px-6 py-4">Query / Árvore</th>
+                              <th className="px-6 py-4 w-20 text-center">Ação</th>
+                           </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-50 dark:divide-slate-800 font-medium">
+                           {filteredProcesses.map(proc => {
+                              const isZombie = proc.state === 'idle in transaction';
+                              const isBlocked = proc.blockingPids && proc.blockingPids.length > 0;
+                              const blockingOthers = blockingTree[proc.pid];
+                              const isNative = proc.backendType !== 'client backend';
+                              const waitColor = proc.waitEventType === 'Lock' ? 'text-rose-500' : proc.waitEventType === 'IO' ? 'text-amber-500' : 'text-slate-400';
+                              
+                              return (
+                                 <tr key={proc.pid} className={`group transition-colors ${isBlocked ? 'bg-rose-50/30 dark:bg-rose-900/10' : blockingOthers ? 'bg-amber-50/30 dark:bg-amber-900/10' : 'hover:bg-slate-50 dark:hover:bg-slate-800/50'}`}>
+                                    <td className="px-6 py-4 text-xs font-mono font-bold text-slate-400">
                                        <div className="flex items-center gap-2">
-                                          {isBlocked && (
-                                             <div className="flex items-center gap-1.5 text-[8px] text-rose-600 font-black uppercase bg-rose-100 dark:bg-rose-900/40 px-2 py-0.5 rounded border border-rose-200 dark:border-rose-800">
-                                                <AlertTriangle className="w-2.5 h-2.5" /> Bloqueado por: {proc.blockingPids.join(', ')}
-                                             </div>
-                                          )}
-                                          {blockingOthers && (
-                                             <div className="flex items-center gap-1.5 text-[8px] text-amber-600 font-black uppercase bg-amber-100 dark:bg-rose-900/40 px-2 py-0.5 rounded border border-amber-200 dark:border-amber-800">
-                                                <Layers className="w-2.5 h-2.5" /> Bloqueando: {blockingOthers.join(', ')}
-                                             </div>
-                                          )}
+                                          {proc.pid}
+                                          {isNative && <Cpu className="w-3 h-3 text-slate-300" />}
                                        </div>
-                                    </div>
-                                 </td>
-                                 <td className="px-6 py-4 text-center shrink-0">
-                                    {!isNative && (
-                                       <button onClick={() => handleKill(proc.pid)} disabled={terminatingPid === proc.pid} className="p-2 text-slate-300 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/20 rounded-xl transition-all">
-                                          {terminatingPid === proc.pid ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
-                                       </button>
-                                    )}
-                                 </td>
-                              </tr>
-                           );
-                        })}
-                     </tbody>
-                  </table>
+                                    </td>
+                                    <td className="px-6 py-4">
+                                       <div className="flex flex-col">
+                                          <span className={`text-xs font-bold ${isNative ? 'text-slate-400' : 'text-slate-700 dark:text-slate-200'}`}>{proc.user || 'system'}</span>
+                                          <span className={`text-[9px] font-mono flex items-center gap-1 ${waitColor}`}>
+                                             <Anchor className="w-2.5 h-2.5" /> {proc.waitEvent === 'None' ? 'CPU Bound' : proc.waitEvent}
+                                          </span>
+                                       </div>
+                                    </td>
+                                    <td className="px-6 py-4">
+                                       <div className="flex flex-col gap-1">
+                                          <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-full border text-center
+                                             ${proc.state === 'active' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-slate-50 text-slate-400 border-slate-100'}
+                                          `}>{proc.state}</span>
+                                          {isZombie && <span className="flex items-center gap-1 text-[8px] text-rose-500 font-black animate-pulse"><Ghost className="w-2.5 h-2.5" /> ZUMBI</span>}
+                                       </div>
+                                    </td>
+                                    <td className="px-6 py-4 w-full max-w-0">
+                                       <div className="flex flex-col gap-1.5">
+                                          <code 
+                                             className={`text-[11px] font-mono block truncate group-hover:whitespace-pre-wrap group-hover:break-all transition-all duration-200 ${isNative ? 'text-slate-400 italic' : 'text-slate-600 dark:text-slate-400'}`}
+                                          >
+                                             {isNative && !proc.query ? `[${proc.backendType}]` : (proc.query || '(vazio)')}
+                                          </code>
+                                          <div className="flex items-center gap-2">
+                                             {isBlocked && (
+                                                <div className="flex items-center gap-1.5 text-[8px] text-rose-600 font-black uppercase bg-rose-100 dark:bg-rose-900/40 px-2 py-0.5 rounded border border-rose-200 dark:border-rose-800">
+                                                   <AlertTriangle className="w-2.5 h-2.5" /> Bloqueado por: {proc.blockingPids.join(', ')}
+                                                </div>
+                                             )}
+                                             {blockingOthers && (
+                                                <div className="flex items-center gap-1.5 text-[8px] text-amber-600 font-black uppercase bg-amber-100 dark:bg-rose-900/40 px-2 py-0.5 rounded border border-amber-200 dark:border-amber-800">
+                                                   <Layers className="w-2.5 h-2.5" /> Bloqueando: {blockingOthers.join(', ')}
+                                                </div>
+                                             )}
+                                          </div>
+                                       </div>
+                                    </td>
+                                    <td className="px-6 py-4 text-center shrink-0">
+                                       {!isNative && (
+                                          <button onClick={() => handleKill(proc.pid)} disabled={terminatingPid === proc.pid} className="p-2 text-slate-300 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/20 rounded-xl transition-all">
+                                             {terminatingPid === proc.pid ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                                          </button>
+                                       )}
+                                    </td>
+                                 </tr>
+                              );
+                           })}
+                        </tbody>
+                     </table>
+                  )}
                </div>
             </div>
 
@@ -563,13 +577,17 @@ const ServerHealthStep: React.FC<ServerHealthStepProps> = ({ credentials }) => {
                   <span className="text-[10px] font-bold text-slate-500 bg-slate-900 px-3 py-1 rounded-full border border-slate-800">Last 100 samples</span>
                </div>
                <div className="flex-1 w-full">
-                  <ResponsiveContainer width="100%" height="100%">
-                     <LineChart data={history}>
-                        <Line type="monotone" dataKey="tps" stroke="#10b981" strokeWidth={4} dot={false} isAnimationActive={false} />
-                        <YAxis hide />
-                        <Tooltip contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #1e293b', borderRadius: '12px', fontSize: '10px' }} itemStyle={{ color: '#10b981' }} />
-                     </LineChart>
-                  </ResponsiveContainer>
+                  {loading ? (
+                     <Skeleton className="w-full h-full rounded-2xl" />
+                  ) : (
+                     <ResponsiveContainer width="100%" height="100%">
+                        <LineChart data={history}>
+                           <Line type="monotone" dataKey="tps" stroke="#10b981" strokeWidth={4} dot={false} isAnimationActive={false} />
+                           <YAxis hide />
+                           <Tooltip contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #1e293b', borderRadius: '12px', fontSize: '10px' }} itemStyle={{ color: '#10b981' }} />
+                        </LineChart>
+                     </ResponsiveContainer>
+                  )}
                </div>
                <div className="mt-6 pt-6 border-t border-slate-900">
                   <p className="text-xs text-slate-500 leading-relaxed">Frequência média de commits detectada no banco de dados.</p>
@@ -608,7 +626,14 @@ const ServerHealthStep: React.FC<ServerHealthStepProps> = ({ credentials }) => {
                )}
 
                <div className="flex-1 p-6 overflow-y-auto custom-scrollbar space-y-4">
-                  {unusedIndexes.length === 0 ? (
+                  {loading ? (
+                     [1, 2].map(i => (
+                        <div key={i} className="p-4 border border-slate-100 dark:border-slate-800 rounded-2xl space-y-3">
+                           <Skeleton className="w-1/2 h-4" />
+                           <Skeleton className="w-1/3 h-3" />
+                        </div>
+                     ))
+                  ) : unusedIndexes.length === 0 ? (
                      <div className="h-full flex flex-col items-center justify-center text-center p-6 opacity-40">
                         <ShieldCheck className="w-10 h-10 text-emerald-500 mb-2" />
                         <p className="text-[10px] font-bold uppercase text-slate-400">Excelente! Nenhum índice ocioso encontrado.</p>
@@ -641,12 +666,19 @@ const ServerHealthStep: React.FC<ServerHealthStepProps> = ({ credentials }) => {
             </div>
 
             {/* Manutenção (Vácuo) */}
-            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-[2.5rem] shadow-sm flex flex-col overflow-hidden h-[380px]">
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-[2.5rem] shadow-sm flex flex-col overflow-hidden h-[380px]">
                <div className="px-8 py-5 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 shrink-0">
                   <h3 className="text-xs font-black text-slate-700 dark:text-slate-200 uppercase tracking-widest flex items-center gap-2"><Gauge className="w-4 h-4 text-emerald-500" /> Autovacuum & Bloat</h3>
                </div>
                <div className="flex-1 p-6 overflow-y-auto custom-scrollbar space-y-4">
-                  {tableInsights.length === 0 ? (
+                  {loading ? (
+                     [1, 2].map(i => (
+                        <div key={i} className="p-4 border border-slate-100 dark:border-slate-800 rounded-2xl space-y-3">
+                           <div className="flex justify-between"><Skeleton className="w-1/3 h-3" /><Skeleton className="w-1/4 h-3" /></div>
+                           <Skeleton className="w-full h-2 rounded-full" />
+                        </div>
+                     ))
+                  ) : tableInsights.length === 0 ? (
                       <div className="h-full flex flex-col items-center justify-center text-center opacity-40">
                          <Info className="w-8 h-8 mb-2" />
                          <p className="text-[10px] font-bold uppercase">Nenhum dado de tabela carregado.</p>

@@ -12,6 +12,7 @@ import { executeQueryReal, explainQueryReal } from '../../services/dbService';
 import BeginnerTip from '../BeginnerTip';
 // Fix: Added missing toast import
 import { toast } from 'react-hot-toast';
+import { Skeleton } from '../common/Skeleton';
 
 const resultsLogger = (context: string, message: string, data?: any) => {
   const timestamp = new Date().toLocaleTimeString();
@@ -799,7 +800,25 @@ const ColumnProfiler: React.FC<{ data: any[], column: string, onClose: () => voi
 };
 
 const ExplainVisualizer = ({ plan, loading, error }: { plan: ExplainNode | null, loading: boolean, error: string | null }) => {
-   if (loading) return <div className="p-10 text-center"><div className="animate-spin w-8 h-8 border-4 border-indigo-500 border-t-transparent rounded-full mx-auto mb-2"></div><p className="text-slate-500">Analisando performance...</p></div>;
+   if (loading) return (
+    <div className="p-8 space-y-6">
+      <div className="flex items-center gap-4">
+        <Skeleton className="w-12 h-12 rounded-full" />
+        <div className="space-y-2 flex-1">
+          <Skeleton className="w-1/4 h-4" />
+          <Skeleton className="w-1/3 h-3 opacity-50" />
+        </div>
+      </div>
+      <div className="space-y-4 pl-8">
+        {[1, 2, 3].map(i => (
+          <div key={i} className="p-4 border border-slate-100 dark:border-slate-800 rounded-xl space-y-3">
+            <Skeleton className="w-1/3 h-4" />
+            <div className="flex gap-4"><Skeleton className="w-20 h-3" /><Skeleton className="w-20 h-3" /></div>
+          </div>
+        ))}
+      </div>
+    </div>
+   );
    if (error) return <div className="p-10 text-center flex flex-col items-center justify-center text-slate-400"><div className="w-16 h-16 bg-red-50 dark:bg-red-900/20 rounded-full flex items-center justify-center mb-4"><AlertCircle className="w-8 h-8 text-red-500" /></div><h3 className="text-slate-700 dark:text-slate-200 font-bold mb-1">Falha na Análise</h3><p className="text-sm max-w-md">{error}</p></div>;
    if (!plan) return <div className="p-10 text-center text-slate-400">Nenhum plano disponível.</div>;
    
@@ -1135,7 +1154,8 @@ const ResultsStep: React.FC<ResultsStepProps> = ({ data, sql, onBackToBuilder, o
       } catch (e: any) { 
         setExplainError(e.message || "Erro ao analisar performance."); 
       } finally { 
-        setLoadingExplain(false); 
+        // Pequeno delay para transição do skeleton
+        setTimeout(() => setLoadingExplain(false), 500);
       } 
     } 
   }; 

@@ -3,6 +3,7 @@ import React, { useState, useMemo, useEffect, useCallback, memo, useDeferredValu
 import { DatabaseSchema, Table, Column } from '../types';
 import { Database, Table as TableIcon, Key, Search, ChevronDown, ChevronRight, Link, ArrowUpRight, ArrowDownLeft, X, ArrowUpDown, ArrowUp, ArrowDown, Pencil, Check, Filter, PlusCircle, Target, CornerDownRight, Loader2, ArrowRight, Folder, FolderOpen, Play, Info, Star, Copy } from 'lucide-react';
 import { toast } from 'react-hot-toast';
+import { Skeleton } from './common/Skeleton';
 
 interface SchemaViewerProps {
   schema: DatabaseSchema;
@@ -34,6 +35,32 @@ const getRefTableId = (ref: string, currentSchema: string) => {
   }
   return '';
 };
+
+const SchemaSkeleton = () => (
+  <div className="space-y-4 px-2">
+    {[1, 2].map(s => (
+      <div key={s} className="space-y-2">
+        <div className="flex items-center gap-2 px-2 py-1">
+          <Skeleton className="w-3.5 h-3.5 rounded" />
+          <Skeleton className="w-4 h-4 rounded" />
+          <Skeleton className="w-20 h-3" />
+        </div>
+        <div className="pl-6 space-y-2">
+          {[1, 2, 3].map(t => (
+            <div key={t} className="flex items-center gap-2 p-3 border border-slate-100 dark:border-slate-800 rounded-lg">
+              <Skeleton className="w-4 h-4 rounded" />
+              <Skeleton className="w-4 h-4 rounded" />
+              <div className="space-y-1.5 flex-1">
+                <Skeleton className="w-3/4 h-3" />
+                <Skeleton className="w-1/2 h-2 opacity-50" />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    ))}
+  </div>
+);
 
 interface SchemaColumnItemProps {
   col: Column;
@@ -836,7 +863,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
          onMouseLeave={() => { setHoveredTableId(null); setHoveredColumnKey(null); setHoveredColumnRef(null); }}
       >
         {loading ? (
-          <div className="space-y-4 animate-pulse">{[1, 2, 3, 4].map((i) => <div key={i} className="space-y-2 border border-slate-100 dark:border-slate-700 rounded-lg p-3"><div className="flex items-center gap-2"><div className="w-4 h-4 bg-slate-200 dark:bg-slate-700 rounded"></div><div className="h-4 bg-slate-200 dark:bg-slate-700 rounded w-1/2"></div></div></div>)}</div>
+          <SchemaSkeleton />
         ) : filteredTables.length === 0 ? (
           <div className="text-center py-8 text-slate-400 text-xs italic">Nenhuma tabela encontrada.</div>
         ) : (
