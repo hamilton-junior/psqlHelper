@@ -20,7 +20,7 @@
           "desc": "Telemetria profunda: Análise de Wait Events, árvore de bloqueios, detecção de índices inúteis e monitoramento de transação wraparound.",
           "status": "Finalizado",
           "implementationPlan": [
-            "Técnica: Agregadores de pg_stat_activity com wait_event_type categorizado.",
+            "Técnica: Agregadores de pg_stat_activity with wait_event_type categorizado.",
             "Diagnóstico: Identificação de índices redundantes com idx_scan = 0.",
             "Segurança: Alerta visual de Transaction Wraparound baseado em age(datfrozenxid)."
           ]
@@ -110,7 +110,7 @@
         {
           "title": "Modo de Edição com Auditoria (Draft Changes)",
           "desc": "Carrinho de alterações que permite revisar todos os UPDATEs gerados antes de confirmar o COMMIT final.",
-          "status": "Planejado",
+          "status": "Finalizado",
           "implementationPlan": [
             "Log visual de alterações pendentes.",
             "Validação de integridade antes da execução.",

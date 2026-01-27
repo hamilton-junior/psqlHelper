@@ -1,5 +1,6 @@
+
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { ArrowLeft, ArrowRight, Database, ChevronLeft, ChevronRight, FileSpreadsheet, Search, Copy, Check, BarChart2, MessageSquare, Download, Activity, LayoutGrid, FileText, Pin, AlertCircle, Info, MoreHorizontal, FileJson, FileCode, Hash, Type, Filter, Plus, X, Trash2, SlidersHorizontal, Clock, Maximize2, Minimize2, ExternalLink, Braces, PenTool, Save, Eye, Anchor, Link as LinkIcon, Settings2, Loader2, Folder, Terminal as TerminalIcon, ChevronDown, ChevronUp, Layers, Target, CornerDownRight, AlertTriangle, Undo2, ShieldAlert, Pencil, ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Database, ChevronLeft, ChevronRight, FileSpreadsheet, Search, Copy, Check, BarChart2, MessageSquare, Download, Activity, LayoutGrid, FileText, Pin, AlertCircle, Info, MoreHorizontal, FileJson, FileCode, Hash, Type, Filter, Plus, X, Trash2, SlidersHorizontal, Clock, Maximize2, Minimize2, ExternalLink, Braces, PenTool, Save, Eye, Anchor, Link as LinkIcon, Settings2, Loader2, Folder, Terminal as TerminalIcon, ChevronDown, ChevronUp, Layers, Target, CornerDownRight, AlertTriangle, Undo2, ShieldAlert, Pencil, ArrowUp, ArrowDown, ArrowUpDown, History, RotateCcw, FileWarning } from 'lucide-react';
 import { AppSettings, ExplainNode, DatabaseSchema, Table } from '../../types';
 import DataVisualizer from '../DataVisualizer';
 import DataAnalysisChat from '../DataAnalysisChat';
@@ -9,6 +10,8 @@ import DrillDownModal from '../DrillDownModal';
 import { addToHistory } from '../../services/historyService';
 import { executeQueryReal, explainQueryReal } from '../../services/dbService';
 import BeginnerTip from '../BeginnerTip';
+// Fix: Added missing toast import
+import { toast } from 'react-hot-toast';
 
 const resultsLogger = (context: string, message: string, data?: any) => {
   const timestamp = new Date().toLocaleTimeString();
@@ -638,7 +641,14 @@ const VirtualTable = ({
             </button>
          );
       }
-      return <span className={`truncate block ${isPending ? 'text-orange-600 dark:text-orange-400 font-bold' : ''}`}>{highlightMatch(String(displayVal))}</span>;
+      return (
+         <div className="flex items-center gap-2 overflow-hidden">
+            <span className={`truncate block ${isPending ? 'text-orange-600 dark:text-orange-400 font-bold' : ''}`}>
+               {highlightMatch(String(displayVal))}
+            </span>
+            {isPending && <div className="shrink-0 w-1.5 h-1.5 rounded-full bg-orange-500 animate-pulse" title="Alteração pendente" />}
+         </div>
+      );
    };
 
    return (
@@ -856,6 +866,7 @@ const ResultsStep: React.FC<ResultsStepProps> = ({ data, sql, onBackToBuilder, o
   const [showConfirmation, setShowConfirmation] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [userSelectedPk, setUserSelectedPk] = useState<string>('');
+  const [reviewTab, setReviewTab] = useState<'audit' | 'script' | 'rollback'>('audit');
 
   const mainTableName = useMemo(() => {
      const fromMatch = sql.match(/FROM\s+([a-zA-Z0-9_."]+)/i);
@@ -966,10 +977,27 @@ const ResultsStep: React.FC<ResultsStepProps> = ({ data, sql, onBackToBuilder, o
      setPendingEdits(prev => ({ ...prev, [editKey]: newValue }));
   };
 
+  const auditLog = useMemo(() => {
+    const logs: Array<{ rowIdx: number, col: string, oldVal: any, newVal: string, pkVal: any }> = [];
+    Object.entries(pendingEdits).forEach(([key, val]) => {
+      const [rowIdx] = key.split('-').map(Number);
+      const col = key.split('-').slice(1).join('-');
+      const row = localData[rowIdx];
+      logs.push({
+        rowIdx,
+        col,
+        oldVal: row[col],
+        newVal: val,
+        pkVal: row[finalPkColumn]
+      });
+    });
+    return logs;
+  }, [pendingEdits, localData, finalPkColumn]);
+
   const sqlStatementsPreview = useMemo(() => {
     if (Object.keys(pendingEdits).length === 0 || !finalPkColumn) return "";
     const tableName = mainTableName || "table_name";
-    let lines = ["BEGIN;"];
+    let lines = ["BEGIN; -- Início da transação de auditoria"];
     const editsByRow: Record<number, Record<string, string>> = {};
     (Object.entries(pendingEdits) as Array<[string, string]>).forEach(([key, val]) => {
        const [rowIdx] = key.split('-').map(Number);
@@ -989,6 +1017,39 @@ const ResultsStep: React.FC<ResultsStepProps> = ({ data, sql, onBackToBuilder, o
        const formattedPkVal = typeof pkVal === 'string' ? `'${pkVal.replace(/'/g, "''")}'` : pkVal;
        
        lines.push(`UPDATE ${tableName} SET ${setClause} WHERE "${finalPkColumn}" = ${formattedPkVal};`);
+    }
+    lines.push("COMMIT; -- Persistência definitiva");
+    return lines.join('\n');
+  }, [pendingEdits, localData, mainTableName, finalPkColumn]);
+
+  const rollbackStatements = useMemo(() => {
+    if (Object.keys(pendingEdits).length === 0 || !finalPkColumn) return "";
+    const tableName = mainTableName || "table_name";
+    let lines = ["BEGIN; -- Script de Reversão Automático"];
+    
+    const editsByRow: Record<number, Record<string, string>> = {};
+    (Object.entries(pendingEdits) as Array<[string, string]>).forEach(([key, val]) => {
+       const [rowIdx] = key.split('-').map(Number);
+       const col = key.split('-').slice(1).join('-');
+       if (!editsByRow[rowIdx]) editsByRow[rowIdx] = {};
+       editsByRow[rowIdx][col] = val;
+    });
+
+    for (const [rowIdxStr, cols] of Object.entries(editsByRow)) {
+       const rowIdx = Number(rowIdxStr);
+       const row = localData[rowIdx];
+       const pkVal = row[finalPkColumn];
+       
+       if (pkVal === undefined || pkVal === null) continue;
+       
+       const rollbackClauses = Object.keys(cols).map(col => {
+          const originalVal = row[col];
+          const formattedVal = originalVal === null ? 'NULL' : `'${String(originalVal).replace(/'/g, "''")}'`;
+          return `"${col}" = ${formattedVal}`;
+       }).join(', ');
+
+       const formattedPkVal = typeof pkVal === 'string' ? `'${pkVal.replace(/'/g, "''")}'` : pkVal;
+       lines.push(`UPDATE ${tableName} SET ${rollbackClauses} WHERE "${finalPkColumn}" = ${formattedPkVal};`);
     }
     lines.push("COMMIT;");
     return lines.join('\n');
@@ -1102,54 +1163,132 @@ const ResultsStep: React.FC<ResultsStepProps> = ({ data, sql, onBackToBuilder, o
       {showCodeModal && <CodeSnippetModal sql={sql} onClose={() => setShowCodeModal(false)} />}
       
       {showConfirmation && (
-         <div className="fixed inset-0 z-[200] bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-4">
-            <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 w-full max-w-lg overflow-hidden animate-in zoom-in-95">
-               <div className="p-6 text-center">
-                  <div className="w-16 h-16 bg-red-100 dark:bg-red-900/30 text-red-600 mx-auto rounded-full flex items-center justify-center mb-4">
-                     <ShieldAlert className="w-10 h-10" />
+         <div className="fixed inset-0 z-[200] bg-slate-900/80 backdrop-blur-md flex items-center justify-center p-4">
+            <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 w-full max-w-4xl overflow-hidden animate-in zoom-in-95 flex flex-col max-h-[85vh]">
+               <div className="p-6 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center bg-slate-50 dark:bg-slate-900/30">
+                  <div className="flex items-center gap-4">
+                     <div className="p-3 bg-red-100 dark:bg-red-900/30 rounded-2xl">
+                        <ShieldAlert className="w-8 h-8 text-red-600" />
+                     </div>
+                     <div>
+                        <h3 className="text-xl font-black text-slate-800 dark:text-white uppercase tracking-tight">Revisão de Auditoria DML</h3>
+                        <p className="text-xs text-slate-500 font-bold uppercase tracking-widest">{Object.keys(pendingEdits).length} campos alterados em {mainTableName}</p>
+                     </div>
                   </div>
-                  <h3 className="text-xl font-bold text-red-600 dark:text-red-400 mb-2 uppercase tracking-tight">Certeza Absoluta?</h3>
-                  <p className="text-sm text-slate-500 dark:text-slate-400 mb-6 px-4">
-                     Você está prestes a gravar <strong>{Object.keys(pendingEdits).length}</strong> alteração(ões) diretamente no banco de dados.
-                  </p>
+                  <button onClick={() => setShowConfirmation(false)} className="p-2 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl transition-all">
+                     <X className="w-6 h-6 text-slate-400" />
+                  </button>
+               </div>
 
-                  {!finalPkColumn && (
-                    <div className="mb-6 p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl text-left">
-                       <p className="text-xs font-bold text-amber-800 dark:text-amber-200 mb-2 flex items-center gap-2">
-                          <AlertTriangle className="w-4 h-4" /> Chave Primária não detectada
-                       </p>
-                       <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Qual campo usar como ID único?</label>
-                       <select 
-                          value={userSelectedPk} 
-                          onChange={e => setUserSelectedPk(e.target.value)}
-                          className="w-full p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-500"
-                       >
-                          <option value="">-- Selecione o Campo --</option>
-                          {columns.map(c => <option key={c} value={c}>{c}</option>)}
-                       </select>
-                    </div>
+               <div className="flex bg-slate-100 dark:bg-slate-900/50 p-1 mx-6 mt-6 rounded-xl border border-slate-200 dark:border-slate-800 shrink-0">
+                  <button onClick={() => setReviewTab('audit')} className={`flex-1 py-2 text-xs font-black uppercase tracking-widest rounded-lg transition-all ${reviewTab === 'audit' ? 'bg-white dark:bg-slate-700 text-indigo-600 shadow-sm' : 'text-slate-500'}`}>Log de Alterações</button>
+                  <button onClick={() => setReviewTab('script')} className={`flex-1 py-2 text-xs font-black uppercase tracking-widest rounded-lg transition-all ${reviewTab === 'script' ? 'bg-white dark:bg-slate-700 text-indigo-600 shadow-sm' : 'text-slate-500'}`}>Script SQL (Update)</button>
+                  <button onClick={() => setReviewTab('rollback')} className={`flex-1 py-2 text-xs font-black uppercase tracking-widest rounded-lg transition-all ${reviewTab === 'rollback' ? 'bg-white dark:bg-slate-700 text-amber-600 shadow-sm' : 'text-slate-500'}`}>Rollback (Desfazer)</button>
+               </div>
+
+               <div className="flex-1 overflow-y-auto p-6 custom-scrollbar">
+                  {reviewTab === 'audit' && (
+                     <div className="space-y-4">
+                        {!finalPkColumn && (
+                           <div className="p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-2xl flex items-start gap-4">
+                              <AlertTriangle className="w-6 h-6 text-amber-600 shrink-0" />
+                              <div>
+                                 <h4 className="font-black text-sm text-amber-800 dark:text-amber-200 uppercase tracking-tight mb-1">Selecione o Identificador Único</h4>
+                                 <p className="text-xs text-amber-700 dark:text-amber-300 mb-3">Não detectamos uma chave primária nos resultados. Escolha uma coluna para garantir que o UPDATE altere o registro correto.</p>
+                                 <select 
+                                    value={userSelectedPk} 
+                                    onChange={e => setUserSelectedPk(e.target.value)}
+                                    className="w-full p-2.5 bg-white dark:bg-slate-800 border border-amber-300 dark:border-amber-700 rounded-xl text-sm outline-none focus:ring-2 focus:ring-amber-500 font-bold"
+                                 >
+                                    <option value="">-- Escolher Coluna ID --</option>
+                                    {columns.map(c => <option key={c} value={c}>{c}</option>)}
+                                 </select>
+                              </div>
+                           </div>
+                        )}
+
+                        <div className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-2xl overflow-hidden shadow-sm">
+                           <table className="w-full text-left border-collapse">
+                              <thead className="bg-slate-50 dark:bg-slate-800 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] border-b border-slate-100 dark:border-slate-700">
+                                 <tr>
+                                    <th className="px-4 py-3 border-r border-slate-100 dark:border-slate-800">Campo ({finalPkColumn})</th>
+                                    <th className="px-4 py-3">Original</th>
+                                    <th className="px-4 py-3 w-8 text-center"><ArrowRight className="w-3 h-3 mx-auto" /></th>
+                                    <th className="px-4 py-3">Novo Valor</th>
+                                 </tr>
+                              </thead>
+                              <tbody className="text-xs font-mono">
+                                 {auditLog.map((log, i) => (
+                                    <tr key={i} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 border-b border-slate-50 last:border-0 dark:border-slate-800">
+                                       <td className="px-4 py-3 border-r border-slate-100 dark:border-slate-800">
+                                          <div className="flex flex-col">
+                                             <span className="font-black text-slate-800 dark:text-slate-200">{log.col}</span>
+                                             <span className="text-[9px] text-slate-400">ID: {log.pkVal ?? '???'}</span>
+                                          </div>
+                                       </td>
+                                       <td className="px-4 py-3 text-rose-500 bg-rose-50/20 dark:bg-rose-900/5 line-through italic opacity-70">{String(log.oldVal ?? 'null')}</td>
+                                       <td className="px-4 py-3 text-center text-slate-300">→</td>
+                                       <td className="px-4 py-3 text-emerald-600 bg-emerald-50/20 dark:bg-emerald-900/10 font-bold">{log.newVal}</td>
+                                    </tr>
+                                 ))}
+                              </tbody>
+                           </table>
+                        </div>
+                     </div>
                   )}
 
-                  {finalPkColumn && (
-                    <div className="bg-slate-900 rounded-xl p-3 mb-6 text-left border border-slate-700 shadow-inner">
-                       <div className="flex justify-between items-center border-b border-slate-800 pb-1 mb-2">
-                          <p className="text-[9px] text-slate-500 font-mono uppercase tracking-widest">Script para Execução:</p>
-                          <span className="text-[9px] text-indigo-400 font-bold uppercase">ID: {finalPkColumn}</span>
-                       </div>
-                       <pre className="text-[10px] text-emerald-500 font-mono whitespace-pre-wrap max-h-40 overflow-y-auto custom-scrollbar leading-tight">
-                          {sqlStatementsPreview}
-                       </pre>
-                    </div>
+                  {reviewTab === 'script' && (
+                     <div className="h-full flex flex-col gap-4">
+                        <div className="flex-1 bg-slate-950 rounded-2xl p-4 border border-slate-800 shadow-inner relative group">
+                           <div className="absolute top-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                              {/* Fix: use toast success */}
+                              <button onClick={() => { navigator.clipboard.writeText(sqlStatementsPreview); toast.success("Script copiado!"); }} className="p-2 bg-slate-800 text-slate-400 hover:text-white rounded-lg"><Copy className="w-4 h-4" /></button>
+                           </div>
+                           <pre className="font-mono text-[11px] text-emerald-400 whitespace-pre-wrap h-full overflow-auto custom-scrollbar leading-relaxed">
+                              {sqlStatementsPreview}
+                           </pre>
+                        </div>
+                        <div className="flex items-center gap-2 text-[10px] text-slate-400 italic">
+                           <Info className="w-3 h-3" /> Este script será executado em uma única transação atômica.
+                        </div>
+                     </div>
                   )}
 
-                  <div className="flex gap-3 px-2">
-                     <button onClick={() => setShowConfirmation(false)} className="flex-1 px-4 py-3 bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-600 dark:text-slate-300 rounded-xl font-bold transition-all">Cancelar</button>
+                  {reviewTab === 'rollback' && (
+                     <div className="h-full flex flex-col gap-4">
+                        <div className="p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-100 dark:border-amber-800 rounded-2xl flex items-center gap-4">
+                           <RotateCcw className="w-6 h-6 text-amber-600 shrink-0" />
+                           <div>
+                              <h4 className="text-xs font-black text-amber-800 dark:text-amber-300 uppercase tracking-widest">Plano de Desastre</h4>
+                              <p className="text-[10px] text-amber-700 dark:text-amber-400 font-medium">Copie este script antes de confirmar o commit para ter uma saída de emergência caso os novos dados causem problemas na aplicação.</p>
+                           </div>
+                        </div>
+                        <div className="flex-1 bg-slate-950 rounded-2xl p-4 border border-slate-800 shadow-inner relative group">
+                           <div className="absolute top-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                              {/* Fix: use toast success */}
+                              <button onClick={() => { navigator.clipboard.writeText(rollbackStatements); toast.success("Rollback copiado!"); }} className="p-2 bg-slate-800 text-slate-400 hover:text-white rounded-lg"><Copy className="w-4 h-4" /></button>
+                           </div>
+                           <pre className="font-mono text-[11px] text-amber-400 whitespace-pre-wrap h-full overflow-auto custom-scrollbar leading-relaxed">
+                              {rollbackStatements}
+                           </pre>
+                        </div>
+                     </div>
+                  )}
+               </div>
+
+               <div className="p-6 border-t border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50 flex justify-between items-center gap-4 shrink-0">
+                  <div className="flex items-center gap-2 text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-900/20 px-4 py-2 rounded-xl border border-rose-100 dark:border-rose-900 shadow-sm max-w-md">
+                     <FileWarning className="w-5 h-5 shrink-0" />
+                     <p className="text-[10px] font-black uppercase leading-tight tracking-tighter">Atenção: A gravação é imediata no banco de dados após o clique em confirmar.</p>
+                  </div>
+                  <div className="flex gap-3">
+                     <button onClick={() => setShowConfirmation(false)} className="px-6 py-3 bg-white dark:bg-slate-800 text-slate-500 hover:text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 rounded-2xl font-black uppercase tracking-widest text-xs transition-all active:scale-95 shadow-sm">Cancelar</button>
                      <button 
                         onClick={handleSaveChanges} 
                         disabled={isSaving || !finalPkColumn} 
-                        className="flex-[2] px-4 py-3 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold shadow-lg shadow-red-200 dark:shadow-none transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                        className="px-8 py-3 bg-red-600 hover:bg-red-700 text-white rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl shadow-red-900/20 transition-all active:scale-95 flex items-center justify-center gap-3 disabled:opacity-50"
                      >
-                        {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />} Sim, Confirmar COMMIT
+                        {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />} Sim, Efetivar Alterações
                      </button>
                   </div>
                </div>
@@ -1177,7 +1316,7 @@ const ResultsStep: React.FC<ResultsStepProps> = ({ data, sql, onBackToBuilder, o
            {hasPendingEdits && (
               <div className="flex items-center gap-2 animate-in slide-in-from-right-2">
                  <button onClick={() => setPendingEdits({})} className="flex items-center gap-2 px-3 py-1.5 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-bold text-slate-500 hover:bg-slate-200 transition-all"><Undo2 className="w-4 h-4" /> Descartar</button>
-                 <button onClick={() => setShowConfirmation(true)} className="flex items-center gap-2 px-4 py-1.5 bg-orange-500 hover:bg-orange-600 text-white rounded-lg text-sm font-bold shadow-lg shadow-orange-200 dark:shadow-none transition-all"><Save className="w-4 h-4" /> Gravar Alterações</button>
+                 <button onClick={() => { setReviewTab('audit'); setShowConfirmation(true); }} className="flex items-center gap-2 px-4 py-1.5 bg-orange-500 hover:bg-orange-600 text-white rounded-lg text-sm font-bold shadow-lg shadow-orange-200 dark:shadow-none transition-all"><Save className="w-4 h-4" /> Revisar & Salvar</button>
               </div>
            )}
 
