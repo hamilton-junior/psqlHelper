@@ -26,6 +26,16 @@
           ]
         },
         {
+          "title": "Visualizador de Linhagem (Data Lineage)",
+          "desc": "Destaque visual do caminho que os dados percorrem em queries complexas, identificando tabelas fatos e dimensões.",
+          "status": "Planejado",
+          "implementationPlan": [
+            "Mapeamento de dependências entre joins.",
+            "Visualização gráfica do fluxo de transformação de dados.",
+            "Identificação de gargalos em colunas específicas."
+          ]
+        },
+        {
           "title": "Exportação de Snapshot de Diagnóstico",
           "desc": "Gerador de relatórios técnicos em JSON/TXT contendo métricas, locks e plano de saúde do banco para compartilhamento.",
           "status": "Finalizado",
@@ -49,6 +59,26 @@
             "Layout automático baseado em densidade de conexões.",
             "Busca global de campos e tabelas com zoom dinâmico.",
             "Validador de interseção real para criação de FKs virtuais."
+          ]
+        },
+        {
+          "title": "Navegação por Abas (Multi-Query)",
+          "desc": "Permite abrir e gerenciar múltiplas consultas simultaneamente em abas, facilitando a comparação de resultados.",
+          "status": "Planejado",
+          "implementationPlan": [
+            "Interface de abas estilo IDE no topo do editor.",
+            "Persistência de estado independente por aba.",
+            "Execução paralela de queries."
+          ]
+        },
+        {
+          "title": "Estados de 'Skeleton Loading' Refinados",
+          "desc": "Melhoria na percepção de velocidade através de carregamentos que mimetizam a estrutura final dos dados.",
+          "status": "Planejado",
+          "implementationPlan": [
+            "Criação de componentes de skeleton para tabelas e gráficos.",
+            "Transições suaves entre estados de carregamento e dados reais.",
+            "Redução da ansiedade do usuário durante chamadas de IA longas."
           ]
         },
         {
@@ -76,6 +106,26 @@
           "title": "Data Diff & Auditoria",
           "desc": "Ferramenta para comparar registros entre tabelas ou instâncias, identificando divergências em segundos.",
           "status": "Finalizado"
+        },
+        {
+          "title": "Modo de Edição com Auditoria (Draft Changes)",
+          "desc": "Carrinho de alterações que permite revisar todos os UPDATEs gerados antes de confirmar o COMMIT final.",
+          "status": "Planejado",
+          "implementationPlan": [
+            "Log visual de alterações pendentes.",
+            "Validação de integridade antes da execução.",
+            "Geração de script de rollback automático."
+          ]
+        },
+        {
+          "title": "Cache de Telemetria",
+          "desc": "Armazenamento local de métricas de saúde para visualização de histórico de performance offline.",
+          "status": "Planejado",
+          "implementationPlan": [
+            "Persistência via IndexedDB ou arquivo local.",
+            "Gráficos comparativos de performance temporal (D-1, D-7).",
+            "Exportação de tendências de uso de banco."
+          ]
         },
         {
           "title": "Log Analyzer & SQL Extractor",
