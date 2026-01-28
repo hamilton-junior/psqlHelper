@@ -135,6 +135,7 @@ function createWindow() {
 async function fetchGitHubVersions() {
   const repo = "Hamilton-Junior/psqlBuddy";
   const headers = { 'User-Agent': 'PSQL-Buddy-App' };
+  console.log("[MAIN] Sincronizando versões com GitHub API...");
   try {
     let stable = '---';
     let wip = '---';
@@ -148,11 +149,17 @@ async function fetchGitHubVersions() {
       const latestStable = releases.find(r => !r.prerelease);
       const latestWip = releases.find(r => r.prerelease);
       
-      if (latestStable) stable = latestStable.tag_name.replace(/^v/, '');
-      if (latestWip) wip = latestWip.tag_name.replace(/^v/, '');
+      if (latestStable) {
+        stable = latestStable.tag_name.replace(/^v/, '');
+        console.log(`[MAIN] Versão estável identificada: ${stable}`);
+      }
+      if (latestWip) {
+        wip = latestWip.tag_name.replace(/^v/, '');
+        console.log(`[MAIN] Versão WIP (Pre-release) identificada: ${wip}`);
+      }
     }
 
-    // Busca Commits para o Bleeding Edge
+    // Busca Commits para informação estatística
     const commitsRes = await fetch(`https://api.github.com/repos/${repo}/commits?sha=main&per_page=1`, { headers });
     if (commitsRes.ok) {
        const link = commitsRes.headers.get('link');
@@ -160,16 +167,6 @@ async function fetchGitHubVersions() {
           const match = link.match(/&page=(\d+)>; rel="last"/);
           if (match) {
              totalCommits = parseInt(match[1]);
-             // Lógica padrão: major.minor.patch baseado no número total de commits
-             const major = Math.floor(totalCommits / 1000);
-             const minor = Math.floor((totalCommits % 1000) / 100);
-             const patch = totalCommits % 100;
-             bleedingEdge = `${major}.${minor}.${patch}`;
-          }
-       } else {
-          const single = await commitsRes.json();
-          if (Array.isArray(single)) {
-             totalCommits = single.length;
              const major = Math.floor(totalCommits / 1000);
              const minor = Math.floor((totalCommits % 1000) / 100);
              const patch = totalCommits % 100;
@@ -224,10 +221,14 @@ ipcMain.on('open-external', (event, url) => {
 });
 
 ipcMain.on('check-update', async (event, branch) => {
+  console.log(`[MAIN] Verificação de atualização para o canal: ${branch}`);
   const versions = await fetchGitHubVersions();
-  // Se o usuário quer 'main', comparamos com o bleedingEdge, senão com a stable
-  const remoteVersion = branch === 'main' ? versions.bleedingEdge : versions.stable;
+  
+  // CORREÇÃO: Agora usamos 'wip' (Pre-release oficial) para o canal 'main'
+  const remoteVersion = branch === 'main' ? versions.wip : versions.stable;
   const comparison = compareVersions(remoteVersion, CURRENT_VERSION);
+
+  console.log(`[MAIN] Comparação: Atual(${CURRENT_VERSION}) vs Remota(${remoteVersion}) = ${comparison}`);
 
   if (comparison === 0) {
     mainWindow.webContents.send('update-not-available');
@@ -236,19 +237,22 @@ ipcMain.on('check-update', async (event, branch) => {
 
   const updateType = comparison < 0 ? 'downgrade' : 'upgrade';
 
-  if (app.isPackaged && branch === 'stable') {
-    autoUpdater.checkForUpdates().catch(() => {
+  if (app.isPackaged) {
+    console.log(`[MAIN] Disparando checkForUpdates() nativo...`);
+    autoUpdater.checkForUpdates().catch((err) => {
+      console.warn("[MAIN] Falha no checkForUpdates() nativo, enviando evento manual.", err.message);
       mainWindow.webContents.send('update-available', { 
         version: remoteVersion, 
-        branch, 
+        branch: branch === 'main' ? 'WIP/Pre-release' : 'Stable', 
         updateType,
         isManual: true 
       });
     });
   } else {
+    console.log("[MAIN] Modo Dev: Enviando evento manual de atualização.");
     mainWindow.webContents.send('update-available', { 
       version: remoteVersion, 
-      branch, 
+      branch: branch === 'main' ? 'WIP/Pre-release' : 'Stable', 
       updateType,
       isManual: true 
     });
@@ -256,6 +260,7 @@ ipcMain.on('check-update', async (event, branch) => {
 });
 
 autoUpdater.on('update-available', (info) => {
+  console.log(`[MAIN] autoUpdater: Versão encontrada: ${info.version}`);
   const comparison = compareVersions(info.version, CURRENT_VERSION);
   const updateType = comparison < 0 ? 'downgrade' : 'upgrade';
   mainWindow.webContents.send('update-available', { 
@@ -266,6 +271,7 @@ autoUpdater.on('update-available', (info) => {
 });
 
 autoUpdater.on('update-not-available', () => {
+  console.log("[MAIN] autoUpdater: Nenhuma atualização disponível.");
   mainWindow.webContents.send('update-not-available');
 });
 
@@ -279,14 +285,17 @@ autoUpdater.on('download-progress', (p) => {
 });
 
 autoUpdater.on('update-downloaded', () => {
+  console.log("[MAIN] autoUpdater: Download concluído.");
   mainWindow.webContents.send('update-ready');
 });
 
 ipcMain.on('start-download', () => {
+  console.log("[MAIN] Iniciando download da atualização...");
   autoUpdater.downloadUpdate();
 });
 
 ipcMain.on('install-update', () => {
+  console.log("[MAIN] Reiniciando para instalar...");
   autoUpdater.quitAndInstall();
 });
 

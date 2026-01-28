@@ -159,8 +159,8 @@ export default function SettingsModal({
 
     const subLabels = {
        local: 'Instalada neste PC',
-       stable: 'Última de Produção',
-       wip: 'Última Pre-release'
+       stable: 'Produção Estável',
+       wip: 'Experimental Pre-release'
     };
 
     const bgColors = {
@@ -524,8 +524,8 @@ export default function SettingsModal({
                             <Tag className="w-6 h-6" />
                          </div>
                          <div>
-                            <h4 className="text-lg font-black text-slate-800 dark:text-white uppercase tracking-tight leading-none">Estado do Software</h4>
-                            <p className="text-xs text-slate-500 mt-1">Sincronização de versões e saúde do ecossistema.</p>
+                            <h4 className="text-lg font-black text-slate-800 dark:text-white uppercase tracking-tight leading-none">Canais de Distribuição</h4>
+                            <p className="text-xs text-slate-500 mt-1">Sincronização de versões com o GitHub Releases.</p>
                          </div>
                       </div>
 
@@ -546,7 +546,7 @@ export default function SettingsModal({
                          />
 
                          <VersionItem 
-                            title="Release WIP" 
+                            title="WIP / Pre-release" 
                             version={remoteVersions?.wip} 
                             icon={FlaskConical} 
                             type="wip"
@@ -561,9 +561,9 @@ export default function SettingsModal({
                                   <Github className="w-4 h-4 text-slate-500" />
                                </div>
                                <div>
-                                  <span className="text-[10px] font-black text-slate-400 uppercase block leading-none mb-1">Bleeding Hub</span>
+                                  <span className="text-[10px] font-black text-slate-400 uppercase block leading-none mb-1">Status Pre-release</span>
                                   <span className="text-sm font-black text-rose-600 dark:text-rose-400">
-                                     {remoteVersions?.bleedingEdge ? formatVersionDisplay(remoteVersions.bleedingEdge) : '---'}
+                                     {remoteVersions?.wip ? formatVersionDisplay(remoteVersions.wip) : '---'}
                                   </span>
                                </div>
                             </div>
@@ -574,7 +574,7 @@ export default function SettingsModal({
 
                          <div className="space-y-2">
                             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
-                               <GitBranch className="w-3.5 h-3.5" /> Canal Ativo: <span className="text-indigo-600 dark:text-indigo-400">{formData.updateBranch === 'stable' ? 'Estável' : 'Main / WIP'}</span>
+                               <GitBranch className="w-3.5 h-3.5" /> Canal Ativo: <span className="text-indigo-600 dark:text-indigo-400">{formData.updateBranch === 'stable' ? 'Estável' : 'WIP / Pre-release'}</span>
                             </label>
                             <div className="grid grid-cols-2 gap-2 p-1 bg-slate-100 dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700">
                                <button 
@@ -590,14 +590,14 @@ export default function SettingsModal({
                                 </button>
                                 <button 
                                   type="button"
-                                  onClick={() => { console.log("[DIAGNOSTICS] Trocando para branch MAIN/WIP"); setFormData({...formData, updateBranch: 'main'}); }}
+                                  onClick={() => { console.log("[DIAGNOSTICS] Trocando para canal WIP (Pre-release)"); setFormData({...formData, updateBranch: 'main'}); }}
                                   className={`py-2 rounded-xl text-[10px] font-black uppercase transition-all
                                      ${formData.updateBranch === 'main' 
                                         ? 'bg-white dark:bg-slate-800 text-purple-600 shadow-sm' 
                                         : 'text-slate-500 hover:text-slate-700'}
                                   `}
                                >
-                                  WIP / Dev
+                                  WIP / Beta
                                 </button>
                             </div>
                          </div>
@@ -677,12 +677,10 @@ export default function SettingsModal({
                                </div>
                                <div className="flex justify-between items-center text-slate-400">
                                   <span>Ambiente Electron:</span>
-                                  {/* Fix: Property 'process' does not exist on type 'Window'. Accessing versions via exposed electron object. */}
                                   <span className="text-indigo-400">v{(window as any).electron?.versions?.electron || 'N/A'}</span>
                                </div>
                                <div className="flex justify-between items-center text-slate-400">
                                   <span>Kernel Node:</span>
-                                  {/* Fix: Property 'process' does not exist on type 'Window'. Accessing versions via exposed electron object. */}
                                   <span className="text-emerald-400">v{(window as any).electron?.versions?.node || 'N/A'}</span>
                                </div>
                             </div>
