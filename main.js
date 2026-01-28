@@ -1,4 +1,3 @@
-
 import { app, BrowserWindow, ipcMain, shell, utilityProcess } from 'electron';
 import path from 'path';
 import fs from 'fs';
@@ -160,7 +159,6 @@ async function fetchGitHubVersions() {
           const match = link.match(/&page=(\d+)>; rel="last"/);
           if (match) {
              totalCommits = parseInt(match[1]);
-             // Lógica padrão: major.minor.patch baseado no número total de commits
              const major = Math.floor(totalCommits / 1000);
              const minor = Math.floor((totalCommits % 1000) / 100);
              const patch = totalCommits % 100;
@@ -227,10 +225,7 @@ ipcMain.on('check-update', async (event, branch) => {
   console.log(`[MAIN] Verificando atualização para a branch: ${branch}`);
   const versions = await fetchGitHubVersions();
   
-  // Corrigido: Para o canal 'main' (WIP), buscar a versão da última pre-release (versions.wip)
-  // em vez da contagem de commits (versions.bleedingEdge).
   const remoteVersion = branch === 'main' ? versions.wip : versions.stable;
-  
   const comparison = compareVersions(remoteVersion, CURRENT_VERSION);
 
   if (comparison === 0) {
@@ -240,7 +235,7 @@ ipcMain.on('check-update', async (event, branch) => {
   }
 
   const updateType = comparison < 0 ? 'downgrade' : 'upgrade';
-  console.log(`[MAIN] Atualização do tipo ${updateType} identificada: ${CURRENT_VERSION} -> ${remoteVersion}`);
+  console.log(`[MAIN] Diferença de versão identificada (${updateType}): ${CURRENT_VERSION} -> ${remoteVersion}`);
 
   // Configura o autoUpdater de acordo com o canal selecionado e garante que downgrade seja permitido
   autoUpdater.allowPrerelease = (branch === 'main');
@@ -249,9 +244,6 @@ ipcMain.on('check-update', async (event, branch) => {
   if (app.isPackaged) {
     autoUpdater.checkForUpdates().then((result) => {
        console.log("[MAIN] checkForUpdates concluído com sucesso.", result ? "Update encontrado" : "Nenhum update via library");
-       // Se o autoUpdater não disparar 'update-available' automaticamente em downgrades
-       // mas nós sabemos que há uma diferença, o envio manual abaixo no .catch ou fallback
-       // pode ser necessário, mas o ideal é que a library gerencie o download.
     }).catch((err) => {
       console.warn("[MAIN] Erro ao verificar via autoUpdater, enviando via IPC:", err.message);
       mainWindow.webContents.send('update-available', { 
@@ -301,15 +293,31 @@ autoUpdater.on('update-downloaded', () => {
   mainWindow.webContents.send('update-ready');
 });
 
-ipcMain.on('start-download', () => {
+ipcMain.on('start-download', async () => {
   console.log("[MAIN] Solicitação de início de download recebida do renderer.");
-  autoUpdater.downloadUpdate().then((paths) => {
-     console.log("[MAIN] downloadUpdate() resolvido. Caminhos:", paths);
-     if (!paths || paths.length === 0) {
-        console.warn("[MAIN] downloadUpdate retornou vazio. Pode ser que o autoUpdater não tenha um update pendente no estado interno.");
-     }
-  }).catch(err => {
-     console.error("[MAIN] Falha crítica ao chamar downloadUpdate():", err);
+  
+  const initiateDownload = async () => {
+    try {
+        const paths = await autoUpdater.downloadUpdate();
+        console.log("[MAIN] downloadUpdate() resolvido. Caminhos:", paths);
+    } catch (err) {
+        if (err.message && err.message.includes("Please check update first")) {
+            console.log("[MAIN] Estado do updater inconsistente. Forçando nova verificação antes do download...");
+            const checkResult = await autoUpdater.checkForUpdates();
+            if (checkResult && checkResult.updateInfo) {
+                console.log("[MAIN] UpdateInfo populado. Re-tentando download...");
+                await autoUpdater.downloadUpdate();
+            } else {
+                throw new Error("Não foi possível localizar as informações do pacote de instalação no servidor.");
+            }
+        } else {
+            throw err;
+        }
+    }
+  };
+
+  initiateDownload().catch(err => {
+     console.error("[MAIN] Falha crítica ao processar downloadUpdate():", err);
      if (mainWindow) {
         mainWindow.webContents.send('update-error', `Erro ao baixar: ${err.message}`);
      }
