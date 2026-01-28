@@ -224,24 +224,33 @@ ipcMain.on('open-external', (event, url) => {
 });
 
 ipcMain.on('check-update', async (event, branch) => {
+  console.log(`[MAIN] Verificando atualização para a branch: ${branch}`);
   const versions = await fetchGitHubVersions();
-  // CORREÇÃO: Se o usuário quer 'main', comparamos com a tag WIP (pre-release), não com o bleedingEdge (commits)
-  // Isso permite que o autoUpdater localize o pacote da release no GitHub.
+  
+  // Corrigido: Para o canal 'main' (WIP), buscar a versão da última pre-release (versions.wip)
+  // em vez da contagem de commits (versions.bleedingEdge).
   const remoteVersion = branch === 'main' ? versions.wip : versions.stable;
+  
   const comparison = compareVersions(remoteVersion, CURRENT_VERSION);
 
   if (comparison === 0) {
+    console.log(`[MAIN] Nenhuma atualização necessária. Versão local ${CURRENT_VERSION} é idêntica à remota ${remoteVersion}.`);
     mainWindow.webContents.send('update-not-available');
     return;
   }
 
   const updateType = comparison < 0 ? 'downgrade' : 'upgrade';
+  console.log(`[MAIN] Atualização do tipo ${updateType} identificada: ${CURRENT_VERSION} -> ${remoteVersion}`);
+
+  // Configura o autoUpdater de acordo com o canal selecionado
+  autoUpdater.allowPrerelease = (branch === 'main');
 
   if (app.isPackaged) {
-    autoUpdater.checkForUpdates().catch(() => {
+    autoUpdater.checkForUpdates().catch((err) => {
+      console.warn("[MAIN] Erro ao verificar via autoUpdater, enviando via IPC:", err.message);
       mainWindow.webContents.send('update-available', { 
         version: remoteVersion, 
-        branch: branch === 'main' ? 'WIP / Pre-release' : 'Stable', 
+        branch: branch === 'main' ? 'WIP' : 'Stable', 
         updateType,
         isManual: true 
       });
@@ -249,7 +258,7 @@ ipcMain.on('check-update', async (event, branch) => {
   } else {
     mainWindow.webContents.send('update-available', { 
       version: remoteVersion, 
-      branch: branch === 'main' ? 'WIP / Pre-release' : 'Stable', 
+      branch: branch === 'main' ? 'WIP' : 'Stable', 
       updateType,
       isManual: true 
     });

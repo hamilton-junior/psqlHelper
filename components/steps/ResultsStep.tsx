@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { ArrowLeft, ArrowRight, Database, ChevronLeft, ChevronRight, FileSpreadsheet, Search, Copy, Check, BarChart2, MessageSquare, Download, Activity, LayoutGrid, FileText, Pin, AlertCircle, Info, MoreHorizontal, FileJson, FileCode, Hash, Type, Filter, Plus, X, Trash2, SlidersHorizontal, Clock, Maximize2, Minimize2, ExternalLink, Braces, PenTool, Save, Eye, Anchor, Link as LinkIcon, Settings2, Loader2, Folder, Terminal as TerminalIcon, ChevronDown, ChevronUp, Layers, Target, CornerDownRight, AlertTriangle, Undo2, ShieldAlert, Pencil, ArrowUp, ArrowDown, ArrowUpDown, History, RotateCcw, FileWarning } from 'lucide-react';
 import { AppSettings, ExplainNode, DatabaseSchema, Table } from '../../types';
@@ -133,7 +132,7 @@ const HoverPreviewTooltip: React.FC<{
       {isPersistent && (
          <div className="flex justify-between items-center border-b border-slate-700 pb-2 mb-1">
             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1.5"><Layers className="w-3.5 h-3.5" /> Escolher Destino</span>
-            <button onClick={onClose} className="p-1 hover:bg-slate-800 rounded"><X className="w-3.5 h-3.5 text-slate-50" /></button>
+            <button onClose={onClose} className="p-1 hover:bg-slate-800 rounded"><X className="w-3.5 h-3.5 text-slate-50" /></button>
          </div>
       )}
 
@@ -1104,8 +1103,9 @@ const ResultsStep: React.FC<ResultsStepProps> = ({ data, sql, onBackToBuilder, o
     if (filteredData.length === 0) return; 
     const tableName = mainTableName || "exported_data"; 
     const cols = columns.join(', '); 
-    const statements = filteredData.map((row: any) => { 
-      const values = columns.map(col => { 
+    // Fix: Explicitly typing row and return type to avoid 'unknown' inference
+    const statements: string = filteredData.map((row: any): string => { 
+      const values = columns.map((col: string): string => { 
         const val = row[col]; 
         if (val === null) return 'NULL'; 
         if (typeof val === 'string') return `'${val.replace(/'/g, "''")}'`; 
@@ -1121,8 +1121,9 @@ const ResultsStep: React.FC<ResultsStepProps> = ({ data, sql, onBackToBuilder, o
   const handleExportCSV = () => {
     if (filteredData.length === 0) return;
     const headers = columns.join(',');
-    const rows = filteredData.map(row => {
-      return columns.map(col => {
+    // Fix: Explicitly typing row and return type to avoid 'unknown' inference
+    const rows: string = filteredData.map((row: any): string => {
+      return columns.map((col: string): string => {
         let val = row[col];
         if (val === null) return '';
         val = String(val).replace(/"/g, '""');
@@ -1288,7 +1289,7 @@ const ResultsStep: React.FC<ResultsStepProps> = ({ data, sql, onBackToBuilder, o
                               {/* Fix: use toast success */}
                               <button onClick={() => { navigator.clipboard.writeText(rollbackStatements); toast.success("Rollback copiado!"); }} className="p-2 bg-slate-800 text-slate-400 hover:text-white rounded-lg"><Copy className="w-4 h-4" /></button>
                            </div>
-                           <pre className="font-mono text-[11px] text-amber-400 whitespace-pre-wrap h-full overflow-auto custom-scrollbar leading-relaxed">
+                           <pre className="font-mono text-[11px] text-emerald-400 whitespace-pre-wrap h-full overflow-auto custom-scrollbar leading-relaxed">
                               {rollbackStatements}
                            </pre>
                         </div>

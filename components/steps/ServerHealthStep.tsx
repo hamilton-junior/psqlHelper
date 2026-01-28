@@ -696,4 +696,4 @@ const ServerHealthStep: React.FC<ServerHealthStepProps> = ({ credentials }) => {
   );
 };
 
-export default ServerHealthStep;
+export default ServerHealthStep
