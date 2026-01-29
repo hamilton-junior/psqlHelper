@@ -6,7 +6,7 @@ import {
   Code2, Layers, Loader2, AlertCircle, RefreshCcw,
   CloudDownload, LayoutGrid, ListTodo, CheckCircle2,
   Clock, History, Dna, Play, Info, ThumbsUp, ArrowUpRight,
-  GitCommit, Flag
+  GitCommit, Flag, GitBranch
 } from 'lucide-react';
 import { Skeleton } from '../common/Skeleton';
 import { AppStep } from '../../types';
@@ -69,11 +69,11 @@ const RoadmapStep: React.FC<{ onNavigate?: (step: AppStep) => void }> = ({ onNav
       const response = await fetch(ROADMAP_URL);
       if (!response.ok) throw new Error(`Erro HTTP: ${response.status}`);
       const json = await response.json();
-      console.log("[ROADMAP] Dados recebidos com sucesso. Categorias encontradas:", json.categories?.length);
+      console.log("[ROADMAP] Dados recebidos com sucesso.");
       setData(json);
     } catch (err: any) {
-      console.error("[ROADMAP] Falha crítica ao carregar roadmap:", err);
-      setError("Não foi possível carregar o roadmap do servidor. Verifique sua conexão.");
+      console.error("[ROADMAP] Falha ao carregar roadmap:", err);
+      setError("Não foi possível carregar o roadmap do servidor.");
     } finally {
       setTimeout(() => setLoading(false), 400);
     }
@@ -85,7 +85,6 @@ const RoadmapStep: React.FC<{ onNavigate?: (step: AppStep) => void }> = ({ onNav
 
   const handleVote = (e: React.MouseEvent, title: string) => {
     e.stopPropagation();
-    console.log("[ROADMAP] Voto registrado para:", title);
     if (votedItems.has(title)) return;
     setVotedItems(prev => new Set(prev).add(title));
   };
@@ -109,9 +108,7 @@ const RoadmapStep: React.FC<{ onNavigate?: (step: AppStep) => void }> = ({ onNav
   }, [allItems]);
 
   const toggleItem = (title: string) => {
-    const nextState = expandedItem === title ? null : title;
-    console.log("[ROADMAP] Alternando visibilidade do item:", title, nextState ? "Expandido" : "Recolhido");
-    setExpandedItem(nextState);
+    setExpandedItem(expandedItem === title ? null : title);
   };
 
   if (error && !loading) {
@@ -121,11 +118,11 @@ const RoadmapStep: React.FC<{ onNavigate?: (step: AppStep) => void }> = ({ onNav
            <AlertCircle className="w-12 h-12 text-red-500" />
         </div>
         <div>
-           <h3 className="text-xl font-bold text-slate-800 dark:text-white mb-2">Ops! Falha de Conexão</h3>
+           <h3 className="text-xl font-bold text-slate-800 dark:text-white mb-2">Falha de Sincronização</h3>
            <p className="text-slate-500 max-w-md">{error}</p>
         </div>
         <button onClick={fetchRoadmap} className="flex items-center gap-2 px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-lg transition-all">
-          <RefreshCcw className="w-4 h-4" /> Tentar Novamente
+          <RefreshCcw className="w-4 h-4" /> Recarregar Agora
         </button>
       </div>
     );
@@ -347,32 +344,46 @@ const RoadmapStep: React.FC<{ onNavigate?: (step: AppStep) => void }> = ({ onNav
                {/* Central line */}
                <div className="absolute left-8 md:left-1/2 top-0 bottom-0 w-1 bg-slate-200 dark:bg-slate-800 -translate-x-1/2 rounded-full"></div>
                
-               <div className="space-y-12">
+               <div className="space-y-16">
                   {filteredItems.map((item, idx) => {
                      const isEven = idx % 2 === 0;
-                     const statusColor = item.status === 'Finalizado' ? 'bg-emerald-500' : item.status === 'Em Desenvolvimento' ? 'bg-orange-500' : 'bg-slate-400';
+                     const statusColor = item.status === 'Finalizado' ? 'bg-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.5)]' : item.status === 'Em Desenvolvimento' ? 'bg-orange-500 shadow-[0_0_15px_rgba(249,115,22,0.5)]' : 'bg-slate-400';
                      
                      return (
-                        <div key={idx} className="relative flex flex-col md:flex-row items-center gap-10">
+                        <div key={idx} className="relative flex flex-col md:flex-row items-start gap-10">
                            {/* Marker */}
-                           <div className={`absolute left-8 md:left-1/2 w-6 h-6 rounded-full border-4 border-slate-50 dark:border-slate-900 -translate-x-1/2 z-10 transition-colors ${statusColor}`}></div>
+                           <div className={`absolute left-8 md:left-1/2 w-6 h-6 rounded-full border-4 border-slate-50 dark:border-slate-900 -translate-x-1/2 z-10 transition-all duration-500 top-8 ${statusColor}`}></div>
                            
-                           <div className={`w-full md:w-1/2 pl-16 md:pl-0 ${isEven ? 'md:text-right md:order-1' : 'md:text-left md:order-3'}`}>
-                              <div className={`inline-flex flex-col ${isEven ? 'md:items-end' : 'md:items-start'}`}>
-                                 <div className="flex items-center gap-2 mb-1">
-                                    <GitCommit className="w-4 h-4 text-indigo-500" />
-                                    <span className="text-[10px] font-black text-indigo-500 uppercase tracking-[0.2em]">Originada em {item.addedInVersion || 'Legacy'}</span>
+                           {/* Metadados de Versionamento */}
+                           <div className={`w-full md:w-1/2 pl-16 md:pl-0 pt-4 ${isEven ? 'md:text-right md:order-1' : 'md:text-left md:order-3'}`}>
+                              <div className={`flex flex-col gap-3 ${isEven ? 'md:items-end' : 'md:items-start'}`}>
+                                 {/* Proposta */}
+                                 <div className="flex items-center gap-2 bg-indigo-50/50 dark:bg-indigo-950/20 px-3 py-1.5 rounded-xl border border-indigo-100 dark:border-indigo-900/50">
+                                    <GitBranch className="w-3.5 h-3.5 text-indigo-500" />
+                                    <span className="text-[10px] font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-widest">
+                                       Proposta v{item.addedInVersion || '0.1.0'}
+                                    </span>
                                  </div>
-                                 <h3 className="text-xl font-black text-slate-800 dark:text-white">{item.title}</h3>
+
+                                 {/* Lançamento (se houver) */}
                                  {item.status === 'Finalizado' && item.releasedInVersion && (
-                                    <div className={`flex items-center gap-2 mt-1 px-3 py-1 bg-emerald-50 dark:bg-emerald-950/50 rounded-full border border-emerald-100 dark:border-emerald-900`}>
-                                       <Flag className="w-3 h-3 text-emerald-600" />
-                                       <span className="text-[10px] font-black text-emerald-600 uppercase tracking-widest">Lançada em {item.releasedInVersion}</span>
+                                    <div className="flex items-center gap-2 bg-emerald-50 dark:bg-emerald-950/50 px-3 py-1.5 rounded-xl border border-emerald-100 dark:border-emerald-900 animate-in slide-in-from-top-1">
+                                       <Flag className="w-3.5 h-3.5 text-emerald-600" />
+                                       <span className="text-[10px] font-black text-emerald-600 uppercase tracking-widest">
+                                          Lançada {item.releasedInVersion}
+                                       </span>
                                     </div>
                                  )}
+
+                                 {/* Status Técnico Compacto */}
+                                 <div className="flex items-center gap-2 opacity-50">
+                                    <GitCommit className="w-3 h-3 text-slate-400" />
+                                    <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">{item.size || 'Médio'} Impacto</span>
+                                 </div>
                               </div>
                            </div>
                            
+                           {/* Card de Conteúdo */}
                            <div className={`w-full md:w-1/2 pl-16 md:pl-0 ${isEven ? 'md:order-3' : 'md:order-1'}`}>
                               {renderItemCard(item)}
                            </div>
