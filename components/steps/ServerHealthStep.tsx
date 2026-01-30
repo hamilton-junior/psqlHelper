@@ -356,7 +356,7 @@ const ServerHealthStep: React.FC<ServerHealthStepProps> = ({ credentials }) => {
       <div className="mb-8 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6 shrink-0">
          <div>
             <h2 className="text-3xl font-black text-slate-800 dark:text-white flex items-center gap-3">
-               <HeartPulse className="w-8 h-8 text-rose-500 hover:animate-bounce cursor-default transition-all" />
+               <HeartPulse className="w-8 h-8 text-rose-500 hover:animate-pulse-soft cursor-default transition-all" />
                Saúde do Servidor
             </h2>
             <div className="flex items-center gap-3 mt-1">
@@ -467,7 +467,7 @@ const ServerHealthStep: React.FC<ServerHealthStepProps> = ({ credentials }) => {
             <div className="lg:col-span-2 flex flex-col bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-[2.5rem] shadow-sm overflow-hidden h-[480px]">
                <div className="px-8 py-5 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 shrink-0">
                   <div className="flex items-center gap-3">
-                     <Terminal className="w-5 h-5 text-indigo-500" />
+                     <Terminal className="w-5 h-5 text-indigo-50" />
                      <h3 className="font-black text-slate-700 dark:text-slate-200 uppercase tracking-tighter">Processos & Bloqueios</h3>
                      {Object.keys(blockingTree).length > 0 && (
                         <span className="text-[9px] bg-rose-100 text-rose-700 px-2 py-0.5 rounded-full font-black uppercase animate-pulse">Bloqueios Detectados</span>

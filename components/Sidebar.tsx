@@ -122,7 +122,7 @@ const Sidebar: React.FC<SidebarProps> = ({
           <div className="my-6 border-t border-slate-900 opacity-50"></div>
           
           {navItem('datadiff', 'Comparador', <GitCompare className="w-5 h-5" />, !schema)}
-          {navItem('serverhealth', 'Saúde do Banco', <HeartPulse className="w-5 h-5 transition-transform group-hover:animate-bounce" />, !schema)}
+          {navItem('serverhealth', 'Saúde do Banco', <HeartPulse className="w-5 h-5 transition-transform group-hover:animate-pulse-soft" />, !schema)}
 
           {schema && (
             <div className="pt-6 space-y-1">
