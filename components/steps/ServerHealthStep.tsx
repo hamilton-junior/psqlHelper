@@ -356,7 +356,7 @@ const ServerHealthStep: React.FC<ServerHealthStepProps> = ({ credentials }) => {
       <div className="mb-8 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6 shrink-0">
          <div>
             <h2 className="text-3xl font-black text-slate-800 dark:text-white flex items-center gap-3">
-               <HeartPulse className="w-8 h-8 text-rose-500" />
+               <HeartPulse className="w-8 h-8 text-rose-500 hover:animate-bounce cursor-default transition-all" />
                Saúde do Servidor
             </h2>
             <div className="flex items-center gap-3 mt-1">
@@ -696,4 +696,4 @@ const ServerHealthStep: React.FC<ServerHealthStepProps> = ({ credentials }) => {
   );
 };
 
-export default ServerHealthStep
+export default ServerHealthStep;

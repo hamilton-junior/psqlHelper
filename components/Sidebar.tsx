@@ -122,7 +122,7 @@ const Sidebar: React.FC<SidebarProps> = ({
           <div className="my-6 border-t border-slate-900 opacity-50"></div>
           
           {navItem('datadiff', 'Comparador', <GitCompare className="w-5 h-5" />, !schema)}
-          {navItem('serverhealth', 'Saúde do Banco', <HeartPulse className="w-5 h-5" />, !schema)}
+          {navItem('serverhealth', 'Saúde do Banco', <HeartPulse className="w-5 h-5 transition-transform group-hover:animate-bounce" />, !schema)}
 
           {schema && (
             <div className="pt-6 space-y-1">
@@ -192,9 +192,9 @@ const Sidebar: React.FC<SidebarProps> = ({
                  </div>
                  <button 
                     onClick={() => onNavigate('roadmap')}
-                    className="text-[9px] font-black text-slate-500 hover:text-orange-400 transition-colors uppercase tracking-widest flex items-center gap-1"
+                    className="group text-[9px] font-black text-slate-500 hover:text-orange-400 transition-colors uppercase tracking-widest flex items-center gap-1"
                  >
-                    <Rocket className="w-3 h-3" /> Roadmap
+                    <Rocket className="w-3 h-3 transition-transform group-hover:animate-takeoff" /> Roadmap
                  </button>
               </div>
            )}

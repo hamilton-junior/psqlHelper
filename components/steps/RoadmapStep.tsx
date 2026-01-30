@@ -250,7 +250,7 @@ const RoadmapStep: React.FC<{ onNavigate?: (step: AppStep) => void }> = ({ onNav
       <div className="mb-8 flex flex-col md:flex-row items-start md:items-end justify-between gap-6 shrink-0">
         <div>
           <h2 className="text-3xl font-black text-slate-800 dark:text-white flex items-center gap-3">
-            <Rocket className="w-8 h-8 text-indigo-600 animate-bounce-slow" />
+            <Rocket className="w-8 h-8 text-indigo-600 hover:animate-takeoff cursor-default transition-all" />
             Roadmap Estratégico
           </h2>
           <p className="text-slate-500 dark:text-slate-400 mt-2 text-lg font-medium">

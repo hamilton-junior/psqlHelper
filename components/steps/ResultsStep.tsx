@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { ArrowLeft, ArrowRight, Database, ChevronLeft, ChevronRight, FileSpreadsheet, Search, Copy, Check, BarChart2, MessageSquare, Download, Activity, LayoutGrid, FileText, Pin, AlertCircle, Info, MoreHorizontal, FileJson, FileCode, Hash, Type, Filter, Plus, X, Trash2, SlidersHorizontal, Clock, Maximize2, Minimize2, ExternalLink, Braces, PenTool, Save, Eye, Anchor, Link as LinkIcon, Settings2, Loader2, Folder, Terminal as TerminalIcon, ChevronDown, ChevronUp, Layers, Target, CornerDownRight, AlertTriangle, Undo2, ShieldAlert, Pencil, ArrowUp, ArrowDown, ArrowUpDown, History, RotateCcw, FileWarning } from 'lucide-react';
 import { AppSettings, ExplainNode, DatabaseSchema, Table } from '../../types';
@@ -352,7 +353,7 @@ const ManualMappingPopover: React.FC<{
                          </select>
                       </div>
                       <button 
-                         onClick={handleAdd}
+                         onClick={handleAddLink}
                          disabled={!selectedTable || !keyCol || !previewCol}
                          className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition-all disabled:opacity-50 shadow-sm"
                       >
@@ -393,7 +394,7 @@ const RowInspector: React.FC<{ row: any, onClose: () => void }> = ({ row, onClos
                <div className="flex items-center gap-2">
                   <div className="flex bg-slate-200 dark:bg-slate-700 rounded p-0.5">
                      <button onClick={() => setViewMode('table')} className={`p-1.5 rounded text-xs font-bold transition-all ${viewMode === 'table' ? 'bg-white dark:bg-slate-600 shadow text-indigo-600 dark:text-indigo-300' : 'text-slate-500'}`} title="Tabela"><LayoutGrid className="w-3.5 h-3.5" /></button>
-                     <button onClick={() => setViewMode('json')} className={`p-1.5 rounded text-xs font-bold transition-all ${viewMode === 'json' ? 'bg-white dark:bg-slate-600 shadow text-indigo-600 dark:text-indigo-300' : 'text-slate-500'}`} title="JSON"><Braces className="w-3.5 h-3.5" /></button>
+                     <button onClick={() => setViewMode('json')} className={`p-1.5 rounded text-xs font-bold transition-all ${viewMode === 'json' ? 'bg-white dark:bg-slate-600 shadow text-indigo-600 dark:text-indigo-300' : 'text-slate-50'}`} title="JSON"><Braces className="w-3.5 h-3.5" /></button>
                   </div>
                   <button onClick={onClose} className="p-1.5 hover:bg-slate-200 dark:hover:bg-slate-700 rounded text-slate-500"><X className="w-5 h-5" /></button>
                </div>
@@ -1212,7 +1213,7 @@ const ResultsStep: React.FC<ResultsStepProps> = ({ data, sql, onBackToBuilder, o
                   {reviewTab === 'audit' && (
                      <div className="space-y-4">
                         {!finalPkColumn && (
-                           <div className="p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-2xl flex items-start gap-4">
+                           <div className="p-4 bg-amber-50 dark:bg-amber-950/40 p-4 rounded-2xl border border-amber-100 dark:border-amber-800 animate-in zoom-in-95">
                               <AlertTriangle className="w-6 h-6 text-amber-600 shrink-0" />
                               <div>
                                  <h4 className="font-black text-sm text-amber-800 dark:text-amber-200 uppercase tracking-tight mb-1">Selecione o Identificador Único</h4>
@@ -1365,7 +1366,6 @@ const ResultsStep: React.FC<ResultsStepProps> = ({ data, sql, onBackToBuilder, o
                  isAdvancedMode={settings?.advancedMode} 
                  onUpdateCell={handleUpdateCell} 
                  onOpenJson={setViewJson} 
-                 // Fix: Explicitly type parameters in onDrillDown to avoid 'unknown' inference
                  onDrillDown={(table: string, col: string, val: any, allLinks?: ManualLink[]) => setDrillDownTarget({ table, col, val, allLinks })} 
                  schema={schema} 
                  defaultTableName={mainTableName} 
