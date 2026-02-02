@@ -42,6 +42,22 @@ export interface ServerStats {
   statsReset?: string;
 }
 
+export interface StorageStats {
+  partition: {
+    total: number; // bytes
+    used: number;  // bytes
+    free: number;  // bytes
+    percent: number;
+    mount: string;
+  };
+  databases: Array<{
+    name: string;
+    size: number; // bytes
+    prettySize: string;
+  }>;
+  dataDirectory: string;
+}
+
 export interface TableInsight {
   schema: string;
   name: string;

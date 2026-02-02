@@ -1,10 +1,12 @@
-
 import express from 'express';
 import cors from 'cors';
 import pg from 'pg';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { exec } from 'child_process';
+import { promisify } from 'util';
 
+const execAsync = promisify(exec);
 const { Client, types } = pg;
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -100,7 +102,6 @@ app.post('/api/server-stats', async (req, res) => {
     const verRes = await client.query("SHOW server_version_num;");
     const vNum = parseInt(verRes.rows[0].server_version_num);
 
-    // 1. Sumário (CORRIGIDO: datfrozenxid vem de pg_database, adicionado stats_reset)
     const statsQuery = `
       SELECT 
         (SELECT numbackends FROM pg_stat_database WHERE datname = $1) as connections,
@@ -117,7 +118,6 @@ app.post('/api/server-stats', async (req, res) => {
       FROM pg_database WHERE datname = $1;`;
     const statsRes = await client.query(statsQuery, [credentials.database]);
 
-    // 2. Processos (Version Aware)
     const hasBackendType = vNum >= 100000;
     const hasWaitEvent = vNum >= 90600;
 
@@ -139,11 +139,10 @@ app.post('/api/server-stats', async (req, res) => {
       ORDER BY duration_ms DESC;`;
     const procRes = await client.query(processesQuery, [credentials.database]);
 
-    // 3. Table Insights
     const bloatQuery = `
       SELECT 
         schemaname as schema_name,
-        relname as table_name,
+        relname as table_name, 
         pg_size_pretty(pg_total_relation_size(relid)) as total_size,
         pg_size_pretty(pg_relation_size(relid)) as table_size,
         pg_size_pretty(pg_total_relation_size(relid) - pg_relation_size(relid)) as index_size,
@@ -154,7 +153,6 @@ app.post('/api/server-stats', async (req, res) => {
       ORDER BY pg_total_relation_size(relid) DESC LIMIT 10;`;
     const bloatRes = await client.query(bloatQuery);
 
-    // 4. Índices Não Utilizados (Mantido indisunique IS FALSE como proteção)
     const unusedIndexesQuery = `
       SELECT 
         schemaname as schema_name,
@@ -176,6 +174,69 @@ app.post('/api/server-stats', async (req, res) => {
   } catch (err) { 
     serverError('POST', '/api/server-stats', err);
     res.status(500).json({ error: err.message }); 
+  } finally { try { await client.end(); } catch (e) {} }
+});
+
+app.post('/api/storage-stats', async (req, res) => {
+  const { credentials } = req.body;
+  if (!credentials) return res.status(400).json({ error: 'Missing credentials' });
+  const client = new Client(credentials);
+  try {
+    await client.connect();
+    
+    // 1. Get Data Directory
+    const dirRes = await client.query("SHOW data_directory;");
+    const dataDir = dirRes.rows[0].data_directory;
+
+    // 2. Get DB Sizes
+    const dbSizeRes = await client.query(`
+      SELECT datname as name, pg_database_size(datname) as size_bytes, pg_size_pretty(pg_database_size(datname)) as pretty_size 
+      FROM pg_database WHERE datistemplate = false ORDER BY pg_database_size(datname) DESC;
+    `);
+
+    // 3. System call to get Disk Space
+    let diskInfo = { total: 0, used: 0, free: 0, percent: 0, mount: '/' };
+    
+    try {
+       if (process.platform !== 'win32') {
+          const { stdout } = await execAsync(`df -k "${dataDir}"`);
+          const lines = stdout.trim().split('\n');
+          if (lines.length > 1) {
+             const parts = lines[1].replace(/\s+/g, ' ').split(' ');
+             // parts[1]=total, [2]=used, [3]=available (in KB)
+             diskInfo.total = parseInt(parts[1]) * 1024;
+             diskInfo.used = parseInt(parts[2]) * 1024;
+             diskInfo.free = parseInt(parts[3]) * 1024;
+             diskInfo.percent = Math.round((diskInfo.used / diskInfo.total) * 100);
+             diskInfo.mount = parts[5] || '/';
+          }
+       } else {
+          // Windows Fallback using wmic
+          const { stdout } = await execAsync(`wmic logicaldisk get size,freespace,caption`);
+          // Note: Windows wmic parsing is more complex, returning first disk for now
+          const lines = stdout.trim().split('\n').filter(l => l.includes(':'));
+          if (lines.length > 0) {
+             const parts = lines[0].trim().replace(/\s+/g, ' ').split(' ');
+             diskInfo.free = parseInt(parts[1]);
+             diskInfo.total = parseInt(parts[2]);
+             diskInfo.used = diskInfo.total - diskInfo.free;
+             diskInfo.percent = Math.round((diskInfo.used / diskInfo.total) * 100);
+             diskInfo.mount = parts[0];
+          }
+       }
+    } catch (e) {
+       serverLog('STORAGE', '-', 'Falha ao obter info do SO, usando estimativas.');
+    }
+
+    res.json({
+       partition: diskInfo,
+       databases: dbSizeRes.rows.map(r => ({ name: r.name, size: parseInt(r.size_bytes), prettySize: r.pretty_size })),
+       dataDirectory: dataDir
+    });
+
+  } catch (err) {
+    serverError('POST', '/api/storage-stats', err);
+    res.status(500).json({ error: err.message });
   } finally { try { await client.end(); } catch (e) {} }
 });
 

@@ -54,16 +54,17 @@
         },
         {
           "title": "Monitor de Storage de Disco",
-          "desc": "Visualizador de uso de disco físico por banco de dados e arquivos de log, com projeção de crescimento.",
-          "status": "Planejado",
+          "desc": "Visualizador de uso de disco físico por banco de dados e diretório de dados, com projeção de quota.",
+          "status": "Finalizado",
           "size": "Médio",
-          "progress": 0,
+          "progress": 100,
           "votes": 156,
           "addedInVersion": "v0.2.44",
+          "releasedInVersion": "v0.2.46",
           "implementationPlan": [
-            "Integração com chamadas de sistema para monitorar volume de dados.",
-            "Histórico de crescimento de tabelas.",
-            "Alertas de quota de disco."
+            "Integração com chamadas de sistema (df/wmic) via backend.",
+            "Visualização de ocupação por partição e banco individual.",
+            "Localização do diretório físico de dados do Postgres."
           ]
         },
         {

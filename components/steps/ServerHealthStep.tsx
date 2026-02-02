@@ -4,12 +4,12 @@ import {
   RefreshCw, Trash2, Search, AlertCircle, 
   Loader2, Zap, ShieldAlert, Terminal, ZapOff, 
   Cpu, BarChart3, AlertTriangle, Ghost, ListOrdered, Sparkles, X, ChevronDown, CheckCircle2, Timer, Settings,
-  FileJson, FileText, Download, Share2, Layers, Anchor, ActivitySquare, Gauge, ShieldCheck, Info, Sparkle, Brush, HelpCircle, Network, ChevronRight, Play
+  FileJson, FileText, Download, Share2, Layers, Anchor, ActivitySquare, Gauge, ShieldCheck, Info, Sparkle, Brush, HelpCircle, Network, ChevronRight, Play, HardDrive, PieChart as PieChartIcon
 } from 'lucide-react';
-import { DbCredentials, ServerStats, ActiveProcess, TableInsight, UnusedIndex } from '../../types';
-import { getServerHealth, terminateProcess, vacuumTable, dropIndex } from '../../services/dbService';
+import { DbCredentials, ServerStats, ActiveProcess, TableInsight, UnusedIndex, StorageStats } from '../../types';
+import { getServerHealth, terminateProcess, vacuumTable, dropIndex, fetchStorageStats } from '../../services/dbService';
 import { getHealthDiagnosis } from '../../services/geminiService';
-import { LineChart, Line, ResponsiveContainer, YAxis, XAxis, Tooltip, AreaChart, Area, PieChart, Pie, Cell } from 'recharts';
+import { LineChart, Line, ResponsiveContainer, YAxis, XAxis, Tooltip, AreaChart, Area, PieChart, Pie, Cell, BarChart, Bar } from 'recharts';
 import { toast, Toaster } from 'react-hot-toast';
 import Dialog from '../common/Dialog';
 import { Skeleton, CardSkeleton, TableSkeleton } from '../common/Skeleton';
@@ -18,7 +18,15 @@ interface ServerHealthStepProps {
   credentials: DbCredentials | null;
 }
 
-type HealthTab = 'processes' | 'locks';
+type HealthTab = 'processes' | 'locks' | 'storage';
+
+const formatBytes = (bytes: number) => {
+   if (bytes === 0) return '0 B';
+   const k = 1024;
+   const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+   const i = Math.floor(Math.log(bytes) / Math.log(k));
+   return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+};
 
 const LockTreeNode: React.FC<{ 
   pid: number, 
@@ -101,6 +109,7 @@ const LockTreeNode: React.FC<{
 const ServerHealthStep: React.FC<ServerHealthStepProps> = ({ credentials }) => {
   const [activeSubTab, setActiveSubTab] = useState<HealthTab>('processes');
   const [stats, setStats] = useState<ServerStats | null>(null);
+  const [storage, setStorage] = useState<StorageStats | null>(null);
   const [processes, setProcesses] = useState<ActiveProcess[]>([]);
   const [tableInsights, setTableInsights] = useState<TableInsight[]>([]);
   const [unusedIndexes, setUnusedIndexes] = useState<UnusedIndex[]>([]);
@@ -139,21 +148,25 @@ const ServerHealthStep: React.FC<ServerHealthStepProps> = ({ credentials }) => {
     }
 
     try {
-      const data = await getServerHealth(credentials);
-      console.log(`[HEALTH] Dados recebidos: ${data.processes.length} processos encontrados.`);
-      const cacheVal = parseFloat((data.summary.cacheHitRate || '0').replace('%', '')) || 0;
+      const [healthData, storageData] = await Promise.all([
+         getServerHealth(credentials),
+         fetchStorageStats(credentials)
+      ]);
+
+      const cacheVal = parseFloat((healthData.summary.cacheHitRate || '0').replace('%', '')) || 0;
       
-      setStats(data.summary);
-      setProcesses(data.processes);
-      setTableInsights(data.tableInsights || []);
-      setUnusedIndexes(data.unusedIndexes || []);
+      setStats(healthData.summary);
+      setStorage(storageData);
+      setProcesses(healthData.processes);
+      setTableInsights(healthData.tableInsights || []);
+      setUnusedIndexes(healthData.unusedIndexes || []);
       setError(null);
       
       setHistory(prev => {
          const next = [...prev, { 
-           conn: data.summary.connections, 
+           conn: healthData.summary.connections, 
            cache: cacheVal, 
-           tps: data.summary.transactionsCommit,
+           tps: healthData.summary.transactionsCommit,
            time: new Date().toLocaleTimeString()
          }];
          return next.slice(-100); 
@@ -172,13 +185,13 @@ const ServerHealthStep: React.FC<ServerHealthStepProps> = ({ credentials }) => {
 
   useEffect(() => {
     let interval: any;
-    if (autoRefresh && credentials && credentials.host !== 'simulated') {
+    if (autoRefresh && credentials && credentials.host !== 'simulated' && activeSubTab !== 'storage') {
        interval = setInterval(() => fetchHealth(), refreshInterval);
     }
     return () => {
         if (interval) clearInterval(interval);
     };
-  }, [autoRefresh, credentials, refreshInterval]);
+  }, [autoRefresh, credentials, refreshInterval, activeSubTab]);
 
   const handleAiDiagnosis = async () => {
      if (!stats || processes.length === 0) return;
@@ -272,7 +285,8 @@ const ServerHealthStep: React.FC<ServerHealthStepProps> = ({ credentials }) => {
        host: credentials?.host,
        stats,
        processes: processes.map(p => ({ pid: p.pid, user: p.user, query: p.query, state: p.state })),
-       tableInsights
+       tableInsights,
+       storage
      };
 
      if (format === 'json') {
@@ -283,7 +297,7 @@ const ServerHealthStep: React.FC<ServerHealthStepProps> = ({ credentials }) => {
         link.download = `pg_snapshot_${Date.now()}.json`;
         link.click();
      } else {
-        let text = `PG SNAPSHOT - ${snapshot.timestamp}\nHost: ${snapshot.host}\n\nCONEXOES: ${stats?.connections}/${stats?.maxConnections}\nCACHE HIT: ${stats?.cacheHitRate}\n\nPROCESSOS ATIVOS:\n`;
+        let text = `PG SNAPSHOT - ${snapshot.timestamp}\nHost: ${snapshot.host}\n\nCONEXOES: ${stats?.connections}/${stats?.maxConnections}\nCACHE HIT: ${stats?.cacheHitRate}\n\nSTORAGE: ${storage?.partition.percent}% used (${formatBytes(storage?.partition.used || 0)} of ${formatBytes(storage?.partition.total || 0)})\n\nPROCESSOS ATIVOS:\n`;
         processes.forEach(p => { text += `[PID ${p.pid}] ${p.user}: ${p.state} - ${p.query.substring(0, 100)}...\n`; });
         const blob = new Blob([text], { type: 'text/plain' });
         const url = URL.createObjectURL(blob);
@@ -395,7 +409,7 @@ const ServerHealthStep: React.FC<ServerHealthStepProps> = ({ credentials }) => {
             <div className="flex items-center gap-3 mt-1">
                <span className="text-sm text-slate-500">Banco: <strong>{credentials?.database}</strong></span>
                <span className="text-slate-300 dark:text-slate-700">|</span>
-               <span className="text-sm text-slate-500">Tamanho: <strong>{stats?.dbSize || '--'}</strong></span>
+               <span className="text-sm text-slate-500">Host: <strong>{credentials?.host}</strong></span>
                <div className="flex items-center gap-1.5 px-2 py-0.5 bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400 text-[10px] font-black rounded-lg uppercase border border-emerald-200 dark:border-emerald-800">
                   <ActivitySquare className="w-3 h-3" /> Online
                </div>
@@ -449,7 +463,7 @@ const ServerHealthStep: React.FC<ServerHealthStepProps> = ({ credentials }) => {
                   <StatCard title="Pool de Conexões" value={`${stats?.connections || 0}/${stats?.maxConnections || '--'}`} sub={`${Math.round(((stats?.connections || 0) / (stats?.maxConnections || 1)) * 100)}% de ocupação`} icon={Users} historyKey="conn" />
                   <StatCard title="Cache Hit Rate" value={stats?.cacheHitRate || '---'} sub="Eficiência de Buffer Pool" icon={Activity} type="cache" historyKey="cache" />
                   <StatCard title="Transações (Commit)" value={stats?.transactionsCommit ? stats.transactionsCommit.toLocaleString() : '---'} sub="Throughput operacional" icon={BarChart3} historyKey="tps" />
-                  <StatCard title="Wraparound Danger" value={`${stats?.wraparoundPercent || 0}%`} sub={`${(stats?.wraparoundAge || 0).toLocaleString()} IDs de idade`} icon={ShieldCheck} type="wraparound" />
+                  <StatCard title="Uso de Disco Total" value={`${storage?.partition.percent || 0}%`} sub={`${formatBytes(storage?.partition.free || 0)} disponíveis`} icon={HardDrive} />
                </>
             )}
          </div>
@@ -472,20 +486,22 @@ const ServerHealthStep: React.FC<ServerHealthStepProps> = ({ credentials }) => {
                            ${activeSubTab === 'locks' ? 'border-rose-600 text-rose-600 bg-white dark:bg-slate-800' : 'border-transparent text-slate-400 hover:text-slate-600'}
                         `}
                      >
-                        <Network className="w-4 h-4" /> Cadeia de Bloqueios
+                        <Network className="w-4 h-4" /> Bloqueios
                         {rootBlockers.length > 0 && <span className="bg-rose-500 text-white text-[8px] px-1.5 py-0.5 rounded-full">{rootBlockers.length}</span>}
                      </button>
-                  </div>
-                  <div className="flex items-center gap-3 pb-2">
-                     <div className="relative group">
-                        <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
-                        <input type="text" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} placeholder="Buscar..." className="pl-10 pr-4 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs outline-none focus:ring-2 focus:ring-indigo-500 w-40" />
-                     </div>
+                     <button 
+                        onClick={() => setActiveSubTab('storage')}
+                        className={`px-6 py-4 text-xs font-black uppercase tracking-widest border-b-2 transition-all flex items-center gap-2
+                           ${activeSubTab === 'storage' ? 'border-amber-600 text-amber-600 bg-white dark:bg-slate-800' : 'border-transparent text-slate-400 hover:text-slate-600'}
+                        `}
+                     >
+                        <HardDrive className="w-4 h-4" /> Armazenamento
+                     </button>
                   </div>
                </div>
 
                <div className="flex-1 overflow-auto custom-scrollbar p-6">
-                  {activeSubTab === 'processes' ? (
+                  {activeSubTab === 'processes' && (
                      <div className="space-y-4">
                         {(loading && processes.length === 0) ? <TableSkeleton rows={8} cols={4} /> : (
                            <table className="w-full text-left border-collapse">
@@ -509,7 +525,7 @@ const ServerHealthStep: React.FC<ServerHealthStepProps> = ({ credentials }) => {
                                           <td className="px-6 py-4 text-xs font-mono font-bold text-slate-400">{proc.pid}</td>
                                           <td className="px-6 py-4"><div className="flex flex-col"><span className={`text-xs font-bold ${isNative ? 'text-slate-400' : 'text-slate-700 dark:text-slate-200'}`}>{proc.user}</span><span className={`text-[9px] font-mono flex items-center gap-1 ${waitColor}`}><Anchor className="w-2.5 h-2.5" /> {proc.waitEvent}</span></div></td>
                                           <td className="px-6 py-4"><span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-full border ${proc.state === 'active' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-slate-50 text-slate-400 border-slate-100'}`}>{proc.state}</span></td>
-                                          <td className="px-6 py-4 w-full max-w-0"><div className="flex flex-col gap-1.5"><code className={`text-[11px] font-mono block truncate group-hover:whitespace-pre-wrap group-hover:break-all transition-all duration-200 ${isNative ? 'text-slate-400 italic' : 'text-slate-600 dark:text-slate-400'}`}>{proc.query || (isNative ? `[${proc.backendType}]` : '(vazio)')}</code><div className="flex items-center gap-2">{isBlocked && <div className="flex items-center gap-1.5 text-[8px] text-rose-600 font-black uppercase bg-rose-100 dark:bg-rose-900/40 px-2 py-0.5 rounded border border-rose-200 dark:border-rose-800"><AlertTriangle className="w-2.5 h-2.5" /> Bloqueado por: {proc.blockingPids.join(', ')}</div>}{blockingOthers && <div className="flex items-center gap-1.5 text-[8px] text-amber-600 font-black uppercase bg-amber-100 dark:bg-rose-900/40 px-2 py-0.5 rounded border border-amber-200 dark:border-amber-800"><Layers className="w-2.5 h-2.5" /> Bloqueando: {blockingOthers.join(', ')}</div>}</div></div></td>
+                                          <td className="px-6 py-4 w-full max-w-0"><div className="flex flex-col gap-1.5"><code className={`text-[11px] font-mono block truncate group-hover:whitespace-pre-wrap group-hover:break-all transition-all duration-200 ${isNative ? 'text-slate-400 italic' : 'text-slate-600 dark:text-slate-400'}`}>{proc.query || (isNative ? `[${proc.backendType}]` : '(vazio)')}</code><div className="flex items-center gap-2">{isBlocked && <div className="flex items-center gap-1.5 text-[8px] text-rose-600 font-black uppercase bg-rose-100 dark:bg-rose-900/40 px-2 py-0.5 rounded border border-rose-200 dark:border-rose-800"><AlertTriangle className="w-2.5 h-2.5" /> Bloqueado por: {proc.blockingPids.join(', ')}</div>}{blockingOthers && <div className="flex items-center gap-1.5 text-[8px] text-amber-600 font-black uppercase bg-amber-100 dark:bg-rose-900/40 px-2 py-0.5 rounded border border-amber-200 dark:border-rose-800"><Layers className="w-2.5 h-2.5" /> Bloqueando: {blockingOthers.join(', ')}</div>}</div></div></td>
                                           <td className="px-6 py-4 text-center">{!isNative && <button onClick={() => handleKill(proc.pid)} disabled={terminatingPid === proc.pid} className="p-2 text-slate-300 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/20 rounded-xl transition-all">{terminatingPid === proc.pid ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}</button>}</td>
                                        </tr>
                                     );
@@ -518,7 +534,9 @@ const ServerHealthStep: React.FC<ServerHealthStepProps> = ({ credentials }) => {
                            </table>
                         )}
                      </div>
-                  ) : (
+                  )}
+
+                  {activeSubTab === 'locks' && (
                      <div className="space-y-6">
                         {rootBlockers.length === 0 ? (
                            <div className="flex flex-col items-center justify-center py-20 text-slate-400 gap-4 opacity-50">
@@ -530,7 +548,7 @@ const ServerHealthStep: React.FC<ServerHealthStepProps> = ({ credentials }) => {
                               <div className="bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-800 rounded-2xl p-4 flex gap-3 text-amber-800 dark:text-amber-200 mb-6 shadow-sm">
                                  <Info className="w-5 h-5 shrink-0 mt-0.5" />
                                  <p className="text-xs font-medium leading-relaxed">
-                                    Abaixo estão os <strong>Root Blockers</strong> (cabeças da árvore). Matar o processo no topo da cadeia geralmente libera instantaneamente todos os processos filhos que estão esperando.
+                                    Abaixo estão os <strong>Root Blockers</strong>. Matar o topo da cadeia libera todos os processos dependentes.
                                  </p>
                               </div>
                               {rootBlockers.map(pid => (
@@ -545,6 +563,70 @@ const ServerHealthStep: React.FC<ServerHealthStepProps> = ({ credentials }) => {
                               ))}
                            </div>
                         )}
+                     </div>
+                  )}
+
+                  {activeSubTab === 'storage' && storage && (
+                     <div className="space-y-8 animate-in fade-in duration-300">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                           <div className="bg-slate-50 dark:bg-slate-800/50 p-6 rounded-3xl border border-slate-100 dark:border-slate-800">
+                              <h5 className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-4">Ocupação da Partição ({storage.partition.mount})</h5>
+                              <div className="flex items-center gap-8">
+                                 <div className="relative w-28 h-28">
+                                    <ResponsiveContainer width="100%" height="100%">
+                                       <PieChart>
+                                          <Pie data={[{v: storage.partition.used}, {v: storage.partition.free}]} innerRadius={35} outerRadius={50} dataKey="v">
+                                             <Cell fill={storage.partition.percent > 85 ? '#ef4444' : '#6366f1'} />
+                                             <Cell fill="#e2e8f0" className="dark:fill-slate-700" />
+                                          </Pie>
+                                       </PieChart>
+                                    </ResponsiveContainer>
+                                    <div className="absolute inset-0 flex items-center justify-center font-black text-slate-700 dark:text-white text-lg">
+                                       {storage.partition.percent}%
+                                    </div>
+                                 </div>
+                                 <div className="space-y-1">
+                                    <div className="text-sm font-black text-slate-700 dark:text-white">Físico Total: {formatBytes(storage.partition.total)}</div>
+                                    <div className="text-xs text-slate-500 font-medium">Usado: {formatBytes(storage.partition.used)}</div>
+                                    <div className="text-xs text-emerald-500 font-bold">Livre: {formatBytes(storage.partition.free)}</div>
+                                 </div>
+                              </div>
+                           </div>
+                           <div className="bg-slate-50 dark:bg-slate-800/50 p-6 rounded-3xl border border-slate-100 dark:border-slate-800">
+                              <h5 className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-4">Projeção de Quota</h5>
+                              <div className="flex flex-col gap-4">
+                                 <div className="flex items-center gap-3">
+                                    <div className="p-2 bg-white dark:bg-slate-900 rounded-xl shadow-sm text-amber-500"><AlertTriangle className="w-5 h-5" /></div>
+                                    <div>
+                                       <div className="text-xs font-black text-slate-700 dark:text-white uppercase">Alerta de Espaço</div>
+                                       <div className="text-[10px] text-slate-500">Gatilho configurado em 90%</div>
+                                    </div>
+                                 </div>
+                                 <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed italic">
+                                    O diretório de dados está em <strong>{storage.dataDirectory}</strong>. Baseado na taxa de logs, certifique-se de ter ao menos 2x o tamanho do maior banco disponível.
+                                 </p>
+                              </div>
+                           </div>
+                        </div>
+
+                        <div className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-3xl overflow-hidden">
+                           <div className="px-6 py-4 bg-slate-50/50 dark:bg-slate-800/50 font-black text-[10px] uppercase tracking-widest text-slate-500 border-b border-slate-100 dark:border-slate-800">
+                              Distribuição por Banco de Dados
+                           </div>
+                           <div className="h-64 p-6">
+                              <ResponsiveContainer width="100%" height="100%">
+                                 <BarChart data={storage.databases.slice(0, 8)}>
+                                    <XAxis dataKey="name" fontSize={10} tickLine={false} axisLine={false} />
+                                    <YAxis hide />
+                                    <Tooltip 
+                                       formatter={(val: number) => formatBytes(val)}
+                                       contentStyle={{ backgroundColor: '#0f172a', borderRadius: '12px', border: 'none', color: '#fff' }}
+                                    />
+                                    <Bar dataKey="size" fill="#6366f1" radius={[6, 6, 0, 0]} barSize={40} />
+                                 </BarChart>
+                              </ResponsiveContainer>
+                           </div>
+                        </div>
                      </div>
                   )}
                </div>
@@ -579,7 +661,7 @@ const ServerHealthStep: React.FC<ServerHealthStepProps> = ({ credentials }) => {
             <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-[2.5rem] shadow-sm flex flex-col overflow-hidden h-[380px]">
                <div className="px-8 py-5 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 shrink-0 flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <h3 className="text-xs font-black text-slate-700 dark:text-slate-200 uppercase tracking-widest flex items-center gap-2"><Anchor className="w-4 h-4 text-indigo-500" /> Otimização: Índices Não Utilizados</h3>
+                    <h3 className="text-xs font-black text-slate-700 dark:text-slate-200 uppercase tracking-widest flex items-center gap-2"><Anchor className="w-4 h-4 text-indigo-500" /> Índices Não Utilizados</h3>
                     <button onClick={() => setShowIndexWarningInfo(!showIndexWarningInfo)} className="p-1 text-slate-400 hover:text-indigo-500 transition-colors"><HelpCircle className="w-3.5 h-3.5" /></button>
                   </div>
                   {stats?.statsReset && <span className="text-[9px] font-black text-slate-400 uppercase bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-full border border-slate-200 dark:border-slate-700">Coleta desde: {stats.statsReset}</span>}

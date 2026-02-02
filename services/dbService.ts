@@ -1,4 +1,4 @@
-import { DatabaseSchema, DbCredentials, ExplainNode, IntersectionResult, ServerStats, ActiveProcess, TableInsight, UnusedIndex, QueryProfilingSnapshot } from "../types";
+import { DatabaseSchema, DbCredentials, ExplainNode, IntersectionResult, ServerStats, ActiveProcess, TableInsight, UnusedIndex, QueryProfilingSnapshot, StorageStats } from "../types";
 
 const API_URL = 'http://127.0.0.1:3000/api';
 
@@ -75,7 +75,6 @@ export const getServerHealth = async (creds: DbCredentials): Promise<{
 
     const data = await response.json();
     
-    // Sanitização para evitar erros de undefined caso a query retorne vazia
     const summary = data.summary || {};
     
     return {
@@ -125,6 +124,24 @@ export const getServerHealth = async (creds: DbCredentials): Promise<{
     };
   } catch (error: any) {
     console.error("[DB:getServerHealth] Request failed", error);
+    throw error;
+  }
+};
+
+export const fetchStorageStats = async (creds: DbCredentials): Promise<StorageStats> => {
+  const normalizedCreds = ensureIpv4(creds);
+  try {
+    const response = await fetch(`${API_URL}/storage-stats`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ credentials: normalizedCreds })
+    });
+    if (!response.ok) {
+      const err = await response.json();
+      throw new Error(err.error || 'Failed to fetch storage stats');
+    }
+    return await response.json();
+  } catch (error: any) {
     throw error;
   }
 };
@@ -234,7 +251,6 @@ export const explainQueryReal = async (creds: DbCredentials, sql: string): Promi
 export const fetchDetailedProfiling = async (creds: DbCredentials, sql: string): Promise<QueryProfilingSnapshot> => {
   const normalizedCreds = ensureIpv4(creds);
   const cleanSql = sql.trim().replace(/;$/, '');
-  // Captura Buffers e Verbose para o Snapshot de Profiling
   const profilingSql = `EXPLAIN (ANALYZE, BUFFERS, VERBOSE, SETTINGS, FORMAT JSON) ${cleanSql}`;
   
   logger('PROFILING', `Capturando snapshot detalhado para: ${cleanSql.substring(0, 50)}...`);
