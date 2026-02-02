@@ -178,14 +178,10 @@ const DataVisualizer: React.FC<DataVisualizerProps> = ({ data, onDrillDown }) =>
                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" opacity={0.5} vertical={false} />
                  <XAxis dataKey={selectedXAxis} stroke="#94a3b8" fontSize={11} tickLine={false} axisLine={false} dy={10} />
                  <YAxis stroke="#94a3b8" fontSize={11} tickLine={false} axisLine={false} />
-                 {/* 
-                    CURSOR SUAVE: 
-                    Substituímos fill: transparent por um indigo muito leve (5% opacidade).
-                    Isso destaca a coluna atual sem agredir os olhos.
-                 */}
+                 {/* CURSOR REMOVIDO: Limpa o fundo retangular branco ao passar o mouse */}
                  <Tooltip 
                     contentStyle={tooltipStyle} 
-                    cursor={{ fill: 'rgba(99, 102, 241, 0.04)', radius: 8 }} 
+                    cursor={false} 
                  />
                  <Legend wrapperStyle={{ paddingTop: '20px' }} />
                  {selectedYKeys.map((key, index) => (

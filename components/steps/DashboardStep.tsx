@@ -74,10 +74,10 @@ const DashboardStep: React.FC<DashboardStepProps> = ({ items, onRemoveItem, onCl
                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" opacity={0.3} vertical={false} />
                  <XAxis dataKey={item.config.xAxis} stroke="#94a3b8" fontSize={9} tickLine={false} axisLine={false} hide />
                  <YAxis stroke="#94a3b8" fontSize={9} tickLine={false} axisLine={false} />
-                 {/* Cursor suave aplicado também no dashboard */}
+                 {/* CURSOR REMOVIDO: Limpa o efeito retangular branco ao passar o mouse */}
                  <Tooltip 
                     contentStyle={tooltipStyle} 
-                    cursor={{ fill: 'rgba(99, 102, 241, 0.04)', radius: 4 }} 
+                    cursor={false} 
                  />
                  {item.config.yKeys.map((k, i) => (
                     <Bar key={k} dataKey={k} fill={colors[i%colors.length]} radius={[4, 4, 0, 0]} />
