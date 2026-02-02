@@ -4,8 +4,8 @@ import {
   DatabaseSchema, AppStep, BuilderState, QueryResult, DbCredentials, 
   AppSettings, DEFAULT_SETTINGS, VirtualRelation, DashboardItem
 } from './types';
-// Fix: Import Loader2 icon used in the hydration loading screen
 import { Loader2, AlertCircle } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 import Sidebar from '@/components/Sidebar';
 import ConnectionStep from '@/components/steps/ConnectionStep';
 import BuilderStep from '@/components/steps/BuilderStep';
@@ -100,9 +100,13 @@ const App: React.FC = () => {
   const [updateReady, setUpdateReady] = useState(false);
   const manualCheckRef = useRef(false);
 
+  // Monitor de navegação para Logs
+  useEffect(() => {
+    console.log(`[NAVIGATION] Mudando para o step: ${currentStep.toUpperCase()} | Cross-fade Speed: 150ms`);
+  }, [currentStep]);
+
   // --- PERSISTÊNCIA EM DISCO (ELECTRON) ---
   
-  // 1. Hydration (Bootstrap inicial do disco -> localStorage)
   useEffect(() => {
     const hydrateFromDisk = async () => {
         const electron = (window as any).electron;
@@ -116,7 +120,6 @@ const App: React.FC = () => {
                     });
                     console.log(`[PERSISTENCE] ${Object.keys(diskData).length} chaves restauradas com sucesso.`);
                     
-                    // Re-atualizar estados locais para refletir o que veio do disco
                     const savedSettings = localStorage.getItem('psqlBuddy-settings');
                     if (savedSettings) setSettings(JSON.parse(savedSettings));
                     
@@ -132,7 +135,6 @@ const App: React.FC = () => {
     hydrateFromDisk();
   }, []);
 
-  // 2. Sync (localStorage -> Disco) - Debounced
   useEffect(() => {
     if (!isHydrated) return;
     
@@ -151,7 +153,7 @@ const App: React.FC = () => {
         }
     };
 
-    const timer = setTimeout(syncToDisk, 2000); // Aguarda 2s após mudanças para gravar no disco
+    const timer = setTimeout(syncToDisk, 2000); 
     return () => clearTimeout(timer);
   }, [settings, dashboardItems, virtualRelations, executionResult, isHydrated]);
 
@@ -216,6 +218,7 @@ const App: React.FC = () => {
   };
 
   const handleSchemaLoaded = (loadedSchema: DatabaseSchema, creds: DbCredentials) => {
+    console.log(`[SCHEMA_LOADED] Novo schema detectado: ${loadedSchema.name}`);
     setSchema(loadedSchema);
     setCredentials(creds);
     if (loadedSchema.connectionSource === 'simulated') setSimulationData(initializeSimulation(loadedSchema));
@@ -233,19 +236,19 @@ const App: React.FC = () => {
 
   const handleGenerateSql = async () => {
     if (!schema) return;
-    
-    if (settings.enableAiGeneration && !checkApiKey()) {
-       return;
-    }
+    if (settings.enableAiGeneration && !checkApiKey()) return;
 
     setIsGenerating(true);
+    console.log("[AI_GEN] Iniciando geração de SQL via Gemini...");
     try {
       let result = settings.enableAiGeneration 
         ? await generateSqlFromBuilderState(schema, builderState, settings.enableAiTips)
         : generateLocalSql(schema, builderState);
       setQueryResult(result);
       setCurrentStep('preview');
+      console.log("[AI_GEN] Geração concluída.");
     } catch (error: any) { 
+      console.error("[AI_GEN] Erro na geração:", error);
       if (error.message === 'MISSING_API_KEY') {
         setShowKeyPrompt(true);
       } else {
@@ -260,19 +263,21 @@ const App: React.FC = () => {
     const sqlToRun = sqlOverride || queryResult?.sql;
     if (!sqlToRun) return;
     setIsExecuting(true);
+    console.log("[DB_EXEC] Executando query no banco...");
     try {
        let data = credentials.host === 'simulated'
           ? executeOfflineQuery(schema, simulationData, builderState)
           : await executeQueryReal(credentials, sqlToRun);
        setExecutionResult(data);
        setCurrentStep('results');
+       console.log(`[DB_EXEC] Sucesso. ${data.length} linhas retornadas.`);
     } catch (error: any) { 
+      console.error("[DB_EXEC] Falha na execução:", error);
       toast.error(error.message || "Falha na execução"); 
     }
     finally { setIsExecuting(false); }
   };
 
-  // Impede renderização até que os dados do disco sejam injetados no localStorage
   if (!isHydrated) {
       return (
           <div className="h-screen w-screen flex flex-col items-center justify-center bg-slate-950 text-indigo-400">
@@ -319,21 +324,32 @@ const App: React.FC = () => {
         }}
       />
       <main className="flex-1 overflow-hidden relative flex flex-col">
-        <div className="flex-1 p-6 overflow-hidden h-full">
-           {currentStep === 'connection' && <ConnectionStep onSchemaLoaded={handleSchemaLoaded} settings={settings} />}
-           {currentStep === 'builder' && schema && (
-              <BuilderStep schema={schema} state={builderState} onStateChange={setBuilderState} onGenerate={handleGenerateSql} isGenerating={isGenerating} settings={settings} />
-           )}
-           {currentStep === 'preview' && queryResult && (
-              <PreviewStep queryResult={queryResult} onExecute={handleExecuteQuery} onBack={() => setCurrentStep('builder')} isExecuting={isExecuting} isValidating={false} schema={schema || undefined} settings={settings} />
-           )}
-           {currentStep === 'results' && (
-              <ResultsStep data={executionResult} sql={queryResult?.sql || ''} onBackToBuilder={() => setCurrentStep('builder')} onNewConnection={() => setCurrentStep('connection')} settings={settings} onShowToast={(m) => toast(m)} credentials={credentials} schema={schema || undefined} />
-           )}
-           {currentStep === 'datadiff' && schema && <DataDiffStep schema={schema} credentials={credentials} simulationData={simulationData} settings={settings} />}
-           {currentStep === 'dashboard' && <DashboardStep items={dashboardItems} onRemoveItem={(id) => setDashboardItems(prev => prev.filter(i => i.id !== id))} onClearAll={() => setDashboardItems([])} />}
-           {currentStep === 'serverhealth' && <ServerHealthStep credentials={credentials} />}
-           {currentStep === 'roadmap' && <RoadmapStep onNavigate={setCurrentStep} />}
+        <div className="flex-1 p-6 overflow-hidden h-full relative">
+           <AnimatePresence mode="popLayout">
+             <motion.div
+               key={currentStep}
+               initial={{ opacity: 0, y: 6, filter: 'blur(2px)' }}
+               animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
+               exit={{ opacity: 0, y: -6, filter: 'blur(2px)' }}
+               transition={{ duration: 0.15, ease: "easeOut" }}
+               className="h-full w-full absolute top-0 left-0 p-6"
+             >
+               {currentStep === 'connection' && <ConnectionStep onSchemaLoaded={handleSchemaLoaded} settings={settings} />}
+               {currentStep === 'builder' && schema && (
+                  <BuilderStep schema={schema} state={builderState} onStateChange={setBuilderState} onGenerate={handleGenerateSql} isGenerating={isGenerating} settings={settings} />
+               )}
+               {currentStep === 'preview' && queryResult && (
+                  <PreviewStep queryResult={queryResult} onExecute={handleExecuteQuery} onBack={() => setCurrentStep('builder')} isExecuting={isExecuting} isValidating={false} schema={schema || undefined} settings={settings} />
+               )}
+               {currentStep === 'results' && (
+                  <ResultsStep data={executionResult} sql={queryResult?.sql || ''} onBackToBuilder={() => setCurrentStep('builder')} onNewConnection={() => setCurrentStep('connection')} settings={settings} onShowToast={(m) => toast(m)} credentials={credentials} schema={schema || undefined} />
+               )}
+               {currentStep === 'datadiff' && schema && <DataDiffStep schema={schema} credentials={credentials} simulationData={simulationData} settings={settings} />}
+               {currentStep === 'dashboard' && <DashboardStep items={dashboardItems} onRemoveItem={(id) => setDashboardItems(prev => prev.filter(i => i.id !== id))} onClearAll={() => setDashboardItems([])} />}
+               {currentStep === 'serverhealth' && <ServerHealthStep credentials={credentials} />}
+               {currentStep === 'roadmap' && <RoadmapStep onNavigate={setCurrentStep} />}
+             </motion.div>
+           </AnimatePresence>
         </div>
       </main>
       {showSettings && <SettingsModal settings={settings} onSave={setSettings} onClose={() => setShowSettings(false)} simulationData={simulationData} schema={schema} credentials={credentials} remoteVersions={remoteVersions} initialTab={settingsTab} />}

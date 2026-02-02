@@ -132,7 +132,7 @@ const HoverPreviewTooltip: React.FC<{
       {isPersistent && (
          <div className="flex justify-between items-center border-b border-slate-700 pb-2 mb-1">
             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1.5"><Layers className="w-3.5 h-3.5" /> Escolher Destino</span>
-            <button onClick={onClose} className="p-1 hover:bg-slate-800 rounded"><X className="w-3.5 h-3.5 text-slate-50" /></button>
+            <button onClick={onClose} className="p-1.5 hover:bg-slate-800 rounded"><X className="w-3.5 h-3.5 text-slate-50" /></button>
          </div>
       )}
 
@@ -142,6 +142,7 @@ const HoverPreviewTooltip: React.FC<{
           <button 
             key={link.id} 
             disabled={!isPersistent}
+            // Fix: Changed undefined name 'key' to 'link.keyCol'
             onClick={() => isPersistent && onSelect?.(link.table, link.keyCol, links)}
             className={`text-left group/item flex flex-col w-full rounded-lg transition-colors ${idx > 0 ? 'pt-2 border-t border-slate-800' : ''} ${isPersistent ? 'hover:bg-slate-800 p-1.5 -m-1.5' : ''}`}
           >
@@ -1002,7 +1003,8 @@ const ResultsStep: React.FC<ResultsStepProps> = ({ data, sql, onBackToBuilder, o
 
   const auditLog = useMemo(() => {
     const logs: Array<{ rowIdx: number, col: string, oldVal: any, newVal: string, pkVal: any }> = [];
-    Object.entries(pendingEdits).forEach(([key, val]) => {
+    // Fix: Added explicit type casting to Object.entries(pendingEdits) to resolve TypeScript inference where 'key' and 'val' were treated as 'unknown'.
+    (Object.entries(pendingEdits) as Array<[string, string]>).forEach(([key, val]) => {
       const [rowIdx] = key.split('-').map(Number);
       const col = key.split('-').slice(1).join('-');
       const row = localData[rowIdx];
@@ -1084,12 +1086,12 @@ const ResultsStep: React.FC<ResultsStepProps> = ({ data, sql, onBackToBuilder, o
     try {
        await executeQueryReal(credentials, sqlStatementsPreview);
        const newData = [...localData];
-       Object.entries(pendingEdits).forEach(([key, val]) => {
+       // Fix: Added explicit type casting to Object.entries(pendingEdits) to resolve TypeScript inference where 'key' and 'val' were treated as 'unknown'.
+       (Object.entries(pendingEdits) as Array<[string, string]>).forEach(([key, val]) => {
           const [rowIdx] = key.split('-').map(Number);
           const col = key.split('-').slice(1).join('-');
           newData[rowIdx] = { ...newData[rowIdx], [col]: val };
        });
-       setLocalData(newData);
        setPendingEdits({});
        onShowToast("Transação concluída e alterações salvas.", "success");
     } catch (e: any) {
@@ -1203,7 +1205,7 @@ const ResultsStep: React.FC<ResultsStepProps> = ({ data, sql, onBackToBuilder, o
                   </button>
                </div>
 
-               <div className="flex bg-slate-100 dark:bg-slate-900/50 p-1 mx-6 mt-6 rounded-xl border border-slate-200 dark:border-slate-800 shrink-0">
+               <div className="flex bg-slate-100 dark:bg-slate-900/50 p-1 mx-6 mt-6 rounded-xl border border-slate-200 dark:border-slate-700 shrink-0">
                   <button onClick={() => setReviewTab('audit')} className={`flex-1 py-2 text-xs font-black uppercase tracking-widest rounded-lg transition-all ${reviewTab === 'audit' ? 'bg-white dark:bg-slate-700 text-indigo-600 shadow-sm' : 'text-slate-500'}`}>Log de Alterações</button>
                   <button onClick={() => setReviewTab('script')} className={`flex-1 py-2 text-xs font-black uppercase tracking-widest rounded-lg transition-all ${reviewTab === 'script' ? 'bg-white dark:bg-slate-700 text-indigo-600 shadow-sm' : 'text-slate-500'}`}>Script SQL (Update)</button>
                   <button onClick={() => setReviewTab('rollback')} className={`flex-1 py-2 text-xs font-black uppercase tracking-widest rounded-lg transition-all ${reviewTab === 'rollback' ? 'bg-white dark:bg-slate-700 text-amber-600 shadow-sm' : 'text-slate-500'}`}>Rollback (Desfazer)</button>
