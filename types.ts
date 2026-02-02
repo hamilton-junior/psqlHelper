@@ -207,7 +207,7 @@ export interface BuilderState {
   aggregations: Record<string, AggregateFunction>; 
   joins: ExplicitJoin[];
   filters: Filter[];
-  groupBy: [] | string[];
+  groupBy: string[];
   orderBy: OrderBy[];
   limit: number;
   calculatedColumns?: CalculatedColumn[];
@@ -233,6 +233,14 @@ export interface VirtualRelation {
 export enum MessageRole {
   USER = 'user',
   ASSISTANT = 'assistant'
+}
+
+export interface ChatMessage {
+  id: string;
+  role: MessageRole;
+  content: string;
+  queryResult?: QueryResult;
+  mockData?: any[];
 }
 
 export interface ChatMessage {

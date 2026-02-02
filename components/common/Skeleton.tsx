@@ -1,12 +1,12 @@
-
 import React from 'react';
 
 interface SkeletonProps {
   className?: string;
   variant?: 'text' | 'rect' | 'circle';
+  style?: React.CSSProperties;
 }
 
-export const Skeleton: React.FC<SkeletonProps> = ({ className = '', variant = 'rect' }) => {
+export const Skeleton: React.FC<SkeletonProps> = ({ className = '', variant = 'rect', style }) => {
   const baseClass = "animate-pulse bg-slate-200 dark:bg-slate-800";
   const variantClasses = {
     text: "h-3 w-3/4 rounded",
@@ -14,7 +14,7 @@ export const Skeleton: React.FC<SkeletonProps> = ({ className = '', variant = 'r
     circle: "rounded-full"
   };
 
-  return <div className={`${baseClass} ${variantClasses[variant]} ${className}`} />;
+  return <div className={`${baseClass} ${variantClasses[variant]} ${className}`} style={style} />;
 };
 
 export const TableSkeleton: React.FC<{ rows?: number, cols?: number }> = ({ rows = 5, cols = 4 }) => (
