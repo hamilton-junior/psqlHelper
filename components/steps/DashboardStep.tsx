@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { DashboardItem } from '../../types';
 import { BarChart, Bar, LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
@@ -35,15 +34,23 @@ const DashboardStep: React.FC<DashboardStepProps> = ({ items, onRemoveItem, onCl
      };
 
      const colors = ['#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'];
+     
+     const tooltipStyle = { 
+        borderRadius: '12px', 
+        border: 'none', 
+        boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)',
+        backgroundColor: document.documentElement.classList.contains('dark') ? '#1e293b' : '#ffffff',
+        fontSize: '11px'
+     };
 
      switch(item.type) {
         case 'line':
            return (
               <LineChart {...commonProps}>
-                 <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" opacity={0.5} />
-                 <XAxis dataKey={item.config.xAxis} stroke="#94a3b8" fontSize={10} tickLine={false} />
-                 <YAxis stroke="#94a3b8" fontSize={10} tickLine={false} />
-                 <Tooltip />
+                 <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" opacity={0.3} vertical={false} />
+                 <XAxis dataKey={item.config.xAxis} stroke="#94a3b8" fontSize={9} tickLine={false} axisLine={false} hide />
+                 <YAxis stroke="#94a3b8" fontSize={9} tickLine={false} axisLine={false} />
+                 <Tooltip contentStyle={tooltipStyle} />
                  {item.config.yKeys.map((k, i) => (
                     <Line key={k} type="monotone" dataKey={k} stroke={colors[i%colors.length]} strokeWidth={2} dot={false} />
                  ))}
@@ -52,22 +59,26 @@ const DashboardStep: React.FC<DashboardStepProps> = ({ items, onRemoveItem, onCl
         case 'area':
             return (
               <AreaChart {...commonProps}>
-                 <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" opacity={0.5} />
-                 <XAxis dataKey={item.config.xAxis} stroke="#94a3b8" fontSize={10} tickLine={false} />
-                 <YAxis stroke="#94a3b8" fontSize={10} tickLine={false} />
-                 <Tooltip />
+                 <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" opacity={0.3} vertical={false} />
+                 <XAxis dataKey={item.config.xAxis} stroke="#94a3b8" fontSize={9} tickLine={false} axisLine={false} hide />
+                 <YAxis stroke="#94a3b8" fontSize={9} tickLine={false} axisLine={false} />
+                 <Tooltip contentStyle={tooltipStyle} />
                  {item.config.yKeys.map((k, i) => (
-                    <Area key={k} type="monotone" dataKey={k} stroke={colors[i%colors.length]} fill={colors[i%colors.length]} fillOpacity={0.3} />
+                    <Area key={k} type="monotone" dataKey={k} stroke={colors[i%colors.length]} fill={colors[i%colors.length]} fillOpacity={0.15} strokeWidth={2} />
                  ))}
               </AreaChart>
            );
         default:
            return (
               <BarChart {...commonProps}>
-                 <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" opacity={0.5} />
-                 <XAxis dataKey={item.config.xAxis} stroke="#94a3b8" fontSize={10} tickLine={false} />
-                 <YAxis stroke="#94a3b8" fontSize={10} tickLine={false} />
-                 <Tooltip cursor={{fill: 'transparent'}} />
+                 <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" opacity={0.3} vertical={false} />
+                 <XAxis dataKey={item.config.xAxis} stroke="#94a3b8" fontSize={9} tickLine={false} axisLine={false} hide />
+                 <YAxis stroke="#94a3b8" fontSize={9} tickLine={false} axisLine={false} />
+                 {/* Cursor suave aplicado também no dashboard */}
+                 <Tooltip 
+                    contentStyle={tooltipStyle} 
+                    cursor={{ fill: 'rgba(99, 102, 241, 0.04)', radius: 4 }} 
+                 />
                  {item.config.yKeys.map((k, i) => (
                     <Bar key={k} dataKey={k} fill={colors[i%colors.length]} radius={[4, 4, 0, 0]} />
                  ))}
@@ -110,16 +121,16 @@ const DashboardStep: React.FC<DashboardStepProps> = ({ items, onRemoveItem, onCl
 
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 pb-20">
          {items.map(item => (
-            <div key={item.id} className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden flex flex-col h-[320px] group">
+            <div key={item.id} className="bg-white dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden flex flex-col h-[320px] group">
                <div className="p-4 border-b border-slate-100 dark:border-slate-700 flex justify-between items-start">
                   <div>
-                     <h4 className="font-bold text-slate-700 dark:text-slate-200 text-sm">{item.title}</h4>
-                     <div className="flex items-center gap-2 text-[10px] text-slate-400 mt-1">
+                     <h4 className="font-black text-slate-700 dark:text-slate-200 text-sm uppercase tracking-tight">{item.title}</h4>
+                     <div className="flex items-center gap-2 text-[10px] text-slate-400 mt-1 font-bold">
                         <Calendar className="w-3 h-3" />
                         {new Date(item.createdAt).toLocaleDateString()}
                      </div>
                   </div>
-                  <button onClick={() => onRemoveItem(item.id)} className="text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <button onClick={() => onRemoveItem(item.id)} className="p-2 text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
                      <X className="w-4 h-4" />
                   </button>
                </div>
