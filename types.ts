@@ -121,6 +121,23 @@ export const DEFAULT_SETTINGS: AppSettings = {
   updateBranch: 'stable'
 };
 
+export interface QueryProfilingSnapshot {
+  id: string;
+  name: string;
+  timestamp: number;
+  sql: string;
+  plan: any; // ExplainNode formatted or raw JSON
+  metrics: {
+    totalRuntime: number;
+    planningTime: number;
+    sharedReadBuffers?: number;
+    sharedHitBuffers?: number;
+    sharedWrittenBuffers?: number;
+    tempReadBuffers?: number;
+    tempWrittenBuffers?: number;
+  };
+}
+
 export interface QueryResult {
   sql: string;
   explanation: string;

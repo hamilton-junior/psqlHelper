@@ -38,17 +38,32 @@
           ]
         },
         {
-          "title": "Visualizador de Linhagem (Data Lineage)",
-          "desc": "Destaque visual do caminho que os dados percorrem em queries complexas, identificando tabelas fatos e dimensões.",
+          "title": "Query Profiling Snapshot",
+          "desc": "Captura detalhada de buffers, I/O e planos de execução em instantâneos para comparação e auditoria assistida por IA.",
+          "status": "Finalizado",
+          "size": "Médio",
+          "progress": 100,
+          "votes": 256,
+          "addedInVersion": "v0.2.44",
+          "releasedInVersion": "v0.2.45",
+          "implementationPlan": [
+            "Explain (ANALYZE, BUFFERS, VERBOSE) para profiling profundo.",
+            "Histórico persistente de snapshots via LocalStorage.",
+            "Análise comparativa de regressão de performance via Gemini 3 Pro."
+          ]
+        },
+        {
+          "title": "Monitor de Storage de Disco",
+          "desc": "Visualizador de uso de disco físico por banco de dados e arquivos de log, com projeção de crescimento.",
           "status": "Planejado",
           "size": "Médio",
           "progress": 0,
-          "votes": 256,
+          "votes": 156,
           "addedInVersion": "v0.2.44",
           "implementationPlan": [
-            "Mapeamento de dependências entre joins.",
-            "Visualização gráfica do fluxo de transformação de dados.",
-            "Identificação de gargalos em colunas específicas."
+            "Integração com chamadas de sistema para monitorar volume de dados.",
+            "Histórico de crescimento de tabelas.",
+            "Alertas de quota de disco."
           ]
         },
         {
@@ -176,17 +191,17 @@
           ]
         },
         {
-          "title": "Cache de Telemetria",
-          "desc": "Armazenamento local de métricas de saúde para visualização de histórico de performance offline.",
-          "status": "Em Discussão",
+          "title": "Exportação de Workspaces",
+          "desc": "Salva todo o contexto (SQL, Gráficos, Conexão e Snapshots) em um único arquivo de projeto portátil.",
+          "status": "Planejado",
           "size": "Médio",
           "progress": 0,
           "votes": 45,
           "addedInVersion": "v0.2.44",
           "implementationPlan": [
-            "Persistência via IndexedDB ou arquivo local.",
-            "Gráficos comparativos de performance temporal (D-1, D-7).",
-            "Exportação de tendências de uso de banco."
+            "Serialização complexa do estado do builder.",
+            "Encriptação opcional do arquivo exportado.",
+            "Motor de importação com validação de versão."
           ]
         },
         {
@@ -200,10 +215,10 @@
           "releasedInVersion": "v0.2.15"
         },
         {
-          "title": "Suporte Multi-Banco (MySQL/SQLite)",
-          "desc": "Expansão do motor de drivers para suportar outros dialetos SQL comuns no ecossistema dev.",
-          "status": "Em Discussão",
-          "size": "Grande",
+          "title": "Drag-and-Drop no Builder",
+          "desc": "Interface intuitiva para arrastar colunas diretamente do mapa do schema para o painel de seleção.",
+          "status": "Planejado",
+          "size": "Médio",
           "progress": 0,
           "votes": 489,
           "addedInVersion": "v0.2.44"

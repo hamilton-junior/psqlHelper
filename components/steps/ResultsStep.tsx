@@ -1,14 +1,14 @@
-
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { ArrowLeft, ArrowRight, Database, ChevronLeft, ChevronRight, FileSpreadsheet, Search, Copy, Check, BarChart2, MessageSquare, Download, Activity, LayoutGrid, FileText, Pin, AlertCircle, Info, MoreHorizontal, FileJson, FileCode, Hash, Type, Filter, Plus, X, Trash2, SlidersHorizontal, Clock, Maximize2, Minimize2, ExternalLink, Braces, PenTool, Save, Eye, Anchor, Link as LinkIcon, Settings2, Loader2, Folder, Terminal as TerminalIcon, ChevronDown, ChevronUp, Layers, Target, CornerDownRight, AlertTriangle, Undo2, ShieldAlert, Pencil, ArrowUp, ArrowDown, ArrowUpDown, History, RotateCcw, FileWarning } from 'lucide-react';
-import { AppSettings, ExplainNode, DatabaseSchema, Table } from '../../types';
+import { ArrowLeft, ArrowRight, Database, ChevronLeft, ChevronRight, FileSpreadsheet, Search, Copy, Check, BarChart2, MessageSquare, Download, Activity, LayoutGrid, FileText, Pin, AlertCircle, Info, MoreHorizontal, FileJson, FileCode, Hash, Type, Filter, Plus, X, Trash2, SlidersHorizontal, Clock, Maximize2, Minimize2, ExternalLink, Braces, PenTool, Save, Eye, Anchor, Link as LinkIcon, Settings2, Loader2, Folder, Terminal as TerminalIcon, ChevronDown, ChevronUp, Layers, Target, CornerDownRight, AlertTriangle, Undo2, ShieldAlert, Pencil, ArrowUp, ArrowDown, ArrowUpDown, History, RotateCcw, FileWarning, Gauge, Camera } from 'lucide-react';
+import { AppSettings, ExplainNode, DatabaseSchema, Table, QueryProfilingSnapshot } from '../../types';
 import DataVisualizer from '../DataVisualizer';
 import DataAnalysisChat from '../DataAnalysisChat';
 import CodeSnippetModal from '../CodeSnippetModal';
 import JsonViewerModal from '../JsonViewerModal'; 
 import DrillDownModal from '../DrillDownModal'; 
+import ProfilingSnapshotModal from '../ProfilingSnapshotModal';
 import { addToHistory } from '../../services/historyService';
-import { executeQueryReal, explainQueryReal } from '../../services/dbService';
+import { executeQueryReal, explainQueryReal, fetchDetailedProfiling } from '../../services/dbService';
 import BeginnerTip from '../BeginnerTip';
 import { toast } from 'react-hot-toast';
 import { Skeleton } from '../common/Skeleton';
@@ -142,7 +142,6 @@ const HoverPreviewTooltip: React.FC<{
           <button 
             key={link.id} 
             disabled={!isPersistent}
-            // Fix: Changed undefined name 'key' to 'link.keyCol'
             onClick={() => isPersistent && onSelect?.(link.table, link.keyCol, links)}
             className={`text-left group/item flex flex-col w-full rounded-lg transition-colors ${idx > 0 ? 'pt-2 border-t border-slate-800' : ''} ${isPersistent ? 'hover:bg-slate-800 p-1.5 -m-1.5' : ''}`}
           >
@@ -804,7 +803,7 @@ const ColumnProfiler: React.FC<{ data: any[], column: string, onClose: () => voi
    );
 };
 
-const ExplainVisualizer = ({ plan, loading, error }: { plan: ExplainNode | null, loading: boolean, error: string | null }) => {
+const ExplainVisualizer = ({ plan, loading, error, onCaptureProfiling }: { plan: ExplainNode | null, loading: boolean, error: string | null, onCaptureProfiling: () => void }) => {
    if (loading) return (
     <div className="p-8 space-y-6">
       <div className="flex items-center gap-4">
@@ -837,7 +836,25 @@ const ExplainVisualizer = ({ plan, loading, error }: { plan: ExplainNode | null,
          {node.children && node.children.map(child => renderNode(child, depth + 1))}
       </div>
    );
-   return <div className="p-6 overflow-auto bg-slate-50 dark:bg-slate-900 h-full">{renderNode(plan)}</div>;
+   return (
+      <div className="flex flex-col h-full bg-slate-50 dark:bg-slate-900">
+         <div className="p-4 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center bg-white dark:bg-slate-800">
+            <div className="flex items-center gap-3">
+               <div className="p-1.5 bg-amber-100 dark:bg-amber-900/30 rounded text-amber-600 dark:text-amber-400">
+                  <Gauge className="w-4 h-4" />
+               </div>
+               <span className="text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-widest">Plano de Execução Detalhado</span>
+            </div>
+            <button 
+               onClick={onCaptureProfiling}
+               className="flex items-center gap-2 px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold shadow-md transition-all active:scale-95"
+            >
+               <Camera className="w-3.5 h-3.5" /> Capturar Profiling Snapshot
+            </button>
+         </div>
+         <div className="flex-1 overflow-auto p-6">{renderNode(plan)}</div>
+      </div>
+   );
 };
 
 interface FilterRule {
@@ -856,6 +873,9 @@ const SmartFilterBar: React.FC<{ columns: string[], filters: FilterRule[], onCha
    return <div className="bg-slate-50 dark:bg-slate-900/50 p-2 rounded-lg border border-slate-200 dark:border-slate-700 animate-in slide-in-from-top-2"><div className="flex items-center justify-between mb-2 px-1"><span className="text-[10px] font-bold uppercase text-slate-400 tracking-wider">Filtros Locais</span><button onClick={() => { onClear(); setIsOpen(false); }} className="text-[10px] text-red-500 hover:underline">Limpar</button></div><div className="space-y-2">{filters.map(f => (<div key={f.id} className="flex items-center gap-2"><select value={f.column} onChange={(e) => updateFilter(f.id, 'column', e.target.value)} className="text-xs bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 outline-none focus:border-indigo-500 max-w-[120px]">{columns.map(c => <option key={c} value={c}>{c}</option>)}</select><select value={f.operator} onChange={(e) => updateFilter(f.id, 'operator', e.target.value as any)} className="text-xs bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 outline-none focus:border-indigo-500"><option value="contains">Contém</option><option value="equals">Igual</option><option value="starts">Começa com</option><option value="gt">Maior que (&gt;)</option><option value="lt">Menor que (&lt;)</option></select><input type="text" value={f.value} onChange={(e) => updateFilter(f.id, 'value', e.target.value)} placeholder="Valor..." className="text-xs flex-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 outline-none focus:border-indigo-500 min-w-[80px]" /><button onClick={() => removeFilter(f.id)} className="text-slate-400 hover:text-red-500"><X className="w-3.5 h-3.5" /></button></div>))}<button onClick={addFilter} className="flex items-center gap-1 text-[10px] font-bold text-indigo-600 hover:underline px-1"><Plus className="w-3 h-3" /> Adicionar Regra</button></div></div>;
 };
 
+/* Adicionando tipo ResultTab que estava faltando */
+type ResultTab = 'table' | 'terminal' | 'chart' | 'analysis' | 'explain';
+
 interface ResultsStepProps {
   data: any[];
   sql: string;
@@ -867,8 +887,6 @@ interface ResultsStepProps {
   executionDuration?: number;
   schema?: DatabaseSchema;
 }
-
-type ResultTab = 'table' | 'chart' | 'terminal' | 'analysis' | 'explain';
 
 const ResultsStep: React.FC<ResultsStepProps> = ({ data, sql, onBackToBuilder, onNewConnection, settings, onShowToast, credentials, executionDuration, schema }) => {
   const [activeTab, setActiveTab] = useState<ResultTab>('table');
@@ -885,6 +903,7 @@ const ResultsStep: React.FC<ResultsStepProps> = ({ data, sql, onBackToBuilder, o
   const [selectedRow, setSelectedRow] = useState<any | null>(null);
   const [viewJson, setViewJson] = useState<any | null>(null);
   const [drillDownTarget, setDrillDownTarget] = useState<{table: string, col: string, val: any, allLinks?: ManualLink[]} | null>(null);
+  const [showProfilingHistory, setShowProfilingHistory] = useState(false);
   
   const [pendingEdits, setPendingEdits] = useState<Record<string, string>>({});
   const [showConfirmation, setShowConfirmation] = useState(false);
@@ -1003,7 +1022,6 @@ const ResultsStep: React.FC<ResultsStepProps> = ({ data, sql, onBackToBuilder, o
 
   const auditLog = useMemo(() => {
     const logs: Array<{ rowIdx: number, col: string, oldVal: any, newVal: string, pkVal: any }> = [];
-    // Fix: Added explicit type casting to Object.entries(pendingEdits) to resolve TypeScript inference where 'key' and 'val' were treated as 'unknown'.
     (Object.entries(pendingEdits) as Array<[string, string]>).forEach(([key, val]) => {
       const [rowIdx] = key.split('-').map(Number);
       const col = key.split('-').slice(1).join('-');
@@ -1086,7 +1104,6 @@ const ResultsStep: React.FC<ResultsStepProps> = ({ data, sql, onBackToBuilder, o
     try {
        await executeQueryReal(credentials, sqlStatementsPreview);
        const newData = [...localData];
-       // Fix: Added explicit type casting to Object.entries(pendingEdits) to resolve TypeScript inference where 'key' and 'val' were treated as 'unknown'.
        (Object.entries(pendingEdits) as Array<[string, string]>).forEach(([key, val]) => {
           const [rowIdx] = key.split('-').map(Number);
           const col = key.split('-').slice(1).join('-');
@@ -1164,6 +1181,20 @@ const ResultsStep: React.FC<ResultsStepProps> = ({ data, sql, onBackToBuilder, o
       } 
     } 
   }; 
+
+  const handleCaptureProfiling = async () => {
+    if (!credentials) return;
+    const loadId = toast.loading("Gerando Query Profiling Snapshot...");
+    try {
+      const snapshot = await fetchDetailedProfiling(credentials, sql);
+      const existing = JSON.parse(localStorage.getItem('psqlbuddy-profiling-snapshots') || '[]');
+      localStorage.setItem('psqlbuddy-profiling-snapshots', JSON.stringify([snapshot, ...existing].slice(0, 30)));
+      toast.success("Profiling Snapshot capturado com sucesso!", { id: loadId });
+      setShowProfilingHistory(true);
+    } catch (e: any) {
+      toast.error(`Falha no profiling: ${e.message}`, { id: loadId });
+    }
+  };
   
   const toggleFullscreen = () => setIsFullscreen(!isFullscreen);
 
@@ -1186,12 +1217,13 @@ const ResultsStep: React.FC<ResultsStepProps> = ({ data, sql, onBackToBuilder, o
         />
       )}
       {showCodeModal && <CodeSnippetModal sql={sql} onClose={() => setShowCodeModal(false)} />}
+      {showProfilingHistory && <ProfilingSnapshotModal onClose={() => setShowProfilingHistory(false)} />}
       
       {showConfirmation && (
          <div className="fixed inset-0 z-[200] bg-slate-900/80 backdrop-blur-md flex items-center justify-center p-4">
             <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 w-full max-w-4xl overflow-hidden animate-in zoom-in-95 flex flex-col max-h-[85vh]">
                <div className="p-6 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center bg-slate-50 dark:bg-slate-900/30">
-                  <div className="flex items-center gap-4">
+                  <div className="flex items-start gap-3">
                      <div className="p-3 bg-red-100 dark:bg-red-900/30 rounded-2xl">
                         <ShieldAlert className="w-8 h-8 text-red-600" />
                      </div>
@@ -1280,7 +1312,7 @@ const ResultsStep: React.FC<ResultsStepProps> = ({ data, sql, onBackToBuilder, o
 
                   {reviewTab === 'rollback' && (
                      <div className="h-full flex flex-col gap-4">
-                        <div className="p-4 bg-amber-50 dark:bg-amber-950/40 p-4 rounded-2xl border border-amber-100 dark:border-amber-800 animate-in zoom-in-95">
+                        <div className="p-4 bg-amber-50 dark:bg-amber-950/40 rounded-2xl border border-amber-100 dark:border-amber-800 animate-in zoom-in-95">
                            <RotateCcw className="w-6 h-6 text-amber-600 shrink-0" />
                            <div>
                               <h4 className="text-xs font-black text-amber-800 dark:text-amber-300 uppercase tracking-widest">Plano de Desastre</h4>
@@ -1332,10 +1364,20 @@ const ResultsStep: React.FC<ResultsStepProps> = ({ data, sql, onBackToBuilder, o
              { id: 'analysis', icon: <MessageSquare className="w-4 h-4" />, label: 'AI Analyst' },
              { id: 'explain', icon: <Activity className="w-4 h-4" />, label: 'Performance' }
            ].map(tab => (
+              /* Corrigido: usando type cast para ResultTab */
               <button key={tab.id} onClick={() => { setActiveTab(tab.id as ResultTab); if(tab.id === 'explain') handleExplain(); }} className={`flex items-center gap-2 px-4 py-1.5 rounded-md text-sm font-medium transition-all whitespace-nowrap ${activeTab === tab.id ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/50 dark:text-indigo-300' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}>{tab.icon} {tab.label}</button>
            ))}
         </div>
         <div className="flex items-center gap-2">
+           {activeTab === 'explain' && (
+              <button 
+                onClick={() => setShowProfilingHistory(true)}
+                className="flex items-center gap-2 px-3 py-1.5 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-bold text-slate-600 dark:text-slate-300 hover:border-indigo-400 transition-all shadow-sm"
+              >
+                <History className="w-3.5 h-3.5" /> Ver Snapshots
+              </button>
+           )}
+           
            {hasPendingEdits && (
               <div className="flex items-center gap-2 animate-in slide-in-from-right-2">
                  <button onClick={() => setPendingEdits({})} className="flex items-center gap-2 px-3 py-1.5 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-bold text-slate-500 hover:bg-slate-200 transition-all"><Undo2 className="w-4 h-4" /> Descartar</button>
@@ -1378,7 +1420,7 @@ const ResultsStep: React.FC<ResultsStepProps> = ({ data, sql, onBackToBuilder, o
             {activeTab === 'terminal' && <AnsiTerminal text={ansiTableString} />}
             {activeTab === 'chart' && <div className="p-6 h-full w-full relative"><DataVisualizer data={filteredData} onDrillDown={handleChartDrillDown} /> </div>}
             {activeTab === 'analysis' && <div className="flex-1 h-full"><DataAnalysisChat data={filteredData} sql={sql} /></div>}
-            {activeTab === 'explain' && <ExplainVisualizer plan={explainPlan} loading={loadingExplain} error={explainError} />}
+            {activeTab === 'explain' && <ExplainVisualizer plan={explainPlan} loading={loadingExplain} error={explainError} onCaptureProfiling={handleCaptureProfiling} />}
           </>
         )}
       </div>

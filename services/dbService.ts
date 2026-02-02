@@ -1,5 +1,4 @@
-
-import { DatabaseSchema, DbCredentials, ExplainNode, IntersectionResult, ServerStats, ActiveProcess, TableInsight, UnusedIndex } from "../types";
+import { DatabaseSchema, DbCredentials, ExplainNode, IntersectionResult, ServerStats, ActiveProcess, TableInsight, UnusedIndex, QueryProfilingSnapshot } from "../types";
 
 const API_URL = 'http://127.0.0.1:3000/api';
 
@@ -230,4 +229,47 @@ export const explainQueryReal = async (creds: DbCredentials, sql: string): Promi
       }
       throw new Error("Plano de execução inválido.");
    } catch (e: any) { throw new Error("Falha ao gerar plano: " + e.message); }
+};
+
+export const fetchDetailedProfiling = async (creds: DbCredentials, sql: string): Promise<QueryProfilingSnapshot> => {
+  const normalizedCreds = ensureIpv4(creds);
+  const cleanSql = sql.trim().replace(/;$/, '');
+  // Captura Buffers e Verbose para o Snapshot de Profiling
+  const profilingSql = `EXPLAIN (ANALYZE, BUFFERS, VERBOSE, SETTINGS, FORMAT JSON) ${cleanSql}`;
+  
+  logger('PROFILING', `Capturando snapshot detalhado para: ${cleanSql.substring(0, 50)}...`);
+  
+  try {
+    const result = await executeQueryReal(normalizedCreds, profilingSql);
+    if (result && result.length > 0) {
+      const planRow = result[0];
+      const key = Object.keys(planRow).find(k => k.toUpperCase().includes('PLAN'));
+      let rawPlan = planRow[key || 'QUERY PLAN'];
+      if (typeof rawPlan === 'string') rawPlan = JSON.parse(rawPlan);
+      
+      const planObj = rawPlan[0];
+      const topNode = planObj.Plan;
+
+      return {
+        id: crypto.randomUUID(),
+        name: `Snapshot ${new Date().toLocaleTimeString()}`,
+        timestamp: Date.now(),
+        sql,
+        plan: topNode,
+        metrics: {
+          totalRuntime: planObj['Actual Total Time'] || topNode['Actual Total Time'] || 0,
+          planningTime: planObj['Planning Time'] || 0,
+          sharedReadBuffers: topNode['Shared Read Blocks'] || 0,
+          sharedHitBuffers: topNode['Shared Hit Blocks'] || 0,
+          sharedWrittenBuffers: topNode['Shared Written Blocks'] || 0,
+          tempReadBuffers: topNode['Temp Read Blocks'] || 0,
+          tempWrittenBuffers: topNode['Temp Written Blocks'] || 0,
+        }
+      };
+    }
+    throw new Error("Falha ao capturar dados de profiling.");
+  } catch (e: any) {
+    logger('PROFILING_ERROR', e.message);
+    throw e;
+  }
 };
