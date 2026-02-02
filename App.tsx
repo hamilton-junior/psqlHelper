@@ -99,6 +99,9 @@ const App: React.FC = () => {
   const [updateReady, setUpdateReady] = useState(false);
   const manualCheckRef = useRef(false);
 
+  // Ref para controle de concorrência na geração de IA
+  const generationIdRef = useRef(0);
+
   // Monitor de navegação para Logs
   useEffect(() => {
     console.log(`[NAVIGATION] Mudando para o step: ${currentStep.toUpperCase()} | Pure Cross-fade Speed: 150ms`);
@@ -239,16 +242,27 @@ const App: React.FC = () => {
     if (!schema) return;
     if (settings.enableAiGeneration && !checkApiKey()) return;
 
+    const currentGenId = ++generationIdRef.current;
     setIsGenerating(true);
-    console.log("[AI_GEN] Iniciando geração de SQL via Gemini...");
+    console.log(`[AI_GEN] Iniciando geração (ID: ${currentGenId}) via Gemini...`);
+    
     try {
       let result = settings.enableAiGeneration 
         ? await generateSqlFromBuilderState(schema, builderState, settings.enableAiTips)
         : generateLocalSql(schema, builderState);
+      
+      // Se o ID mudou, o usuário pulou ou iniciou outra geração
+      if (currentGenId !== generationIdRef.current) {
+        console.log(`[AI_GEN] Geração ID ${currentGenId} descartada (ID atual: ${generationIdRef.current}).`);
+        return;
+      }
+
       setQueryResult(result);
       setCurrentStep('preview');
       console.log("[AI_GEN] Geração concluída.");
     } catch (error: any) { 
+      if (currentGenId !== generationIdRef.current) return;
+      
       console.error("[AI_GEN] Erro na geração:", error);
       if (error.message === 'MISSING_API_KEY') {
         setShowKeyPrompt(true);
@@ -256,8 +270,28 @@ const App: React.FC = () => {
         toast.error(error.message || "Erro ao gerar SQL"); 
       }
     }
-    finally { setIsGenerating(false); }
+    finally { 
+      if (currentGenId === generationIdRef.current) {
+        setIsGenerating(false); 
+      }
+    }
   };
+
+  // Função para pular a geração por IA e usar lógica local determinística
+  const handleSkipAi = useCallback(() => {
+    if (!schema) return;
+    console.log(`[BUILDER] Usuário optou por pular IA. Invalidando geração ID: ${generationIdRef.current}`);
+    
+    // Incrementa o ID para que a promessa da IA em curso seja ignorada ao retornar
+    generationIdRef.current++;
+    setIsGenerating(false);
+    
+    const result = generateLocalSql(schema, builderState);
+    setQueryResult(result);
+    setCurrentStep('preview');
+    // Corrigido: toast.info não existe no react-hot-toast. Usando chamada base com ícone.
+    toast("Geração por IA interrompida. Usando lógica local.", { icon: 'ℹ️' });
+  }, [schema, builderState]);
 
   const handleExecuteQuery = async (sqlOverride?: string) => {
     if (!credentials || !schema) return;
@@ -337,7 +371,15 @@ const App: React.FC = () => {
              >
                {currentStep === 'connection' && <ConnectionStep onSchemaLoaded={handleSchemaLoaded} settings={settings} />}
                {currentStep === 'builder' && schema && (
-                  <BuilderStep schema={schema} state={builderState} onStateChange={setBuilderState} onGenerate={handleGenerateSql} isGenerating={isGenerating} settings={settings} />
+                  <BuilderStep 
+                    schema={schema} 
+                    state={builderState} 
+                    onStateChange={setBuilderState} 
+                    onGenerate={handleGenerateSql} 
+                    onSkipAi={handleSkipAi}
+                    isGenerating={isGenerating} 
+                    settings={settings} 
+                  />
                )}
                {currentStep === 'preview' && queryResult && (
                   <PreviewStep queryResult={queryResult} onExecute={handleExecuteQuery} onBack={() => setCurrentStep('builder')} isExecuting={isExecuting} isValidating={false} schema={schema || undefined} settings={settings} />
