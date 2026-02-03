@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { ArrowLeft, ArrowRight, Database, ChevronLeft, ChevronRight, FileSpreadsheet, Search, Copy, Check, BarChart2, MessageSquare, Download, Activity, LayoutGrid, FileText, Pin, AlertCircle, Info, MoreHorizontal, FileJson, FileCode, Hash, Type, Filter, Plus, X, Trash2, SlidersHorizontal, Clock, Maximize2, Minimize2, ExternalLink, Braces, PenTool, Save, Eye, Anchor, Link as LinkIcon, Settings2, Loader2, Folder, Terminal as TerminalIcon, ChevronDown, ChevronUp, Layers, Target, CornerDownRight, AlertTriangle, Undo2, ShieldAlert, Pencil, ArrowUp, ArrowDown, ArrowUpDown, History, RotateCcw, FileWarning, Gauge, Camera } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Database, ChevronLeft, ChevronRight, FileSpreadsheet, Search, Copy, Check, BarChart2, MessageSquare, Download, Activity, LayoutGrid, FileText, Pin, AlertCircle, Info, MoreHorizontal, FileJson, FileCode, Hash, Type, Filter, Plus, X, Trash2, SlidersHorizontal, Clock, Maximize2, Minimize2, ExternalLink, Braces, PenTool, Save, Eye, Anchor, Link as LinkIcon, Settings2, Loader2, Folder, Terminal as TerminalIcon, ChevronDown, ChevronUp, Layers, Target, CornerDownRight, AlertTriangle, Undo2, ShieldAlert, Pencil, ArrowUp, ArrowDown, ArrowUpDown, History, RotateCcw, FileWarning, Gauge, Camera, Settings } from 'lucide-react';
 import { AppSettings, ExplainNode, DatabaseSchema, Table, QueryProfilingSnapshot } from '../../types';
 import DataVisualizer from '../DataVisualizer';
 import DataAnalysisChat from '../DataAnalysisChat';
@@ -7,6 +7,7 @@ import CodeSnippetModal from '../CodeSnippetModal';
 import JsonViewerModal from '../JsonViewerModal'; 
 import DrillDownModal from '../DrillDownModal'; 
 import ProfilingSnapshotModal from '../ProfilingSnapshotModal';
+import AdvancedExportModal from '../AdvancedExportModal';
 import { addToHistory } from '../../services/historyService';
 import { executeQueryReal, explainQueryReal, fetchDetailedProfiling } from '../../services/dbService';
 import BeginnerTip from '../BeginnerTip';
@@ -873,7 +874,6 @@ const SmartFilterBar: React.FC<{ columns: string[], filters: FilterRule[], onCha
    return <div className="bg-slate-50 dark:bg-slate-900/50 p-2 rounded-lg border border-slate-200 dark:border-slate-700 animate-in slide-in-from-top-2"><div className="flex items-center justify-between mb-2 px-1"><span className="text-[10px] font-bold uppercase text-slate-400 tracking-wider">Filtros Locais</span><button onClick={() => { onClear(); setIsOpen(false); }} className="text-[10px] text-red-500 hover:underline">Limpar</button></div><div className="space-y-2">{filters.map(f => (<div key={f.id} className="flex items-center gap-2"><select value={f.column} onChange={(e) => updateFilter(f.id, 'column', e.target.value)} className="text-xs bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 outline-none focus:border-indigo-500 max-w-[120px]">{columns.map(c => <option key={c} value={c}>{c}</option>)}</select><select value={f.operator} onChange={(e) => updateFilter(f.id, 'operator', e.target.value as any)} className="text-xs bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 outline-none focus:border-indigo-500"><option value="contains">Contém</option><option value="equals">Igual</option><option value="starts">Começa com</option><option value="gt">Maior que (&gt;)</option><option value="lt">Menor que (&lt;)</option></select><input type="text" value={f.value} onChange={(e) => updateFilter(f.id, 'value', e.target.value)} placeholder="Valor..." className="text-xs flex-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 outline-none focus:border-indigo-500 min-w-[80px]" /><button onClick={() => removeFilter(f.id)} className="text-slate-400 hover:text-red-500"><X className="w-3.5 h-3.5" /></button></div>))}<button onClick={addFilter} className="flex items-center gap-1 text-[10px] font-bold text-indigo-600 hover:underline px-1"><Plus className="w-3 h-3" /> Adicionar Regra</button></div></div>;
 };
 
-/* Adicionando tipo ResultTab que estava faltando */
 type ResultTab = 'table' | 'terminal' | 'chart' | 'analysis' | 'explain';
 
 interface ResultsStepProps {
@@ -898,6 +898,7 @@ const ResultsStep: React.FC<ResultsStepProps> = ({ data, sql, onBackToBuilder, o
   const [loadingExplain, setLoadingExplain] = useState(false);
   const [explainError, setExplainError] = useState<string | null>(null);
   const [showExportMenu, setShowExportMenu] = useState(false);
+  const [showAdvancedExport, setShowAdvancedExport] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showCodeModal, setShowCodeModal] = useState(false);
   const [selectedRow, setSelectedRow] = useState<any | null>(null);
@@ -1218,6 +1219,14 @@ const ResultsStep: React.FC<ResultsStepProps> = ({ data, sql, onBackToBuilder, o
       )}
       {showCodeModal && <CodeSnippetModal sql={sql} onClose={() => setShowCodeModal(false)} />}
       {showProfilingHistory && <ProfilingSnapshotModal onClose={() => setShowProfilingHistory(false)} />}
+      {showAdvancedExport && (
+        <AdvancedExportModal 
+           data={filteredData} 
+           columns={columns} 
+           tableName={mainTableName} 
+           onClose={() => setShowAdvancedExport(false)} 
+        />
+      )}
       
       {showConfirmation && (
          <div className="fixed inset-0 z-[200] bg-slate-900/80 backdrop-blur-md flex items-center justify-center p-4">
@@ -1364,7 +1373,6 @@ const ResultsStep: React.FC<ResultsStepProps> = ({ data, sql, onBackToBuilder, o
              { id: 'analysis', icon: <MessageSquare className="w-4 h-4" />, label: 'AI Analyst' },
              { id: 'explain', icon: <Activity className="w-4 h-4" />, label: 'Performance' }
            ].map(tab => (
-              /* Corrigido: usando type cast para ResultTab */
               <button key={tab.id} onClick={() => { setActiveTab(tab.id as ResultTab); if(tab.id === 'explain') handleExplain(); }} className={`flex items-center gap-2 px-4 py-1.5 rounded-md text-sm font-medium transition-all whitespace-nowrap ${activeTab === tab.id ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/50 dark:text-indigo-300' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}>{tab.icon} {tab.label}</button>
            ))}
         </div>
@@ -1388,7 +1396,23 @@ const ResultsStep: React.FC<ResultsStepProps> = ({ data, sql, onBackToBuilder, o
            {activeTab === 'table' && !hasPendingEdits && (<div className="flex items-center gap-2"><SmartFilterBar columns={columns} filters={filters} onChange={setFilters} onClear={() => setFilters([])} />{filters.length === 0 && (<div className="relative group"><Search className="absolute left-3 top-2.5 w-3.5 h-3.5 text-slate-400 group-focus-within:text-indigo-500 transition-colors" /><input type="text" placeholder="Busca rápida..." value={localSearch} onChange={(e) => setLocalSearch(e.target.value)} className="pl-8 pr-4 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none w-48" /></div>)}</div>)}
            <div className="relative">
               <button onClick={() => setShowExportMenu(!showExportMenu)} className={`flex items-center gap-2 px-3 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-medium hover:bg-slate-50 dark:hover:bg-slate-700 shadow-sm transition-colors text-slate-700 dark:text-slate-300 ${showExportMenu ? 'ring-2 ring-indigo-500' : ''}`}><Download className="w-4 h-4" /> Exportar</button>
-              {showExportMenu && (<div className="absolute right-0 top-full mt-2 w-56 bg-white dark:bg-slate-800 rounded-xl shadow-xl border border-slate-200 dark:border-slate-700 z-[90] overflow-hidden animate-in fade-in zoom-in-95" onClick={() => setShowExportMenu(false)}><div className="p-2 border-b border-slate-100 dark:border-slate-700"><button onClick={() => { setShowCodeModal(true); setShowExportMenu(false); }} className="w-full text-left px-2 py-1.5 text-xs hover:bg-slate-50 dark:hover:bg-slate-700 rounded flex items-center gap-2 text-indigo-600 font-medium"><FileCode className="w-3.5 h-3.5" /> Exportar Código</button><button onClick={handleExportInsert} className="w-full text-left px-2 py-1.5 text-xs hover:bg-slate-50 dark:hover:bg-slate-700 rounded flex items-center gap-2"><Database className="w-3.5 h-3.5" /> Copy as SQL INSERT</button><button onClick={handleExportCSV} className="w-full text-left px-2 py-1.5 text-xs hover:bg-slate-50 dark:hover:bg-slate-700 rounded flex items-center gap-2"><FileSpreadsheet className="w-3.5 h-3.5" /> Export as CSV</button></div><div className="p-2"><button onClick={() => { navigator.clipboard.writeText(JSON.stringify(filteredData)); onShowToast("JSON copiado!", "success"); }} className="w-full text-left px-2 py-1.5 text-xs hover:bg-slate-50 dark:hover:bg-slate-700 rounded flex items-center gap-2"><FileJson className="w-3.5 h-3.5" /> Copy JSON Raw</button></div></div>)}
+              {showExportMenu && (
+                <div className="absolute right-0 top-full mt-2 w-56 bg-white dark:bg-slate-800 rounded-xl shadow-xl border border-slate-200 dark:border-slate-700 z-[90] overflow-hidden animate-in fade-in zoom-in-95" onClick={() => setShowExportMenu(false)}>
+                  <div className="p-2 border-b border-slate-100 dark:border-slate-700">
+                    <button onClick={() => setShowAdvancedExport(true)} className="w-full text-left px-2 py-1.5 text-xs hover:bg-indigo-50 dark:hover:bg-indigo-900/30 rounded flex items-center gap-2 text-indigo-600 font-black uppercase tracking-wider">
+                       <Settings className="w-3.5 h-3.5" /> Exportação Avançada
+                    </button>
+                  </div>
+                  <div className="p-2 border-b border-slate-100 dark:border-slate-700">
+                    <button onClick={() => { setShowCodeModal(true); setShowExportMenu(false); }} className="w-full text-left px-2 py-1.5 text-xs hover:bg-slate-50 dark:hover:bg-slate-700 rounded flex items-center gap-2 text-slate-600 dark:text-slate-300"><FileCode className="w-3.5 h-3.5" /> Exportar Código</button>
+                    <button onClick={handleExportInsert} className="w-full text-left px-2 py-1.5 text-xs hover:bg-slate-50 dark:hover:bg-slate-700 rounded flex items-center gap-2 text-slate-600 dark:text-slate-300"><Database className="w-3.5 h-3.5" /> Copy as SQL INSERT</button>
+                    <button onClick={handleExportCSV} className="w-full text-left px-2 py-1.5 text-xs hover:bg-slate-50 dark:hover:bg-slate-700 rounded flex items-center gap-2 text-slate-600 dark:text-slate-300"><FileSpreadsheet className="w-3.5 h-3.5" /> Export as CSV</button>
+                  </div>
+                  <div className="p-2">
+                    <button onClick={() => { navigator.clipboard.writeText(JSON.stringify(filteredData)); onShowToast("JSON copiado!", "success"); }} className="w-full text-left px-2 py-1.5 text-xs hover:bg-slate-50 dark:hover:bg-slate-700 rounded flex items-center gap-2 text-slate-600 dark:text-slate-300"><FileJson className="w-3.5 h-3.5" /> Copy JSON Raw</button>
+                  </div>
+                </div>
+              )}
            </div>
            {!isFullscreen && <button onClick={toggleFullscreen} className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors" title="Tela Cheia"><Maximize2 className="w-5 h-5" /></button>}
         </div>
