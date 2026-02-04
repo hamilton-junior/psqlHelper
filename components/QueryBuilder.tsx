@@ -1,44 +1,106 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { ChatMessage, MessageRole } from '../types';
-import { Send, Play, AlertCircle, Loader2, Sparkles, CheckCircle2, XCircle, ShieldAlert, ShieldCheck, Activity } from 'lucide-react';
+import { 
+  Send, Bot, User, Loader2, Sparkles, 
+  CheckCircle2, ShieldAlert, Activity, 
+  Terminal, Code, MessageSquare, CornerDownLeft
+} from 'lucide-react';
 
 interface QueryBuilderProps {
   messages: ChatMessage[];
   onSendMessage: (msg: string) => void;
   loading: boolean;
   validating: boolean;
+  placeholder?: string;
 }
 
-const QueryBuilder: React.FC<QueryBuilderProps> = ({ messages, onSendMessage, loading, validating }) => {
+/**
+ * Renderizador simples de Markdown para as respostas da IA
+ */
+const MessageContent: React.FC<{ text: string }> = ({ text }) => {
+  // Regex para identificar blocos de código SQL
+  const parts = text.split(/(```sql[\s\S]*?```|```[\s\S]*?```)/g);
+
+  return (
+    <div className="space-y-3">
+      {parts.map((part, i) => {
+        if (part.startsWith('```')) {
+          const code = part.replace(/```sql|```/g, '').trim();
+          return (
+            <div key={i} className="my-3 rounded-xl overflow-hidden border border-slate-700 shadow-lg">
+              <div className="bg-slate-800 px-3 py-1.5 flex justify-between items-center border-b border-slate-700">
+                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1.5">
+                  <Terminal className="w-3 h-3" /> SQL Output
+                </span>
+                <Code className="w-3 h-3 text-indigo-400" />
+              </div>
+              <pre className="p-4 bg-black text-emerald-400 font-mono text-xs overflow-x-auto custom-scrollbar leading-relaxed">
+                {code}
+              </pre>
+            </div>
+          );
+        }
+
+        // Formatação básica de negrito e quebra de linha
+        const formattedText = part.split('\n').map((line, j) => {
+          const boldLine = line.split(/\*\*(.*?)\*\*/g).map((chunk, k) => 
+            k % 2 === 1 ? <strong key={k} className="font-bold text-indigo-900 dark:text-indigo-200">{chunk}</strong> : chunk
+          );
+          return <React.Fragment key={j}>{boldLine}<br /></React.Fragment>;
+        });
+
+        return <p key={i} className="text-sm leading-relaxed">{formattedText}</p>;
+      })}
+    </div>
+  );
+};
+
+const QueryBuilder: React.FC<QueryBuilderProps> = ({ 
+  messages, 
+  onSendMessage, 
+  loading, 
+  validating,
+  placeholder = "Descreva a consulta que você deseja gerar..."
+}) => {
   const [input, setInput] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+      scrollRef.current.scrollTo({
+        top: scrollRef.current.scrollHeight,
+        behavior: 'smooth'
+      });
     }
   }, [messages, loading, validating]);
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = (e?: React.FormEvent) => {
+    e?.preventDefault();
     if (input.trim() && !loading && !validating) {
-      onSendMessage(input);
+      onSendMessage(input.trim());
       setInput('');
     }
   };
 
   const isBusy = loading || validating;
-  
+
   return (
-    <div className="flex flex-col h-full bg-slate-50 dark:bg-slate-950 relative">
-      <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6 pb-24" ref={scrollRef}>
+    <div className="flex flex-col h-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-[2.5rem] overflow-hidden shadow-inner relative">
+      
+      {/* Mensagens */}
+      <div 
+        ref={scrollRef}
+        className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar pb-32"
+      >
         {messages.length === 0 && (
-          <div className="h-full flex flex-col items-center justify-center text-center text-slate-400 p-8 opacity-60">
-            <Sparkles className="w-16 h-16 mb-4 text-indigo-300 dark:text-indigo-900/50" />
-            <h3 className="text-xl font-medium text-slate-600 dark:text-slate-400 mb-2">Comece a Construir</h3>
-            <p className="max-w-md">
-              Peça dados em linguagem natural. Tente "Mostre todos os usuários que entraram no mês passado".
+          <div className="h-full flex flex-col items-center justify-center text-center p-8 opacity-40">
+            <div className="p-6 bg-white dark:bg-slate-900 rounded-[2rem] shadow-sm mb-4">
+              <Sparkles className="w-12 h-12 text-indigo-400" />
+            </div>
+            <h3 className="text-lg font-black text-slate-700 dark:text-white uppercase tracking-tight">AI SQL Architect</h3>
+            <p className="max-w-xs text-sm text-slate-500 mt-2">
+              Transforme perguntas simples em queries complexas. Digite abaixo para começar.
             </p>
           </div>
         )}
@@ -46,115 +108,109 @@ const QueryBuilder: React.FC<QueryBuilderProps> = ({ messages, onSendMessage, lo
         {messages.map((msg) => (
           <div
             key={msg.id}
-            className={`flex flex-col max-w-3xl ${msg.role === MessageRole.USER ? 'ml-auto items-end' : 'items-start'}`}
+            className={`flex items-start gap-4 animate-in fade-in slide-in-from-bottom-2 duration-300 ${
+              msg.role === MessageRole.USER ? 'flex-row-reverse' : ''
+            }`}
           >
-            <div
-              className={`px-5 py-3 rounded-2xl text-sm sm:text-base shadow-sm ${
-                msg.role === MessageRole.USER
-                  ? 'bg-indigo-600 text-white rounded-br-none'
-                  : 'bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700 rounded-bl-none'
-              }`}
-            >
-              {msg.content}
+            <div className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 shadow-md ${
+              msg.role === MessageRole.USER 
+                ? 'bg-indigo-600 text-white' 
+                : 'bg-emerald-500 text-white'
+            }`}>
+              {msg.role === MessageRole.USER ? <User className="w-5 h-5" /> : <Bot className="w-5 h-5" />}
             </div>
-            
-            {msg.role === MessageRole.ASSISTANT && msg.queryResult && (
-               <div className="mt-4 w-full bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
-                  <div className="bg-slate-900 dark:bg-black text-slate-300 text-xs flex justify-between items-center px-4 py-2">
-                     <span className="font-mono uppercase tracking-wider flex items-center gap-2">
-                        PostgreSQL
-                     </span>
-                     {msg.queryResult.validation && (
-                        <div className={`flex items-center gap-1.5 px-2 py-0.5 rounded font-medium ${msg.queryResult.validation.isValid ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}`}>
-                          {msg.queryResult.validation.isValid ? (
-                            <><CheckCircle2 className="w-3 h-3" /><span>Válido</span></>
-                          ) : (
-                            <><ShieldAlert className="w-3 h-3" /><span>Erro de Sintaxe</span></>
-                          )}
-                        </div>
-                     )}
-                  </div>
 
-                  {msg.queryResult.validation && !msg.queryResult.validation.isValid && (
-                    <div className="bg-red-50 dark:bg-red-950/20 border-b border-red-100 dark:border-red-900/50 p-4 text-xs text-red-800 dark:text-red-300 flex items-start gap-3">
-                      <AlertCircle className="w-5 h-5 shrink-0 text-red-600 mt-0.5" />
-                      <div className="flex-1">
-                        <p className="font-bold text-sm mb-1">Falha na Validação</p>
-                        <p className="mb-2">{msg.queryResult.validation.error}</p>
-                        {msg.queryResult.validation.correctedSql && (
-                           <div className="mt-2 p-2 bg-white/50 dark:bg-black/30 rounded border border-red-200 dark:border-red-800">
-                             <p className="font-semibold text-red-600 dark:text-red-400 text-[10px] uppercase mb-1">Sugestão de Correção</p>
-                             <code className="block font-mono text-red-700 dark:text-red-300">{msg.queryResult.validation.correctedSql}</code>
-                           </div>
-                        )}
-                      </div>
-                    </div>
-                  )}
-
-                  <div className="bg-slate-900 dark:bg-black text-slate-50 p-4 font-mono text-sm border-t border-slate-800 dark:border-slate-900 overflow-x-auto">
-                     <pre className="text-emerald-400">{msg.queryResult.sql}</pre>
-                  </div>
-
-                  <div className="p-5 bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800">
-                     <h4 className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">Explicação</h4>
-                     <p className="text-sm text-slate-700 dark:text-slate-300 leading-relaxed mb-4">{msg.queryResult.explanation}</p>
-                  </div>
-
-                  {msg.mockData && msg.mockData.length > 0 && (
-                    <div className="overflow-x-auto bg-white dark:bg-slate-900">
-                      <div className="px-4 py-2 bg-indigo-50/50 dark:bg-indigo-950/20 border-b border-indigo-100 dark:border-indigo-900/50 text-xs font-semibold text-indigo-700 dark:text-indigo-300 flex items-center justify-between">
-                        <span>Preview Results</span>
-                        <span className="px-1.5 py-0.5 bg-indigo-100 dark:bg-indigo-900 rounded text-[10px] uppercase tracking-wide">Read-Only</span>
-                      </div>
-                      <table className="w-full text-left text-xs sm:text-sm text-slate-600 dark:text-slate-400">
-                        <thead className="bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-semibold border-b border-slate-200 dark:border-slate-700">
-                          <tr>
-                            {Object.keys(msg.mockData[0]).map((key) => (
-                              <th key={key} className="px-4 py-2 whitespace-nowrap">{key}</th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                          {msg.mockData.map((row, i) => (
-                            <tr key={i} className="hover:bg-indigo-50/30 dark:hover:bg-indigo-900/10 transition-colors">
-                              {Object.values(row).map((val: any, j) => (
-                                <td key={j} className="px-4 py-2 whitespace-nowrap font-mono text-xs">
-                                  {val === null ? <span className="text-slate-400 italic">null</span> : String(val)}
-                                </td>
-                              ))}
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-               </div>
-            )}
+            <div className={`flex flex-col max-w-[85%] ${msg.role === MessageRole.USER ? 'items-end' : 'items-start'}`}>
+              <div className={`px-5 py-4 rounded-[2rem] shadow-sm ${
+                msg.role === MessageRole.USER
+                  ? 'bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 rounded-tr-none border border-slate-100 dark:border-slate-800'
+                  : 'bg-indigo-50 dark:bg-indigo-900/30 text-slate-800 dark:text-slate-100 rounded-tl-none border border-indigo-100/50 dark:border-indigo-800/50'
+              }`}>
+                <MessageContent text={msg.content} />
+              </div>
+              
+              {msg.role === MessageRole.ASSISTANT && msg.queryResult?.validation && (
+                <div className={`mt-2 flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${
+                  msg.queryResult.validation.isValid 
+                    ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400' 
+                    : 'bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-400'
+                }`}>
+                  {msg.queryResult.validation.isValid ? <CheckCircle2 className="w-3 h-3" /> : <ShieldAlert className="w-3 h-3" />}
+                  {msg.queryResult.validation.isValid ? 'Sintaxe Validada' : 'Erro de Estrutura'}
+                </div>
+              )}
+            </div>
           </div>
         ))}
+
+        {/* Loading States */}
+        {isBusy && (
+          <div className="flex items-start gap-4 animate-pulse">
+            <div className="w-10 h-10 rounded-2xl bg-emerald-500 text-white flex items-center justify-center shadow-md">
+              <Bot className="w-5 h-5" />
+            </div>
+            <div className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 px-5 py-4 rounded-[2rem] rounded-tl-none shadow-sm flex items-center gap-3">
+              <div className="flex gap-1">
+                <div className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-bounce"></div>
+                <div className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-bounce [animation-delay:-0.15s]"></div>
+                <div className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-bounce [animation-delay:-0.3s]"></div>
+              </div>
+              <span className="text-xs font-bold text-slate-500 uppercase tracking-widest flex items-center gap-2">
+                {loading ? 'IA Gerando Consulta...' : 'Validando SQL...'}
+                {!loading && <Activity className="w-3 h-3 animate-pulse" />}
+              </span>
+            </div>
+          </div>
+        )}
       </div>
 
-      <div className="absolute bottom-0 left-0 right-0 p-4 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-t border-slate-200 dark:border-slate-800 z-20">
-        <div className={`absolute -top-10 left-0 right-0 flex justify-center transition-all duration-300 ${isBusy ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2 pointer-events-none'}`}>
-          <div className={`flex items-center gap-2 px-4 py-1.5 rounded-full shadow-lg text-xs font-bold border transition-all ${loading ? 'bg-indigo-600 text-white border-indigo-500' : 'bg-emerald-600 text-white border-emerald-500'}`}>
-            {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Activity className="w-3.5 h-3.5 animate-pulse" />}
-            <span>{loading ? "IA Gerando Query..." : "Validando SQL..."}</span>
-          </div>
-        </div>
+      {/* Input de Mensagem */}
+      <div className="absolute bottom-0 left-0 right-0 p-6 bg-gradient-to-t from-slate-50 dark:from-slate-950 via-slate-50 dark:via-slate-950 to-transparent pt-12">
+        <form 
+          onSubmit={handleSubmit}
+          className="max-w-4xl mx-auto relative group"
+        >
+          <div className={`absolute -inset-0.5 bg-gradient-to-r from-indigo-500 to-emerald-500 rounded-2xl blur opacity-20 group-focus-within:opacity-40 transition duration-500 ${isBusy ? 'animate-pulse' : ''}`}></div>
+          
+          <div className="relative flex items-center bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl overflow-hidden px-4">
+            <div className="p-2 text-slate-400">
+               <MessageSquare className="w-5 h-5" />
+            </div>
+            
+            <input
+              ref={inputRef}
+              type="text"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              placeholder={isBusy ? "Aguarde a conclusão..." : placeholder}
+              disabled={isBusy}
+              className="w-full py-4 px-2 bg-transparent text-sm text-slate-800 dark:text-white outline-none placeholder-slate-400 font-medium"
+            />
 
-        <form onSubmit={handleSubmit} className="max-w-4xl mx-auto relative flex items-center">
-          <div className="absolute left-4 text-slate-400"><Play className="w-4 h-4 fill-current" /></div>
-          <input
-            type="text"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder="Faça uma pergunta sobre seus dados..."
-            className="w-full pl-10 pr-12 py-3.5 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-800 dark:text-white placeholder-slate-400 focus:ring-2 focus:ring-indigo-500 focus:bg-white dark:focus:bg-slate-900 transition-all shadow-inner outline-none"
-            disabled={isBusy}
-          />
-          <button type="submit" disabled={!input.trim() || isBusy} className="absolute right-2 p-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition-colors shadow-sm"><Send className="w-4 h-4" /></button>
+            <div className="flex items-center gap-2 pr-1">
+              {input.length > 0 && !isBusy && (
+                <div className="hidden sm:flex items-center gap-1 text-[10px] font-black text-slate-400 uppercase tracking-widest mr-2 px-2 py-1 bg-slate-50 dark:bg-slate-800 rounded-lg">
+                  <CornerDownLeft className="w-2.5 h-2.5" /> Enter
+                </div>
+              )}
+              
+              <button
+                type="submit"
+                disabled={!input.trim() || isBusy}
+                className={`p-2.5 rounded-xl transition-all duration-300 flex items-center justify-center shadow-lg
+                  ${!input.trim() || isBusy 
+                    ? 'bg-slate-100 dark:bg-slate-800 text-slate-400' 
+                    : 'bg-indigo-600 text-white hover:bg-indigo-700 active:scale-95 shadow-indigo-900/20'
+                  }
+                `}
+              >
+                {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
+              </button>
+            </div>
+          </div>
         </form>
       </div>
+
     </div>
   );
 };
