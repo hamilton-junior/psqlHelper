@@ -76,13 +76,6 @@ export interface UnusedIndex {
   size: string;
 }
 
-export interface UnusedIndex {
-  schema: string;
-  table: string;
-  index: string;
-  size: string;
-}
-
 export interface ActiveProcess {
   pid: number;
   user: string;
@@ -109,6 +102,7 @@ export interface AppSettings {
   advancedMode: boolean; 
   enableDmlSafety: boolean;
   blockDestructiveCommands: boolean;
+  enableDataMasking: boolean; // Novo campo de configuração
   backgroundLoadLinks: boolean; 
   aiGenerationTimeout: number; 
   defaultDbHost: string;
@@ -132,6 +126,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   advancedMode: false, 
   enableDmlSafety: true,
   blockDestructiveCommands: true,
+  enableDataMasking: true, // Padrão ativado para máxima segurança
   backgroundLoadLinks: true,
   aiGenerationTimeout: 3000,
   defaultDbHost: 'localhost',

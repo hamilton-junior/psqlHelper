@@ -91,6 +91,40 @@ app.post('/api/execute', async (req, res) => {
   } finally { try { await client.end(); } catch (e) {} }
 });
 
+app.post('/api/dry-run', async (req, res) => {
+  let { credentials, sql } = req.body;
+  if (!credentials || !sql) return res.status(400).json({ error: 'Missing credentials or SQL' });
+  if (credentials.host === 'localhost') credentials.host = '127.0.0.1';
+  
+  const client = new Client(credentials);
+  try {
+    await client.connect();
+    await setupSession(client);
+    
+    serverLog('POST', '/api/dry-run', `Iniciando simulação DML para ${credentials.user}@${credentials.host}`);
+    
+    await client.query('BEGIN');
+    try {
+      const result = await client.query(sql);
+      const affectedRows = Array.isArray(result) 
+        ? result.reduce((acc, r) => acc + (r.rowCount || 0), 0)
+        : (result.rowCount || 0);
+      
+      await client.query('ROLLBACK');
+      serverLog('POST', '/api/dry-run', `Simulação concluída. Impacto: ${affectedRows} linhas. Rollback executado.`);
+      res.json({ success: true, affectedRows });
+    } catch (queryErr) {
+      await client.query('ROLLBACK');
+      throw queryErr;
+    }
+  } catch (err) {
+    serverError('POST', '/api/dry-run', err);
+    res.status(500).json({ error: err.message });
+  } finally {
+    try { await client.end(); } catch (e) {}
+  }
+});
+
 app.post('/api/server-stats', async (req, res) => {
   const { credentials } = req.body;
   if (!credentials) return res.status(400).json({ error: 'Missing credentials' });

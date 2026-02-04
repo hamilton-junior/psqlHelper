@@ -1,9 +1,10 @@
-
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { DatabaseSchema, QueryResult, OptimizationAnalysis, AppSettings } from '../../types';
-import { Terminal, Play, ArrowLeft, CheckCircle2, ShieldAlert, Info, Copy, Check, Loader2, Lightbulb, ShieldOff, AlertCircle, AlignLeft, Minimize2, Split, Code2, Zap, TrendingUp, Gauge, X, Shield, Lock, Unlock } from 'lucide-react';
+import { Terminal, Play, ArrowLeft, CheckCircle2, ShieldAlert, Info, Copy, Check, Loader2, Lightbulb, ShieldOff, AlertCircle, AlignLeft, Minimize2, Split, Code2, Zap, TrendingUp, Gauge, X, Shield, Lock, Unlock, DatabaseZap, AlertTriangle } from 'lucide-react';
 import Editor, { useMonaco, DiffEditor } from '@monaco-editor/react';
 import { analyzeQueryPerformance } from '../../services/geminiService';
+import { executeDryRun } from '../../services/dbService';
+import { toast } from 'react-hot-toast';
 
 interface PreviewStepProps {
   queryResult: QueryResult;
@@ -14,9 +15,10 @@ interface PreviewStepProps {
   validationDisabled?: boolean;
   schema?: DatabaseSchema;
   settings?: AppSettings;
+  credentials?: any;
 }
 
-const PreviewStep: React.FC<PreviewStepProps> = ({ queryResult, onExecute, onBack, isExecuting, isValidating, validationDisabled, schema, settings }) => {
+const PreviewStep: React.FC<PreviewStepProps> = ({ queryResult, onExecute, onBack, isExecuting, isValidating, validationDisabled, schema, settings, credentials }) => {
   const [copied, setCopied] = useState(false);
   const [editedSql, setEditedSql] = useState(queryResult.sql || '');
   const [viewMode, setViewMode] = useState<'edit' | 'diff'>('edit');
@@ -25,19 +27,84 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ queryResult, onExecute, onBac
   const [showAnalysis, setShowAnalysis] = useState(false);
   const [isSafetyUnlocked, setIsSafetyUnlocked] = useState(false);
   
+  const [isDryRunning, setIsDryRunning] = useState(false);
+  const [dryRunResult, setDryRunResult] = useState<{ affectedRows: number } | null>(null);
+  const [showDryRunConfirm, setShowDryRunConfirm] = useState(false);
+
   const monaco = useMonaco();
   const lastSourceSqlRef = useRef(queryResult.sql);
+
+  const isDml = useMemo(() => {
+     const sql = editedSql.trim().toUpperCase();
+     return /\b(UPDATE|DELETE|INSERT)\b/.test(sql);
+  }, [editedSql]);
+
+  // Fix: Move safetyError before its usage in useEffect
+  const safetyError = useMemo(() => {
+     const sql = editedSql.trim().toUpperCase();
+     if (!sql) return null;
+
+     if (settings?.blockDestructiveCommands) {
+        if (/\b(TRUNCATE|DROP)\b/.test(sql)) {
+           return {
+              type: 'BLOCK',
+              message: 'Comandos de destruição (TRUNCATE/DROP) estão bloqueados por governança do sistema.',
+              icon: <Lock className="w-5 h-5 text-red-500" />
+           };
+        }
+     }
+
+     if (settings?.enableDmlSafety && !isSafetyUnlocked) {
+        const isUpdate = /\bUPDATE\b/.test(sql);
+        const isDelete = /\bDELETE\b/.test(sql);
+        const hasWhere = /\bWHERE\b/.test(sql);
+
+        if ((isUpdate || isDelete) && !hasWhere) {
+           return {
+              type: 'RISK',
+              message: `RISCO CRÍTICO: Detectado ${isUpdate ? 'UPDATE' : 'DELETE'} sem cláusula WHERE. Isso afetará TODAS as linhas da tabela.`,
+              icon: <ShieldAlert className="w-6 h-6 text-rose-500" />
+           };
+        }
+     }
+
+     return null;
+  }, [editedSql, settings, isSafetyUnlocked]);
+
+  // Fix: Move handlePreExecution before its usage in useEffect
+  const handlePreExecution = async () => {
+    if (isExecuting || !editedSql.trim()) return;
+    if (!!safetyError && safetyError.type === 'BLOCK') return;
+    if (!!safetyError && !isSafetyUnlocked) return;
+
+    // Se for DML, forçamos o Dry Run se a segurança estiver ligada (ou se o usuário quiser ver o impacto)
+    if (isDml && credentials && credentials.host !== 'simulated') {
+       setIsDryRunning(true);
+       setDryRunResult(null);
+       try {
+          const res = await executeDryRun(credentials, editedSql);
+          setDryRunResult(res);
+          setShowDryRunConfirm(true);
+       } catch (e: any) {
+          toast.error(`Falha na simulação: ${e.message}`);
+       } finally {
+          setIsDryRunning(false);
+       }
+    } else {
+       onExecute(editedSql);
+    }
+  };
 
   useEffect(() => {
      const handleKeyDown = (e: KeyboardEvent) => {
         if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
            e.preventDefault();
-           if (!isExecuting && editedSql.trim() && !safetyError) onExecute(editedSql);
+           handlePreExecution();
         }
      };
      window.addEventListener('keydown', handleKeyDown);
      return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isExecuting, editedSql, onExecute]);
+  }, [isExecuting, editedSql, isDml, safetyError, isSafetyUnlocked]);
 
   useEffect(() => {
     if (!monaco || !schema) return;
@@ -63,42 +130,14 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ queryResult, onExecute, onBac
       setEditedSql(queryResult.sql || '');
       lastSourceSqlRef.current = queryResult.sql;
       setIsSafetyUnlocked(false);
+      setDryRunResult(null);
     }
   }, [queryResult.sql]);
 
-  // ANALISADOR DE SEGURANÇA DML (Restaurado e Refinado)
-  const safetyError = useMemo(() => {
-     const sql = editedSql.trim().toUpperCase();
-     if (!sql) return null;
-
-     // 1. Bloqueio Estrito de TRUNCATE/DROP (Se configurado nas settings)
-     if (settings?.blockDestructiveCommands) {
-        if (/\b(TRUNCATE|DROP)\b/.test(sql)) {
-           return {
-              type: 'BLOCK',
-              message: 'Comandos de destruição (TRUNCATE/DROP) estão bloqueados por governança do sistema.',
-              icon: <Lock className="w-5 h-5 text-red-500" />
-           };
-        }
-     }
-
-     // 2. Trava de Segurança DML (UPDATE/DELETE sem WHERE)
-     if (settings?.enableDmlSafety && !isSafetyUnlocked) {
-        const isUpdate = /\bUPDATE\b/.test(sql);
-        const isDelete = /\bDELETE\b/.test(sql);
-        const hasWhere = /\bWHERE\b/.test(sql);
-
-        if ((isUpdate || isDelete) && !hasWhere) {
-           return {
-              type: 'RISK',
-              message: `RISCO CRÍTICO: Detectado ${isUpdate ? 'UPDATE' : 'DELETE'} sem cláusula WHERE. Isso afetará TODAS as linhas da tabela.`,
-              icon: <ShieldAlert className="w-6 h-6 text-rose-500" />
-           };
-        }
-     }
-
-     return null;
-  }, [editedSql, settings, isSafetyUnlocked]);
+  const handleFinalConfirm = () => {
+     setShowDryRunConfirm(false);
+     onExecute(editedSql);
+  };
 
   const handleCopy = () => {
     navigator.clipboard.writeText(editedSql);
@@ -147,6 +186,60 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ queryResult, onExecute, onBac
   return (
     <div className="w-full h-full flex flex-col relative animate-in fade-in duration-500">
       
+      {showDryRunConfirm && dryRunResult && (
+         <div className="fixed inset-0 z-[200] bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-300">
+            <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] shadow-2xl border border-slate-200 dark:border-slate-800 w-full max-w-lg overflow-hidden flex flex-col animate-in zoom-in-95">
+               <div className="p-8 text-center bg-rose-50 dark:bg-rose-900/10 border-b border-rose-100 dark:border-rose-900/50">
+                  <div className="w-20 h-20 bg-rose-100 dark:bg-rose-900/50 rounded-3xl flex items-center justify-center mx-auto mb-6">
+                     <AlertTriangle className="w-10 h-10 text-rose-600" />
+                  </div>
+                  <h3 className="text-2xl font-black text-slate-800 dark:text-white tracking-tight uppercase">Confirmação de Impacto</h3>
+                  <p className="text-sm text-slate-500 dark:text-slate-400 mt-2 font-bold uppercase tracking-widest">Auditoria Preventiva Concluída</p>
+               </div>
+
+               <div className="p-10 space-y-6">
+                  <div className="bg-slate-50 dark:bg-slate-950 p-6 rounded-3xl border border-slate-100 dark:border-slate-800 flex items-center justify-between shadow-inner">
+                     <div className="flex items-center gap-4">
+                        <div className="p-3 bg-indigo-600 rounded-2xl shadow-lg shadow-indigo-900/20">
+                           <DatabaseZap className="w-6 h-6 text-white" />
+                        </div>
+                        <div>
+                           <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Registros Afetados</span>
+                           <div className="text-3xl font-black text-indigo-600 dark:text-indigo-400 font-mono">
+                              {dryRunResult.affectedRows.toLocaleString()}
+                           </div>
+                        </div>
+                     </div>
+                     <div className="text-right">
+                        <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-tighter border ${dryRunResult.affectedRows === 0 ? 'bg-slate-100 text-slate-500' : 'bg-rose-100 text-rose-600 border-rose-200'}`}>
+                           {dryRunResult.affectedRows > 100 ? 'ALTO IMPACTO' : 'IMPACTO LOCAL'}
+                        </span>
+                     </div>
+                  </div>
+
+                  <p className="text-sm text-slate-600 dark:text-slate-300 leading-relaxed font-medium">
+                     A simulação em transação segura (rollback) confirma que esta query irá modificar ou excluir exatamente <strong>{dryRunResult.affectedRows}</strong> linhas no seu banco de dados atual. 
+                  </p>
+
+                  <div className="flex gap-4 pt-4">
+                     <button 
+                        onClick={() => setShowDryRunConfirm(false)}
+                        className="flex-1 py-4 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-black uppercase tracking-widest text-xs rounded-2xl hover:bg-slate-200 transition-all"
+                     >
+                        Cancelar
+                     </button>
+                     <button 
+                        onClick={handleFinalConfirm}
+                        className="flex-[2] py-4 bg-rose-600 hover:bg-rose-700 text-white font-black uppercase tracking-widest text-xs rounded-2xl shadow-xl shadow-rose-900/20 transition-all active:scale-95 flex items-center justify-center gap-3"
+                     >
+                        <CheckCircle2 className="w-5 h-5" /> Confirmar Gravação
+                     </button>
+                  </div>
+               </div>
+            </div>
+         </div>
+      )}
+
       {showAnalysis && (
          <div className="absolute inset-0 z-50 bg-slate-900/80 backdrop-blur-sm flex justify-end">
             <div className="w-full max-w-lg h-full bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-700 shadow-2xl flex flex-col animate-in slide-in-from-right duration-300">
@@ -213,7 +306,6 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ queryResult, onExecute, onBac
            </div>
         </div>
 
-        {/* ALERTA DE SEGURANÇA (Restaurado) */}
         {safetyError ? (
            <div className={`rounded-xl border overflow-hidden transition-all shrink-0 animate-pulse ${safetyError.type === 'BLOCK' ? 'bg-red-950/40 border-red-500' : 'bg-rose-950/40 border-rose-500'}`}>
               <div className="p-4 flex items-center justify-between gap-4">
@@ -235,12 +327,12 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ queryResult, onExecute, onBac
               </div>
            </div>
         ) : (
-           <div className={`rounded-xl border overflow-hidden transition-all shrink-0 ${isValidating ? 'bg-indigo-50 border-indigo-100 dark:bg-indigo-900/20' : isValid ? 'bg-emerald-50 border-emerald-200 dark:bg-emerald-900/20' : 'bg-red-50 border-red-200 dark:bg-red-900/10'}`}>
+           <div className={`rounded-xl border overflow-hidden transition-all shrink-0 ${isValidating || isDryRunning ? 'bg-indigo-50 border-indigo-100 dark:bg-indigo-900/20' : isValid ? 'bg-emerald-50 border-emerald-200 dark:bg-emerald-900/20' : 'bg-red-50 border-red-200 dark:bg-red-900/10'}`}>
              <div className="p-4 flex items-start gap-3">
-                {isValidating ? <Loader2 className="w-5 h-5 text-indigo-600 animate-spin" /> : isValid ? <CheckCircle2 className="w-5 h-5 text-emerald-600" /> : <ShieldAlert className="w-5 h-5 text-red-600" />}
+                {isValidating || isDryRunning ? <Loader2 className="w-5 h-5 text-indigo-600 animate-spin" /> : isValid ? <CheckCircle2 className="w-5 h-5 text-emerald-600" /> : <ShieldAlert className="w-5 h-5 text-red-600" />}
                 <div className="flex-1">
-                   <h4 className={`font-bold text-sm ${isValidating ? 'text-indigo-800 dark:text-indigo-200' : isValid ? 'text-emerald-800 dark:text-emerald-200' : 'text-red-800 dark:text-red-200'}`}>
-                   {isValidating ? 'Validando Sintaxe...' : isValid ? 'Sintaxe Validada' : 'Erro Detectado'}
+                   <h4 className={`font-bold text-sm ${isValidating || isDryRunning ? 'text-indigo-800 dark:text-indigo-200' : isValid ? 'text-emerald-800 dark:text-emerald-200' : 'text-red-800 dark:text-red-200'}`}>
+                   {isDryRunning ? 'Analisando impacto real...' : isValidating ? 'Validando Sintaxe...' : isValid ? 'Sintaxe Validada' : 'Erro Detectado'}
                    </h4>
                 </div>
              </div>
@@ -255,14 +347,14 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ queryResult, onExecute, onBac
         <div className="flex items-center justify-between pt-4 pb-10 shrink-0">
            <button onClick={onBack} className="px-6 py-3 text-slate-600 dark:text-slate-400 font-semibold hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors flex items-center gap-2"><ArrowLeft className="w-4 h-4" /> Voltar</button>
            <button 
-              onClick={() => onExecute(editedSql)} 
-              disabled={isExecuting || isValidating || !editedSql.trim() || (!!safetyError && safetyError.type === 'BLOCK') || (!!safetyError && !isSafetyUnlocked)} 
+              onClick={handlePreExecution} 
+              disabled={isExecuting || isValidating || isDryRunning || !editedSql.trim() || (!!safetyError && safetyError.type === 'BLOCK') || (!!safetyError && !isSafetyUnlocked)} 
               className={`px-8 py-3 rounded-xl font-bold shadow-lg transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed
                  ${safetyError ? 'bg-slate-500 text-slate-300' : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-indigo-900/20'}
               `}
            >
-              {isExecuting ? 'Executando...' : 'Executar Query'} 
-              {safetyError ? <Lock className="w-4 h-4" /> : <Play className="w-4 h-4 fill-current" />}
+              {isExecuting ? 'Executando...' : isDryRunning ? 'Simulando...' : isDml ? 'Analisar e Executar' : 'Executar Query'} 
+              {safetyError ? <Lock className="w-4 h-4" /> : isDml ? <DatabaseZap className="w-4 h-4" /> : <Play className="w-4 h-4 fill-current" />}
            </button>
         </div>
       </div>

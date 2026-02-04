@@ -50,6 +50,24 @@ export const executeQueryReal = async (creds: DbCredentials, sql: string): Promi
   }
 };
 
+export const executeDryRun = async (creds: DbCredentials, sql: string): Promise<{ affectedRows: number }> => {
+  const normalizedCreds = ensureIpv4(creds);
+  try {
+    const response = await fetch(`${API_URL}/dry-run`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ credentials: normalizedCreds, sql })
+    });
+    if (!response.ok) {
+      const err = await response.json();
+      throw new Error(err.error || 'Falha na simulação de impacto DML');
+    }
+    return await response.json();
+  } catch (error: any) {
+    throw error;
+  }
+};
+
 export const getServerHealth = async (creds: DbCredentials): Promise<{ 
   summary: ServerStats, 
   processes: ActiveProcess[], 
