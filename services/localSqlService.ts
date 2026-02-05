@@ -43,14 +43,13 @@ export const generateLocalSql = (schema: DatabaseSchema, state: BuilderState): Q
     calculatedColumns.forEach(calc => {
       let expr = calc.expression;
       
-      // Heurística para detectar agregadores em fórmulas: AVG, SUM, COUNT, MIN, MAX
-      const aggRegex = /\b(SUM|AVG|COUNT|MIN|MAX)\b\s*\(/i;
+      // Heurística aprimorada para detectar agregadores em fórmulas: AVG, SUM, COUNT, MIN, MAX
+      // Captura o nome da função e o conteúdo entre parênteses, cuidando para não duplicar OVER()
+      const aggRegex = /\b(SUM|AVG|COUNT|MIN|MAX)\b\s*\(([^()]*|\([^()]*\))*\)/gi;
       
       if (aggRegex.test(expr) && !hasGlobalGroupBy && !/\bOVER\s*\(/i.test(expr)) {
-         // Se a expressão contém agregador, mas não tem OVER() nem Group By global,
-         // tentamos injetar o OVER() para que a query não quebre.
-         // Substitui "FUNC(col)" por "FUNC(col) OVER()"
-         expr = expr.replace(/(\b(?:SUM|AVG|COUNT|MIN|MAX)\b\s*\([^)]*\))/gi, '$1 OVER()');
+         // Injeta OVER() após cada função de agregação detectada na string
+         expr = expr.replace(/(\b(?:SUM|AVG|COUNT|MIN|MAX)\b\s*\((?:[^()]*|\([^()]*\))*\))/gi, '$1 OVER()');
       }
       
       selectItems.push(`(${expr}) AS "${calc.alias}"`);

@@ -30,10 +30,12 @@ const serverError = (method, path, error) => {
   console.error(`[${timestamp}] [ERROR] ${method} ${path} - ${error.message}`, error.stack);
 };
 
-// Configurações de tipos do Postgres
-types.setTypeParser(25, (v) => v); 
-types.setTypeParser(1043, (v) => v);
-types.setTypeParser(1042, (v) => v);
+// Configurações de tipos do Postgres para garantir UTF-8
+types.setTypeParser(25, (v) => v); // TEXT
+types.setTypeParser(1043, (v) => v); // VARCHAR
+types.setTypeParser(1042, (v) => v); // BPCHAR
+types.setTypeParser(114, (v) => JSON.parse(v)); // JSON
+types.setTypeParser(3802, (v) => JSON.parse(v)); // JSONB
 
 serverLog('INIT', '-', 'Servidor inicializando em IPv4 estrito.');
 
@@ -43,10 +45,11 @@ app.get('/api/ping', (req, res) => {
 
 async function setupSession(client) {
   try {
-    // Corrigido para UTF8 para evitar caracteres quebrados em mensagens de erro do banco
+    // Definimos UTF8 e o datestyle para evitar confusões de interpretação
     await client.query("SET client_encoding TO 'UTF8'");
+    await client.query("SET datestyle TO 'ISO, MDY'");
   } catch (e) {
-    serverLog('SESSION', '-', 'Falha ao definir encoding.', e.message);
+    serverLog('SESSION', '-', 'Falha ao definir parâmetros da sessão.', e.message);
   }
 }
 
@@ -134,6 +137,7 @@ app.post('/api/server-stats', async (req, res) => {
   const client = new Client(credentials);
   try {
     await client.connect();
+    await setupSession(client);
     
     const verRes = await client.query("SHOW server_version_num;");
     const vNum = parseInt(verRes.rows[0].server_version_num);
@@ -219,6 +223,7 @@ app.post('/api/storage-stats', async (req, res) => {
   const client = new Client(credentials);
   try {
     await client.connect();
+    await setupSession(client);
     
     // 1. Get Data Directory
     const dirRes = await client.query("SHOW data_directory;");
