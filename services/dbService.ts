@@ -1,3 +1,4 @@
+
 import { DatabaseSchema, DbCredentials, ExplainNode, IntersectionResult, ServerStats, ActiveProcess, TableInsight, UnusedIndex, QueryProfilingSnapshot, StorageStats } from "../types";
 
 const API_URL = 'http://127.0.0.1:3000/api';
@@ -234,24 +235,51 @@ export const fetchIntersectionDetail = async (
    } catch (e: any) { throw e; }
 };
 
-const mapExplainNode = (pgNode: any): ExplainNode => {
+const mapExplainNode = (pgNode: any, totalExecutionTime?: number): ExplainNode => {
+  const children = pgNode['Plans'] ? pgNode['Plans'].map((p: any) => mapExplainNode(p, totalExecutionTime)) : [];
+  
+  // O "Actual Total Time" do PG é inclusivo (inclui filhos)
+  const actualTotalTime = pgNode['Actual Total Time'] || 0;
+  const childrenTotalTime = children.reduce((acc: number, child: ExplainNode) => acc + (child.actualTime?.total || 0), 0);
+  
+  // Exclusive time is node total minus children total
+  const exclusiveTime = Math.max(0, actualTotalTime - childrenTotalTime);
+  const exclusivePercent = totalExecutionTime ? (exclusiveTime / totalExecutionTime) * 100 : 0;
+
   return {
     type: pgNode['Node Type'] || 'Unknown',
-    relation: pgNode['Relation Name'] || pgNode['Alias'],
+    relation: pgNode['Relation Name'],
+    alias: pgNode['Alias'],
     rows: pgNode['Plan Rows'] || 0,
+    actualRows: pgNode['Actual Rows'] || 0,
+    loops: pgNode['Actual Loops'] || 1,
     width: pgNode['Plan Width'] || 0,
     cost: { startup: pgNode['Startup Cost'] || 0, total: pgNode['Total Cost'] || 0 },
-    children: pgNode['Plans'] ? pgNode['Plans'].map(mapExplainNode) : undefined
+    actualTime: { 
+      startup: pgNode['Actual Startup Time'] || 0, 
+      total: actualTotalTime 
+    },
+    exclusiveTime,
+    exclusivePercent,
+    buffers: {
+      sharedHit: pgNode['Shared Hit Blocks'],
+      sharedRead: pgNode['Shared Read Blocks'],
+      localHit: pgNode['Local Hit Blocks'],
+      localRead: pgNode['Local Read Blocks'],
+      tempHit: pgNode['Temp Hit Blocks'],
+      tempRead: pgNode['Temp Read Blocks'],
+    },
+    children: children.length > 0 ? children : undefined
   };
 };
 
 export const explainQueryReal = async (creds: DbCredentials, sql: string): Promise<ExplainNode> => {
    if (creds.host === 'simulated') {
       await new Promise(r => setTimeout(r, 600));
-      return { type: "Result", cost: { startup: 0.00, total: 10.00 }, rows: 100, width: 4, children: [ { type: "Seq Scan", relation: "simulated_table", cost: { startup: 0.00, total: 10.00 }, rows: 100, width: 4 } ] };
+      return { type: "Result", cost: { startup: 0.00, total: 10.00 }, rows: 100, width: 4, actualTime: { startup: 0.1, total: 5.0 }, exclusiveTime: 5.0, exclusivePercent: 100, children: [ { type: "Seq Scan", relation: "simulated_table", cost: { startup: 0.00, total: 10.00 }, rows: 100, width: 4, actualTime: { startup: 0.1, total: 4.0 }, exclusiveTime: 4.0, exclusivePercent: 80 } ] };
    }
    const cleanSql = sql.trim().replace(/;$/, '');
-   const explainSql = `EXPLAIN (FORMAT JSON, ANALYZE) ${cleanSql}`;
+   const explainSql = `EXPLAIN (ANALYZE, BUFFERS, COSTS, VERBOSE, FORMAT JSON) ${cleanSql}`;
    try {
       const result = await executeQueryReal(creds, explainSql);
       if (result && result.length > 0) {
@@ -260,7 +288,11 @@ export const explainQueryReal = async (creds: DbCredentials, sql: string): Promi
          if (!key) throw new Error("Formato do EXPLAIN não reconhecido.");
          let rawPlan = planRow[key];
          if (typeof rawPlan === 'string') rawPlan = JSON.parse(rawPlan);
-         if (Array.isArray(rawPlan) && rawPlan[0].Plan) return mapExplainNode(rawPlan[0].Plan);
+         
+         const planObj = Array.isArray(rawPlan) ? rawPlan[0] : rawPlan;
+         const totalTime = planObj['Execution Time'] || planObj.Plan['Actual Total Time'];
+         
+         if (planObj && planObj.Plan) return mapExplainNode(planObj.Plan, totalTime);
       }
       throw new Error("Plano de execução inválido.");
    } catch (e: any) { throw new Error("Falha ao gerar plano: " + e.message); }

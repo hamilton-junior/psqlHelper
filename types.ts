@@ -303,11 +303,28 @@ export interface OptimizationAnalysis {
 export interface ExplainNode {
   type: string;
   relation?: string;
+  alias?: string;
   rows: number;
+  actualRows?: number;
+  loops?: number;
   width: number;
   cost: {
     startup: number;
     total: number;
+  };
+  actualTime?: {
+    startup: number;
+    total: number;
+  };
+  exclusiveTime?: number;
+  exclusivePercent?: number;
+  buffers?: {
+    sharedHit?: number;
+    sharedRead?: number;
+    localHit?: number;
+    localRead?: number;
+    tempHit?: number;
+    tempRead?: number;
   };
   children?: ExplainNode[];
 }
