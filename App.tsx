@@ -17,6 +17,7 @@ import DataDiffStep from '@/components/steps/DataDiffStep';
 import DashboardStep from '@/components/steps/DashboardStep';
 import RoadmapStep from '@/components/steps/RoadmapStep';
 import ServerHealthStep from '@/components/steps/ServerHealthStep';
+import VisualQueryFlowStep from '@/components/steps/VisualQueryFlowStep';
 import SettingsModal from '@/components/SettingsModal';
 import SchemaDiagramModal from '@/components/SchemaDiagramModal';
 import HistoryModal from '@/components/HistoryModal';
@@ -280,7 +281,7 @@ const App: React.FC = () => {
   };
 
   const handleSidebarNavigate = (step: AppStep) => {
-    if (['builder', 'preview', 'results'].includes(step)) {
+    if (['builder', 'preview', 'results', 'queryflow'].includes(step)) {
       setGlobalStep('query');
       updateActiveTab(() => ({ currentStep: step as AppStep }));
     } else {
@@ -342,6 +343,9 @@ const App: React.FC = () => {
                     onGenerate={handleGenerateSql} isGenerating={activeTab.isGenerating} 
                     settings={settings} 
                   />
+               )}
+               {globalStep === 'query' && activeTab.currentStep === 'queryflow' && schema && (
+                  <VisualQueryFlowStep schema={schema} state={activeTab.builderState} />
                )}
                {globalStep === 'query' && activeTab.currentStep === 'preview' && activeTab.queryResult && (
                   <PreviewStep 

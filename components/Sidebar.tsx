@@ -5,7 +5,7 @@ import {
   Database, Layers, Terminal, Table, Server, ArrowRight, Settings, 
   ChevronLeft, ChevronRight, Map, History, GitCompare, Link, 
   FileSearch, FileText, Scissors, BookOpen, Rocket, Tag, 
-  CloudDownload, Keyboard, Zap, LayoutGrid, Github, HeartPulse
+  CloudDownload, Keyboard, Zap, LayoutGrid, Github, HeartPulse, Route
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -116,6 +116,7 @@ const Sidebar: React.FC<SidebarProps> = ({
         <div className="flex-1 overflow-y-auto overflow-x-hidden custom-scrollbar pr-1 -mr-1 space-y-1">
           {navItem('connection', 'Conexão', <Server className="w-5 h-5" />)}
           {navItem('builder', 'Construtor', <Layers className="w-5 h-5" />, !schema)}
+          {navItem('queryflow', 'Fluxo da Query', <Route className="w-5 h-5" />, !schema)}
           {navItem('preview', 'Visualização', <Terminal className="w-5 h-5" />, !schema)}
           {navItem('results', 'Resultados', <Table className="w-5 h-5" />, !hasResults)}
           

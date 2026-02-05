@@ -92,7 +92,7 @@ export interface ActiveProcess {
   backendType: string;
 }
 
-export type AppStep = 'connection' | 'builder' | 'preview' | 'results' | 'datadiff' | 'dashboard' | 'serverhealth' | 'roadmap';
+export type AppStep = 'connection' | 'builder' | 'preview' | 'results' | 'datadiff' | 'dashboard' | 'serverhealth' | 'roadmap' | 'queryflow';
 
 export type ResultTab = 'table' | 'terminal' | 'chart' | 'analysis' | 'explain';
 export type FilterOperator = 'contains' | 'equals' | 'starts' | 'ends' | 'gt' | 'lt';
