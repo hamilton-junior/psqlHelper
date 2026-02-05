@@ -13,6 +13,7 @@ export const generateLocalSql = (schema: DatabaseSchema, state: BuilderState): Q
 
   // --- 1. SELECT Clause ---
   let selectItems: string[] = [];
+  const hasGlobalGroupBy = groupBy.length > 0;
 
   if (selectedColumns.length > 0) {
     selectItems = selectedColumns.map(col => {
@@ -21,17 +22,38 @@ export const generateLocalSql = (schema: DatabaseSchema, state: BuilderState): Q
         const parts = col.split('.');
         const colName = parts[parts.length - 1];
         const alias = `${agg.toLowerCase()}_${colName}`;
+        
+        // Se houver agregações mas não houver Group By, o SQL falharia.
+        // Convertemos para Window Function (OVER()) para permitir ver o agregado por linha.
+        if (!hasGlobalGroupBy) {
+           return `${agg}(${col}) OVER() AS ${alias}`;
+        }
         return `${agg}(${col}) AS ${alias}`;
       }
       return col;
     });
   } else {
+    // Se o usuário quer SELECT * mas existem colunas agregadas em fórmulas, 
+    // o Postgres exigiria Group By de todos os campos. 
+    // Para manter o SELECT * funcional, trataremos as fórmulas agregadas como Window Functions.
     selectItems.push('*');
   }
 
   if (calculatedColumns && calculatedColumns.length > 0) {
     calculatedColumns.forEach(calc => {
-      selectItems.push(`(${calc.expression}) AS "${calc.alias}"`);
+      let expr = calc.expression;
+      
+      // Heurística para detectar agregadores em fórmulas: AVG, SUM, COUNT, MIN, MAX
+      const aggRegex = /\b(SUM|AVG|COUNT|MIN|MAX)\b\s*\(/i;
+      
+      if (aggRegex.test(expr) && !hasGlobalGroupBy && !/\bOVER\s*\(/i.test(expr)) {
+         // Se a expressão contém agregador, mas não tem OVER() nem Group By global,
+         // tentamos injetar o OVER() para que a query não quebre.
+         // Substitui "FUNC(col)" por "FUNC(col) OVER()"
+         expr = expr.replace(/(\b(?:SUM|AVG|COUNT|MIN|MAX)\b\s*\([^)]*\))/gi, '$1 OVER()');
+      }
+      
+      selectItems.push(`(${expr}) AS "${calc.alias}"`);
     });
   }
 

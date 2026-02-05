@@ -1,3 +1,4 @@
+
 import express from 'express';
 import cors from 'cors';
 import pg from 'pg';
@@ -42,7 +43,8 @@ app.get('/api/ping', (req, res) => {
 
 async function setupSession(client) {
   try {
-    await client.query("SET client_encoding TO 'LATIN1'");
+    // Corrigido para UTF8 para evitar caracteres quebrados em mensagens de erro do banco
+    await client.query("SET client_encoding TO 'UTF8'");
   } catch (e) {
     serverLog('SESSION', '-', 'Falha ao definir encoding.', e.message);
   }
