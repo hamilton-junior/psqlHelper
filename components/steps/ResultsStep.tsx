@@ -1,5 +1,6 @@
+
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { ArrowLeft, ArrowRight, Database, ChevronLeft, ChevronRight, FileSpreadsheet, Search, Copy, Check, BarChart2, MessageSquare, Download, Activity, LayoutGrid, FileText, Pin, AlertCircle, Info, MoreHorizontal, FileJson, FileCode, Hash, Type, Filter, Plus, X, Trash2, SlidersHorizontal, Clock, Maximize2, Minimize2, ExternalLink, Braces, PenTool, Save, Eye, Anchor, Link as LinkIcon, Settings2, Loader2, Folder, Terminal as TerminalIcon, ChevronDown, ChevronUp, Layers, Target, CornerDownRight, AlertTriangle, Undo2, ShieldAlert, Pencil, ArrowUp, ArrowDown, ArrowUpDown, History, RotateCcw, FileWarning, Gauge, Camera, Settings, EyeOff } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Database, ChevronLeft, ChevronRight, FileSpreadsheet, Search, Copy, Check, BarChart2, MessageSquare, Download, Activity, LayoutGrid, FileText, Pin, AlertCircle, Info, MoreHorizontal, FileJson, FileCode, Hash, Type, Filter, Plus, X, Trash2, SlidersHorizontal, Clock, Maximize2, Minimize2, ExternalLink, Braces, PenTool, Save, Eye, Anchor, Link as LinkIcon, Settings2, Loader2, Folder, Terminal as TerminalIcon, ChevronDown, ChevronUp, Layers, Target, CornerDownRight, AlertTriangle, Undo2, ShieldAlert, Pencil, ArrowUp, ArrowDown, ArrowUpDown, History, RotateCcw, FileWarning, Gauge, Camera, Settings, EyeOff, GripVertical } from 'lucide-react';
 import { AppSettings, ExplainNode, DatabaseSchema, Table, QueryProfilingSnapshot, DbCredentials, ResultTab, FilterRule, TabResultsState } from '../../types';
 import DataVisualizer from '../DataVisualizer';
 import DataAnalysisChat from '../DataAnalysisChat';
@@ -294,6 +295,15 @@ const VirtualTable = ({ data, columns, highlightMatch, onRowClick, isAdvancedMod
    const hoverTimeoutRef = useRef<any>(null);
    const [manualMappings, setManualMappings] = useState<Record<string, ManualLink[]>>(() => { try { const stored = localStorage.getItem('psql-buddy-manual-drilldown-links-v2'); return stored ? JSON.parse(stored) : {}; } catch { return {}; } });
 
+   // Estados para reordenação de colunas
+   const [orderedColumns, setOrderedColumns] = useState<string[]>(columns);
+   const [draggedColIndex, setDraggedColIndex] = useState<number | null>(null);
+   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+
+   useEffect(() => {
+      setOrderedColumns(columns);
+   }, [columns]);
+
    useEffect(() => { if (editingCell && editInputRef.current) { editInputRef.current.focus(); editInputRef.current.select(); } }, [editingCell]);
    const handleSaveManualLinks = (colName: string, links: ManualLink[]) => { const newMappings = { ...manualMappings }; if (links.length === 0) { delete newMappings[colName]; } else { newMappings[colName] = links; } setManualMappings(newMappings); localStorage.setItem('psql-buddy-manual-drilldown-links-v2', JSON.stringify(newMappings)); };
    const handleSort = (col: string) => { setSortConfig(prev => { if (prev.key === col) { if (prev.direction === 'asc') return { key: col, direction: 'desc' }; return { key: '', direction: null }; } return { key: col, direction: 'asc' }; }); setCurrentPage(1); };
@@ -305,6 +315,37 @@ const VirtualTable = ({ data, columns, highlightMatch, onRowClick, isAdvancedMod
    const getLinksForColumn = (colName: string): ManualLink[] => { let links: ManualLink[] = [...(manualMappings[colName] || [])]; if (links.length === 0 && schema && colName) { const lowerCol = colName.toLowerCase(); const leafName = lowerCol.split('.').pop() || ''; if (leafName === 'grid' || leafName === 'mlid') { const parts = lowerCol.split('.'); let targetTableObj = null; if (parts.length >= 2) { const potentialTableName = parts[parts.length - 2]; targetTableObj = schema.tables.find(t => t.name.toLowerCase() === targetTableObj.toLowerCase()); } if (targetTableObj) { links.push({ id: 'auto', table: `${targetTableObj.schema || 'public'}.${targetTableObj.name}`, keyCol: leafName, previewCol: '' }); } } } return links; };
 
    const SENSITIVE_REGEX = /pass|pwd|token|key|email|cpf|cnpj|fone|phone|cel|card|ccv|secret|document|auth/i;
+
+   // Lógica de Reordenação
+   const handleDragStart = (e: React.DragEvent, index: number) => {
+      setDraggedColIndex(index);
+      e.dataTransfer.effectAllowed = 'move';
+      // Definir imagem vazia opcional se quiser customizar o ghost
+   };
+
+   const handleDragOver = (e: React.DragEvent, index: number) => {
+      e.preventDefault();
+      if (draggedColIndex === index) return;
+      setDragOverIndex(index);
+   };
+
+   const handleDrop = (e: React.DragEvent, targetIndex: number) => {
+      e.preventDefault();
+      if (draggedColIndex === null || draggedColIndex === targetIndex) {
+         setDraggedColIndex(null);
+         setDragOverIndex(null);
+         return;
+      }
+
+      const newOrder = [...orderedColumns];
+      const [removed] = newOrder.splice(draggedColIndex, 1);
+      newOrder.splice(targetIndex, 0, removed);
+      
+      setOrderedColumns(newOrder);
+      setDraggedColIndex(null);
+      setDragOverIndex(null);
+      toast.success("Ordem das colunas atualizada.", { id: 'col-reorder', duration: 1000 });
+   };
 
    const formatValue = (col: string, val: any, rowIdx: number) => {
       const absoluteRowIdx = startIndex + rowIdx;
@@ -363,14 +404,88 @@ const VirtualTable = ({ data, columns, highlightMatch, onRowClick, isAdvancedMod
    return (
       <div className="flex flex-col h-full relative" onClick={() => setHoverPreview(prev => prev?.persistent ? null : prev)}>
          {hoverPreview && credentials && schema && (<HoverPreviewTooltip links={hoverPreview.links.filter(l => !!l.previewCol || hoverPreview.persistent)} value={hoverPreview.val} credentials={credentials} schema={schema} x={hoverPreview.x} y={hoverPreview.y} isPersistent={hoverPreview.persistent} onClose={() => setHoverPreview(null)} onSelect={(tbl, key, all) => { setHoverPreview(null); onDrillDown(tbl, key, hoverPreview.val, all); }} />)}
-         <div className="flex-1 overflow-auto custom-scrollbar"><table className="w-full text-left border-collapse table-fixed"><thead className="bg-slate-50/90 dark:bg-slate-900/90 backdrop-blur-sm sticky top-0 z-10 shadow-sm"><tr>{columns.map((col, idx) => { const links = manualMappings[col] || []; const hasManualMapping = links.length > 0; const isSorted = sortConfig.key === col; return (<th key={col} onClick={() => handleSort(col)} className={`px-4 py-3 text-xs font-bold uppercase border-b border-slate-200 dark:border-slate-700 w-[180px] group relative cursor-pointer select-none transition-colors hover:bg-slate-100/80 dark:hover:bg-slate-800/80 ${isSorted ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-500 dark:text-slate-400'} ${idx === 0 ? 'pl-6' : ''}`}><div className="flex items-center justify-between min-w-0"><div className="flex items-center gap-1.5 truncate"><span className="truncate" title={col}>{col.replace(/_/g, ' ')}</span><div className="shrink-0">{isSorted ? (sortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />) : (<ArrowUpDown className="w-3 h-3 opacity-0 group-hover:opacity-50 transition-opacity" />)}</div></div><div className="flex items-center gap-1 shrink-0 ml-1">{schema && (<button onClick={(e) => { e.stopPropagation(); setActiveMappingCol(activeMappingCol === col ? null : col); setActiveProfileCol(null); }} className={`p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 transition-all ${hasManualMapping ? 'text-purple-500 opacity-100' : 'opacity-0 group-hover:opacity-100 text-slate-300'}`} title={hasManualMapping ? `${links.length} vínculos ativos` : "Vincular colunas manualmente"}>{hasManualMapping ? <LinkIcon className="w-3.5 h-3.5" /> : <Anchor className="w-3.5 h-3.5" />}</button>)}<button onClick={(e) => { e.stopPropagation(); setActiveProfileCol(activeProfileCol === col ? null : col); setActiveMappingCol(null); }} className="p-1 rounded opacity-0 group-hover:opacity-100 text-slate-300 hover:text-indigo-500"><Info className="w-3.5 h-3.5" /></button></div></div>{activeMappingCol === col && schema && (<ManualMappingPopover column={col} schema={schema} currentLinks={links} onSave={(newLinks) => handleSaveManualLinks(col, newLinks)} onClose={() => setActiveMappingCol(null)} />)}{activeProfileCol === col && <div onClick={e => e.stopPropagation()} className="absolute top-full left-0 z-50 mt-1"><ColumnProfiler data={data} column={col} onClose={() => setActiveProfileCol(null)} /></div>}</th>); })}</tr></thead><tbody className="divide-y divide-slate-100 dark:divide-slate-700/50">{currentData.map((row, rowIdx) => { const absRowIdx = startIndex + rowIdx; return (
+         <div className="flex-1 overflow-auto custom-scrollbar">
+            <table className="w-full text-left border-collapse table-fixed">
+               <thead className="bg-slate-50/90 dark:bg-slate-900/90 backdrop-blur-sm sticky top-0 z-10 shadow-sm">
+                  <tr>
+                     {orderedColumns.map((col, idx) => { 
+                        const links = manualMappings[col] || []; 
+                        const hasManualMapping = links.length > 0; 
+                        const isSorted = sortConfig.key === col; 
+                        const isDragging = draggedColIndex === idx;
+                        const isDragOver = dragOverIndex === idx;
+
+                        return (
+                           <th 
+                              key={col} 
+                              draggable={!isAdvancedMode}
+                              onDragStart={(e) => handleDragStart(e, idx)}
+                              onDragOver={(e) => handleDragOver(e, idx)}
+                              onDrop={(e) => handleDrop(e, idx)}
+                              onDragEnd={() => { setDraggedColIndex(null); setDragOverIndex(null); }}
+                              className={`px-4 py-3 text-xs font-bold uppercase border-b border-slate-200 dark:border-slate-700 w-[180px] group relative select-none transition-all
+                                 ${isDragging ? 'opacity-30 bg-slate-100 dark:bg-slate-800' : 'opacity-100'}
+                                 ${isDragOver ? 'border-r-4 border-r-indigo-500' : ''}
+                                 ${isSorted ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-500 dark:text-slate-400'} 
+                                 ${idx === 0 ? 'pl-6' : ''}
+                                 ${!isAdvancedMode ? 'cursor-default' : ''}
+                              `}
+                           >
+                              <div className="flex items-center justify-between min-w-0">
+                                 <div className="flex items-center gap-1.5 truncate">
+                                    {!isAdvancedMode && (
+                                       <div className="cursor-grab active:cursor-grabbing text-slate-300 hover:text-indigo-400 p-0.5 -ml-1 transition-colors">
+                                          <GripVertical className="w-3 h-3" />
+                                       </div>
+                                    )}
+                                    <span 
+                                       className="truncate cursor-pointer hover:underline" 
+                                       title={col}
+                                       onClick={() => handleSort(col)}
+                                    >
+                                       {col.replace(/_/g, ' ')}
+                                    </span>
+                                    <div className="shrink-0">
+                                       {isSorted ? (sortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />) : (
+                                          <ArrowUpDown className="w-3 h-3 opacity-0 group-hover:opacity-50 transition-opacity" />
+                                       )}
+                                    </div>
+                                 </div>
+                                 <div className="flex items-center gap-1 shrink-0 ml-1">
+                                    {schema && (
+                                       <button onClick={(e) => { e.stopPropagation(); setActiveMappingCol(activeMappingCol === col ? null : col); setActiveProfileCol(null); }} className={`p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 transition-all ${hasManualMapping ? 'text-purple-500 opacity-100' : 'opacity-0 group-hover:opacity-100 text-slate-300'}`} title={hasManualMapping ? `${links.length} vínculos ativos` : "Vincular colunas manualmente"}>
+                                          {hasManualMapping ? <LinkIcon className="w-3.5 h-3.5" /> : <Anchor className="w-3.5 h-3.5" />}
+                                       </button>
+                                    )}
+                                    <button onClick={(e) => { e.stopPropagation(); setActiveProfileCol(activeProfileCol === col ? null : col); setActiveMappingCol(null); }} className="p-1 rounded opacity-0 group-hover:opacity-100 text-slate-300 hover:text-indigo-500">
+                                       <Info className="w-3.5 h-3.5" />
+                                    </button>
+                                 </div>
+                              </div>
+                              {activeMappingCol === col && schema && (
+                                 <ManualMappingPopover column={col} schema={schema} currentLinks={links} onSave={(newLinks) => handleSaveManualLinks(col, newLinks)} onClose={() => setActiveMappingCol(null)} />
+                              )}
+                              {activeProfileCol === col && (
+                                 <div onClick={e => e.stopPropagation()} className="absolute top-full left-0 z-50 mt-1">
+                                    <ColumnProfiler data={data} column={col} onClose={() => setActiveProfileCol(null)} />
+                                 </div>
+                              )}
+                           </th>
+                        ); 
+                     })}
+                  </tr>
+               </thead>
+               <tbody className="divide-y divide-slate-100 dark:divide-slate-700/50">
+                  {currentData.map((row, rowIdx) => { 
+                     const absRowIdx = startIndex + rowIdx; 
+                     return (
                         <tr 
                            key={rowIdx} 
                            onClick={() => !isAdvancedMode && onRowClick(row)} 
                            className={`group hover:bg-indigo-50/30 dark:hover:bg-indigo-900/10 transition-colors h-[40px] ${isAdvancedMode ? '' : 'cursor-pointer'} opacity-0 animate-row-entry`}
                            style={{ animationDelay: `${Math.min(rowIdx * 30, 600)}ms` }}
                         >
-                           {columns.map((col, cIdx) => (
+                           {orderedColumns.map((col, cIdx) => (
                               <td 
                                  key={col} 
                                  className={`px-4 py-2 text-sm text-slate-600 dark:text-slate-300 truncate ${cIdx === 0 ? 'pl-6 font-medium' : ''} ${isAdvancedMode ? 'hover:bg-slate-100 dark:hover:bg-slate-800' : ''}`}
