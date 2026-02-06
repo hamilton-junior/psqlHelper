@@ -44,7 +44,24 @@ const ROW_HEIGHT = 30;
 const COL_SPACING = 280;
 const ROW_SPACING_GAP = 100;
 
+// Paleta de cores para os vínculos (High Contrast)
+const RELATION_COLORS = [
+  '#6366f1', '#10b981', '#f59e0b', '#ec4899', '#06b6d4', 
+  '#8b5cf6', '#f43f5e', '#14b8a6', '#3b82f6', '#84cc16',
+  '#a855f7', '#0ea5e9'
+];
+
 const getTableId = (t: any) => `${t.schema || 'public'}.${t.name}`;
+
+// Função simples de hash para designar uma cor estável a uma relação
+const getRelationColor = (id: string) => {
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) {
+    hash = id.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const index = Math.abs(hash) % RELATION_COLORS.length;
+  return RELATION_COLORS[index];
+};
 
 const TABLE_COLORS = [
   { id: 'default', bg: 'bg-slate-50', darkBg: 'dark:bg-slate-900/50', border: 'border-slate-200', text: 'text-slate-700' },
@@ -157,7 +174,7 @@ const DiagramNode = memo(({
      width: TABLE_WIDTH,
      opacity,
      zIndex: isHovered || isNodeSelected || opacity === 1 || isExpanded ? 50 : 10,
-     pointerEvents: opacity < 0.2 ? 'none' : 'auto' as any,
+     pointerEvents: opacity < 0.1 ? 'none' : 'auto' as any,
      display: pos ? 'flex' : 'none'
   }), [pos, opacity, isHovered, isExpanded, isNodeSelected]);
 
@@ -590,6 +607,9 @@ const SchemaDiagramModal: React.FC<SchemaDiagramModalProps> = ({ schema, onClose
 
           if (!visibleSet.has(tableId) && !visibleSet.has(targetTableId) && !isGlobalInteraction) return;
 
+          const relationId = `${tableId}-${col.name}-${targetTableId}`;
+          const baseColor = getRelationColor(relationId);
+          
           let isPathLine = false;
           let isHighlighted = false;
           let isExplicitlySelected = false; 
@@ -629,21 +649,27 @@ const SchemaDiagramModal: React.FC<SchemaDiagramModalProps> = ({ schema, onClose
           const midX = (sx + ex) / 2;
           const pathD = `M ${sx} ${sourceY} C ${midX} ${sourceY}, ${midX} ${targetY}, ${ex} ${targetY}`;
           
-          let stroke = isHighlighted || isPathLine ? "#6366f1" : "#94a3b8";
-          if (isPathLine) stroke = "#06b6d4";
-          if (isExplicitlySelected) stroke = "#f59e0b";
-          
-          let width = isHighlighted || isPathLine ? 3 : 1;
-          let opacity = isDimmed ? 0.05 : (isHighlighted || isPathLine ? 1 : 0.4);
-          
-          let markerEnd = "url(#arrowhead)";
-          if (isExplicitlySelected) markerEnd = "url(#arrowhead-fixed)";
-          else if (isHighlighted || isPathLine) markerEnd = "url(#arrowhead-selected)";
+          // Cálculo dos pontos do triângulo da seta manualmente para garantir a cor exata
+          const arrowSize = 6;
+          const arrowAngle = Math.atan2(targetY - sourceY, ex - midX);
+          const p1x = ex;
+          const p1y = targetY;
+          const p2x = ex - arrowSize * Math.cos(arrowAngle - Math.PI/6);
+          const p2y = targetY - arrowSize * Math.sin(arrowAngle - Math.PI/6);
+          const p3x = ex - arrowSize * Math.cos(arrowAngle + Math.PI/6);
+          const p3y = targetY - arrowSize * Math.sin(arrowAngle + Math.PI/6);
+          const arrowPoints = `${p1x},${p1y} ${p2x},${p2y} ${p3x},${p3y}`;
+
+          let stroke = isExplicitlySelected ? "#f59e0b" : (isPathLine ? "#06b6d4" : baseColor);
+          let width = isHighlighted || isPathLine ? 3 : 1.5;
+          let opacity = isDimmed ? 0.05 : (isHighlighted || isPathLine ? 1 : 0.6);
 
           lines.push(
-             <g key={`${tableId}-${col.name}-${targetTableId}`} className="transition-all duration-300">
+             <g key={relationId} className="transition-all duration-300">
+                {/* Hit area invisível para facilitar cliques */}
                 <path d={pathD} stroke="transparent" strokeWidth={15} fill="none" className="cursor-pointer pointer-events-auto" onClick={(e) => { e.stopPropagation(); setSelectedRelationship({ source: tableId, target: targetTableId, colName: col.name, targetColName: targetColName }); }} />
                 
+                {/* A linha propriamente dita */}
                 <path 
                   d={pathD} 
                   stroke={stroke} 
@@ -651,7 +677,14 @@ const SchemaDiagramModal: React.FC<SchemaDiagramModalProps> = ({ schema, onClose
                   fill="none" 
                   opacity={opacity} 
                   className="transition-all duration-300" 
-                  markerEnd={markerEnd} 
+                />
+
+                {/* A cabeça da seta desenhada manualmente para sincronia de cor */}
+                <polygon 
+                  points={arrowPoints}
+                  fill={stroke}
+                  opacity={opacity}
+                  className="transition-all duration-300"
                 />
 
                 {(isHighlighted || isPathLine) && !isInteracting && (
@@ -800,17 +833,6 @@ const SchemaDiagramModal: React.FC<SchemaDiagramModalProps> = ({ schema, onClose
         <div ref={containerRef} className="flex-1 overflow-hidden cursor-move bg-[radial-gradient(#cbd5e1_1px,transparent_1px)] dark:bg-[radial-gradient(#334155_1px,transparent_1px)] [background-size:20px_20px]" onMouseDown={(e) => handleMouseDown(e)} onMouseMove={handleMouseMove} onMouseUp={handleMouseUp} onMouseLeave={handleMouseUp} onWheel={handleWheel}>
           <div style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${scale})`, transformOrigin: '0 0', width: '100%', height: '100%' }} className="relative w-full h-full">
              <svg className="absolute inset-0 pointer-events-none overflow-visible w-full h-full" style={{ zIndex: 0 }}>
-               <defs>
-                  <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
-                    <polygon points="0 0, 10 3.5, 0 7" fill="#64748b" />
-                  </marker>
-                  <marker id="arrowhead-selected" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
-                    <polygon points="0 0, 10 3.5, 0 7" fill="#6366f1" />
-                  </marker>
-                  <marker id="arrowhead-fixed" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
-                    <polygon points="0 0, 10 3.5, 0 7" fill="#f59e0b" />
-                  </marker>
-               </defs>
                {connections}
              </svg>
              {visibleTables.map(table => {
@@ -824,7 +846,7 @@ const SchemaDiagramModal: React.FC<SchemaDiagramModalProps> = ({ schema, onClose
                      isHovered={hoveredNodeId === tId} 
                      isSelected={selectedRelationship?.source === tId || selectedRelationship?.target === tId} 
                      isNodeSelected={selectedNodeId === tId}
-                     opacity={pathMode && foundPathIds.length > 0 && !foundPathIds.includes(tId) ? 0.1 : 1} 
+                     opacity={selectedNodeId && selectedNodeId !== tId && !relationshipGraph[selectedNodeId]?.has(tId) ? 0.05 : 1} 
                      ringClass={pathMode && foundPathIds.includes(tId) ? 'ring-2 ring-cyan-400' : ''} 
                      tableColors={tableColors} 
                      columnColors={columnColors} 
