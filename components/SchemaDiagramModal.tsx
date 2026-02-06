@@ -44,7 +44,6 @@ const ROW_HEIGHT = 30;
 const COL_SPACING = 280;
 const ROW_SPACING_GAP = 100;
 
-// Helper unificado para ID de tabela
 const getTableId = (t: any) => `${t.schema || 'public'}.${t.name}`;
 
 const TABLE_COLORS = [
@@ -145,7 +144,8 @@ const DiagramNode = memo(({
   table, pos, lodLevel, isHovered, opacity, isSelected, ringClass, 
   tableColors, columnColors, hasTags, searchTerm, searchColumns,
   onMouseDown, onMouseEnter, onMouseLeave, onContextMenu, onDoubleClick, onClearTableColor,
-  onColumnEnter, onColumnLeave, onColumnClick, selectedColumn, secondSelectedColumn
+  onColumnEnter, onColumnLeave, onColumnClick, selectedColumn, secondSelectedColumn,
+  isNodeSelected
 }: any) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const tableId = getTableId(table);
@@ -156,10 +156,10 @@ const DiagramNode = memo(({
      transform: `translate(${pos?.x || 0}px, ${pos?.y || 0}px)`,
      width: TABLE_WIDTH,
      opacity,
-     zIndex: isHovered || opacity === 1 || isExpanded ? 50 : 10,
+     zIndex: isHovered || isNodeSelected || opacity === 1 || isExpanded ? 50 : 10,
      pointerEvents: opacity < 0.2 ? 'none' : 'auto' as any,
      display: pos ? 'flex' : 'none'
-  }), [pos, opacity, isHovered, isExpanded]);
+  }), [pos, opacity, isHovered, isExpanded, isNodeSelected]);
 
   const displayLimit = lodLevel === 'medium' ? 5 : 10;
   const visibleColumns = isExpanded ? table.columns : table.columns.slice(0, displayLimit);
@@ -176,23 +176,23 @@ const DiagramNode = memo(({
         onDoubleClick={(e) => onDoubleClick(e, tableId)}
         style={nodeStyle}
         className={`absolute flex flex-col rounded-xl transition-all duration-200
-           ${lodLevel === 'low' && !isHovered && !isSelected 
+           ${lodLevel === 'low' && !isHovered && !isSelected && !isNodeSelected
               ? 'bg-indigo-100 dark:bg-slate-800 border-2 border-indigo-300 dark:border-indigo-700 h-10 items-center justify-center shadow-sm' 
               : 'bg-white dark:bg-slate-800 shadow-xl border border-slate-200 dark:border-slate-700'}
            ${ringClass}
-           ${isSelected ? 'ring-2 ring-offset-2 ring-indigo-500 dark:ring-offset-slate-900 shadow-2xl scale-[1.02] z-50' : ''}
+           ${isSelected || isNodeSelected ? 'ring-2 ring-offset-2 ring-indigo-500 dark:ring-offset-slate-900 shadow-2xl scale-[1.02] z-50' : ''}
         `}
      >
-        {lodLevel === 'low' && !isHovered && !isSelected ? (
+        {lodLevel === 'low' && !isHovered && !isSelected && !isNodeSelected ? (
            <span className="text-xs font-bold text-indigo-700 dark:text-indigo-300 truncate px-2">{table.name}</span>
         ) : (
            <>
               <div className={`flex items-center justify-between px-4 py-2.5 border-b shrink-0 relative group/header rounded-t-xl
-                  ${style.bg} ${style.darkBg} ${style.border}
+                  ${isNodeSelected ? 'bg-indigo-600 text-white border-indigo-700' : `${style.bg} ${style.darkBg} ${style.border}`}
               `}>
                  <div className="flex flex-col min-w-0">
-                    <span className={`font-bold text-sm truncate leading-tight ${style.text}`} title={table.name}>{table.name}</span>
-                    <span className={`text-[10px] opacity-70 truncate ${style.text}`}>{table.schema}</span>
+                    <span className={`font-bold text-sm truncate leading-tight ${isNodeSelected ? 'text-white' : style.text}`} title={table.name}>{table.name}</span>
+                    <span className={`text-[10px] opacity-70 truncate ${isNodeSelected ? 'text-indigo-100' : style.text}`}>{table.schema}</span>
                  </div>
                  <div className="flex items-center gap-1">
                     {hasTags && (
@@ -214,7 +214,6 @@ const DiagramNode = memo(({
                            const colStyle = colColorId ? TABLE_COLORS.find(c => c.id === colColorId) : null;
                            const isKey = col.isPrimaryKey || col.isForeignKey;
                            
-                           // Coluna dá match se a busca estiver ativa e o toggle ligado
                            const isMatch = searchColumns && searchTerm && col.name.toLowerCase().includes(searchTerm.toLowerCase());
 
                            return (
@@ -270,13 +269,14 @@ const SchemaDiagramModal: React.FC<SchemaDiagramModalProps> = ({ schema, onClose
   const [isLayoutReady, setIsLayoutReady] = useState(false);
   const [isDraggingCanvas, setIsDraggingCanvas] = useState(false);
   const [draggedNodeId, setDraggedNodeId] = useState<string | null>(null);
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [isInteracting, setIsInteracting] = useState(false);
   const lastMousePos = useRef({ x: 0, y: 0 });
   const interactionTimeout = useRef<any>(null);
   const interactionStartRef = useRef<any>(null);
   const [inputValue, setInputValue] = useState('');
   const [debouncedTerm, setDebouncedTerm] = useState('');
-  const [searchColumns, setSearchColumns] = useState(false); // Toggle para busca em colunas
+  const [searchColumns, setSearchColumns] = useState(false); 
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
   const [hoveredColumn, setHoveredColumn] = useState<HoveredColumnState | null>(null);
   const [selectedColumn, setSelectedColumn] = useState<HoveredColumnState | null>(null);
@@ -295,7 +295,6 @@ const SchemaDiagramModal: React.FC<SchemaDiagramModalProps> = ({ schema, onClose
   const [viewingDDL, setViewingDDL] = useState<Table | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Auxiliar de log
   const logDiagram = (msg: string, data?: any) => console.log(`[DIAGRAM] ${msg}`, data || '');
 
   const relationshipGraph = useMemo(() => {
@@ -308,7 +307,6 @@ const SchemaDiagramModal: React.FC<SchemaDiagramModalProps> = ({ schema, onClose
           if (c.isForeignKey && c.references) {
              const parts = c.references.split('.'); 
              let targetTableId = '';
-             let targetColName = '';
              
              if (parts.length === 3) targetTableId = `${parts[0]}.${parts[1]}`;
              else if (parts.length === 2) targetTableId = `public.${parts[0]}`;
@@ -360,7 +358,6 @@ const SchemaDiagramModal: React.FC<SchemaDiagramModalProps> = ({ schema, onClose
           return tableMatch || columnMatch;
         });
         
-        // Ordenação por relevância similar ao SchemaViewer
         tablesToRender = [...tablesToRender].sort((a, b) => {
            const nameA = a.name.toLowerCase();
            const nameB = b.name.toLowerCase();
@@ -376,7 +373,6 @@ const SchemaDiagramModal: React.FC<SchemaDiagramModalProps> = ({ schema, onClose
       }
       const newPos = calculateLayout(tablesToRender);
       setPositions(newPos);
-      logDiagram(`${Object.keys(newPos).length} posições calculadas.`);
       if (debouncedTerm.trim() && tablesToRender.length > 0) {
          setPan({ x: 100, y: 100 });
          setScale(1);
@@ -467,6 +463,9 @@ const SchemaDiagramModal: React.FC<SchemaDiagramModalProps> = ({ schema, onClose
        setSelectedRelationship(null);
        setSelectedColumn(null); 
        setSecondSelectedColumn(null);
+       setSelectedNodeId(null);
+    } else {
+       setSelectedNodeId(tableId);
     }
     lastMousePos.current = { x: e.clientX, y: e.clientY };
     if (tableId) setDraggedNodeId(tableId);
@@ -562,23 +561,12 @@ const SchemaDiagramModal: React.FC<SchemaDiagramModalProps> = ({ schema, onClose
 
   const connections = useMemo(() => {
     const activeColumn = selectedColumn || hoveredColumn;
-    if ((isInteracting && visibleTables.length > 30) || scale < 0.4) {
-       if (!hoveredNodeId && !selectedRelationship && !pathMode && !activeColumn) return [];
-    }
+    const isGlobalInteraction = hoveredNodeId || selectedNodeId || selectedRelationship || pathMode || activeColumn;
+
     const lines: React.ReactElement[] = [];
     const visibleSet = new Set(visibleTables.map(t => getTableId(t)));
-    let sourceTables = visibleTables;
-    if (pathMode && foundPathIds.length > 0) {
-       sourceTables = schema.tables.filter(t => foundPathIds.includes(getTableId(t)));
-    } else if (selectedRelationship) {
-       sourceTables = schema.tables.filter(t => getTableId(t) === selectedRelationship.source || getTableId(t) === selectedRelationship.target);
-    } else if (activeColumn?.ref) {
-       sourceTables = schema.tables.filter(t => getTableId(t) === activeColumn.table);
-    } else if (hoveredNodeId) {
-       sourceTables = schema.tables.filter(t => getTableId(t) === hoveredNodeId || relationshipGraph[hoveredNodeId]?.has(getTableId(t)));
-    }
-
-    sourceTables.forEach(table => {
+    
+    schema.tables.forEach(table => {
       const tableId = getTableId(table);
       const startPos = positions[tableId];
       if (!startPos) return;
@@ -597,9 +585,10 @@ const SchemaDiagramModal: React.FC<SchemaDiagramModalProps> = ({ schema, onClose
              targetColName = parts[1];
           }
           
-          if (!visibleSet.has(targetTableId) && !hoveredNodeId && !selectedRelationship && !pathMode && !activeColumn) return;
           const endPos = positions[targetTableId];
           if (!endPos) return;
+
+          if (!visibleSet.has(tableId) && !visibleSet.has(targetTableId) && !isGlobalInteraction) return;
 
           let isPathLine = false;
           let isHighlighted = false;
@@ -609,7 +598,6 @@ const SchemaDiagramModal: React.FC<SchemaDiagramModalProps> = ({ schema, onClose
              const srcIdx = foundPathIds.indexOf(tableId);
              const tgtIdx = foundPathIds.indexOf(targetTableId);
              if (srcIdx !== -1 && tgtIdx !== -1 && Math.abs(srcIdx - tgtIdx) === 1) isPathLine = true;
-             else return; 
           } else if (selectedRelationship) {
              if (tableId === selectedRelationship.source && col.name === selectedRelationship.colName && targetTableId === selectedRelationship.target) {
                 isExplicitlySelected = true;
@@ -617,48 +605,72 @@ const SchemaDiagramModal: React.FC<SchemaDiagramModalProps> = ({ schema, onClose
              }
           } else if (activeColumn) {
              if (activeColumn.table === tableId && activeColumn.col === col.name) isHighlighted = true;
-             else return; 
-          } else if (hoveredNodeId) {
-             if (tableId !== hoveredNodeId && targetTableId !== hoveredNodeId) return;
+             else if (activeColumn.table === targetTableId && activeColumn.col === targetColName) isHighlighted = true;
+          } else if (hoveredNodeId || selectedNodeId) {
+             if (tableId === hoveredNodeId || targetTableId === hoveredNodeId || 
+                 tableId === selectedNodeId || targetTableId === selectedNodeId) isHighlighted = true;
           }
+
+          const isDimmed = isGlobalInteraction && !isHighlighted && !isPathLine && !isExplicitlySelected;
 
           const sourceY = startPos.y + HEADER_HEIGHT + (colIndex * ROW_HEIGHT) + (ROW_HEIGHT / 2);
           let targetY = endPos.y + 20; 
-          if (lodLevel === 'high' || isHighlighted || isPathLine) {
-             const targetTbl = schema.tables.find(t => getTableId(t) === targetTableId);
-             if (targetTbl) {
-                const tColIdx = targetTbl.columns.findIndex(c => c.name === targetColName);
-                if (tColIdx >= 0) targetY = endPos.y + HEADER_HEIGHT + (tColIdx * ROW_HEIGHT) + (ROW_HEIGHT / 2);
-             }
+          
+          const targetTbl = schema.tables.find(t => getTableId(t) === targetTableId);
+          if (targetTbl) {
+            const tColIdx = targetTbl.columns.findIndex(c => c.name === targetColName);
+            if (tColIdx >= 0) targetY = endPos.y + HEADER_HEIGHT + (tColIdx * ROW_HEIGHT) + (ROW_HEIGHT / 2);
           }
 
           const isRight = endPos.x > startPos.x + TABLE_WIDTH;
           const sx = isRight ? startPos.x + TABLE_WIDTH : startPos.x;
           const ex = isRight ? endPos.x : endPos.x + TABLE_WIDTH;
-          const dist = Math.abs(ex - sx) * 0.5;
-          const pathD = `M ${sx} ${sourceY} C ${isRight ? sx + dist : sx - dist} ${sourceY}, ${isRight ? ex - dist : ex + dist} ${targetY}, ${ex} ${targetY}`;
           
-          let stroke = "#94a3b8";
-          let width = 1;
-          let opacity = 0.4;
-          let markerEnd = hoveredNodeId === tableId || activeColumn?.table === tableId ? "url(#arrowhead)" : undefined;
+          const midX = (sx + ex) / 2;
+          const pathD = `M ${sx} ${sourceY} C ${midX} ${sourceY}, ${midX} ${targetY}, ${ex} ${targetY}`;
           
-          if (isPathLine) { stroke = "#06b6d4"; width = 4; opacity = 1; markerEnd = "url(#arrowhead-selected)"; }
-          else if (isExplicitlySelected) { stroke = "#f59e0b"; width = 3; opacity = 1; markerEnd = "url(#arrowhead-selected)"; } 
-          else if (isHighlighted) { stroke = "#f59e0b"; width = 3; opacity = 1; markerEnd = "url(#arrowhead-selected)"; } 
-          else if (hoveredNodeId === tableId || hoveredNodeId === targetTableId) { stroke = "#6366f1"; width = 2; opacity = 0.8; markerEnd = "url(#arrowhead)"; }
+          let stroke = isHighlighted || isPathLine ? "#6366f1" : "#94a3b8";
+          if (isPathLine) stroke = "#06b6d4";
+          if (isExplicitlySelected) stroke = "#f59e0b";
+          
+          let width = isHighlighted || isPathLine ? 3 : 1;
+          let opacity = isDimmed ? 0.05 : (isHighlighted || isPathLine ? 1 : 0.4);
+          
+          let markerEnd = "url(#arrowhead)";
+          if (isExplicitlySelected) markerEnd = "url(#arrowhead-fixed)";
+          else if (isHighlighted || isPathLine) markerEnd = "url(#arrowhead-selected)";
 
           lines.push(
-             <g key={`${tableId}-${col.name}-${targetTableId}`}>
+             <g key={`${tableId}-${col.name}-${targetTableId}`} className="transition-all duration-300">
                 <path d={pathD} stroke="transparent" strokeWidth={15} fill="none" className="cursor-pointer pointer-events-auto" onClick={(e) => { e.stopPropagation(); setSelectedRelationship({ source: tableId, target: targetTableId, colName: col.name, targetColName: targetColName }); }} />
-                <path d={pathD} stroke={stroke} strokeWidth={width} fill="none" opacity={opacity} className="pointer-events-none transition-all duration-300" markerEnd={markerEnd} />
+                
+                <path 
+                  d={pathD} 
+                  stroke={stroke} 
+                  strokeWidth={width} 
+                  fill="none" 
+                  opacity={opacity} 
+                  className="transition-all duration-300" 
+                  markerEnd={markerEnd} 
+                />
+
+                {(isHighlighted || isPathLine) && !isInteracting && (
+                  <path
+                    d={pathD}
+                    stroke="white"
+                    strokeWidth={width / 2}
+                    fill="none"
+                    strokeDasharray="5, 15"
+                    className="animate-marching-ants"
+                  />
+                )}
              </g>
           );
         }
       });
     });
     return lines;
-  }, [visibleTables, positions, lodLevel, isInteracting, hoveredNodeId, hoveredColumn, selectedColumn, selectedRelationship, pathMode, foundPathIds, schema.tables, relationshipGraph]);
+  }, [visibleTables, positions, lodLevel, isInteracting, hoveredNodeId, selectedNodeId, hoveredColumn, selectedColumn, selectedRelationship, pathMode, foundPathIds, schema.tables, relationshipGraph]);
 
   const handleSaveLayout = () => {
     const layout = { name: schema.name, positions, tableColors, columnColors, timestamp: Date.now() };
@@ -688,6 +700,16 @@ const SchemaDiagramModal: React.FC<SchemaDiagramModalProps> = ({ schema, onClose
 
   return (
     <div className="fixed inset-0 z-[70] bg-slate-900/90 backdrop-blur-sm flex items-center justify-center p-4">
+      <style>{`
+        @keyframes marching-ants {
+          from { stroke-dashoffset: 20; }
+          to { stroke-dashoffset: 0; }
+        }
+        .animate-marching-ants {
+          animation: marching-ants 0.8s linear infinite;
+        }
+      `}</style>
+
       <div className="bg-slate-100 dark:bg-slate-900 w-full h-full rounded-xl shadow-2xl overflow-hidden relative border border-slate-700 flex flex-col">
         
         {showValidator && selectedColumn && secondSelectedColumn && (
@@ -709,7 +731,6 @@ const SchemaDiagramModal: React.FC<SchemaDiagramModalProps> = ({ schema, onClose
            </div>
         )}
 
-        {/* Validator Floating Action Bar */}
         {(selectedColumn || secondSelectedColumn) && !showValidator && (
            <div className="absolute top-4 left-1/2 -translate-x-1/2 z-[60] bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-4 py-2 rounded-2xl shadow-2xl flex items-center gap-4 animate-in slide-in-from-top-4 duration-300">
               <div className="flex items-center gap-2">
@@ -784,6 +805,9 @@ const SchemaDiagramModal: React.FC<SchemaDiagramModalProps> = ({ schema, onClose
                     <polygon points="0 0, 10 3.5, 0 7" fill="#64748b" />
                   </marker>
                   <marker id="arrowhead-selected" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+                    <polygon points="0 0, 10 3.5, 0 7" fill="#6366f1" />
+                  </marker>
+                  <marker id="arrowhead-fixed" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
                     <polygon points="0 0, 10 3.5, 0 7" fill="#f59e0b" />
                   </marker>
                </defs>
@@ -799,6 +823,7 @@ const SchemaDiagramModal: React.FC<SchemaDiagramModalProps> = ({ schema, onClose
                      lodLevel={lodLevel} 
                      isHovered={hoveredNodeId === tId} 
                      isSelected={selectedRelationship?.source === tId || selectedRelationship?.target === tId} 
+                     isNodeSelected={selectedNodeId === tId}
                      opacity={pathMode && foundPathIds.length > 0 && !foundPathIds.includes(tId) ? 0.1 : 1} 
                      ringClass={pathMode && foundPathIds.includes(tId) ? 'ring-2 ring-cyan-400' : ''} 
                      tableColors={tableColors} 
