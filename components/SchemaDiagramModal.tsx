@@ -613,6 +613,7 @@ const SchemaDiagramModal: React.FC<SchemaDiagramModalProps> = ({ schema, onClose
           let isPathLine = false;
           let isHighlighted = false;
           let isExplicitlySelected = false; 
+          let isRelatedToSelection = false; // "Irmão" da conexão selecionada
 
           if (pathMode) {
              const srcIdx = foundPathIds.indexOf(tableId);
@@ -622,6 +623,8 @@ const SchemaDiagramModal: React.FC<SchemaDiagramModalProps> = ({ schema, onClose
              if (tableId === selectedRelationship.source && col.name === selectedRelationship.colName && targetTableId === selectedRelationship.target) {
                 isExplicitlySelected = true;
                 isHighlighted = true;
+             } else if (tableId === selectedRelationship.source) {
+                isRelatedToSelection = true;
              }
           } else if (activeColumn) {
              if (activeColumn.table === tableId && activeColumn.col === col.name) isHighlighted = true;
@@ -631,7 +634,7 @@ const SchemaDiagramModal: React.FC<SchemaDiagramModalProps> = ({ schema, onClose
                  tableId === selectedNodeId || targetTableId === selectedNodeId) isHighlighted = true;
           }
 
-          const isDimmed = isGlobalInteraction && !isHighlighted && !isPathLine && !isExplicitlySelected;
+          const isDimmed = isGlobalInteraction && !isHighlighted && !isPathLine && !isRelatedToSelection;
 
           const sourceY = startPos.y + HEADER_HEIGHT + (colIndex * ROW_HEIGHT) + (ROW_HEIGHT / 2);
           let targetY = endPos.y + 20; 
@@ -649,8 +652,8 @@ const SchemaDiagramModal: React.FC<SchemaDiagramModalProps> = ({ schema, onClose
           const midX = (sx + ex) / 2;
           const pathD = `M ${sx} ${sourceY} C ${midX} ${sourceY}, ${midX} ${targetY}, ${ex} ${targetY}`;
           
-          // Cálculo dos pontos do triângulo da seta manualmente para garantir a cor exata
-          const arrowSize = 6;
+          // Desenho manual da ponta da seta
+          const arrowSize = isHighlighted ? 8 : 6;
           const arrowAngle = Math.atan2(targetY - sourceY, ex - midX);
           const p1x = ex;
           const p1y = targetY;
@@ -660,9 +663,9 @@ const SchemaDiagramModal: React.FC<SchemaDiagramModalProps> = ({ schema, onClose
           const p3y = targetY - arrowSize * Math.sin(arrowAngle + Math.PI/6);
           const arrowPoints = `${p1x},${p1y} ${p2x},${p2y} ${p3x},${p3y}`;
 
-          let stroke = isExplicitlySelected ? "#f59e0b" : (isPathLine ? "#06b6d4" : baseColor);
-          let width = isHighlighted || isPathLine ? 3 : 1.5;
-          let opacity = isDimmed ? 0.05 : (isHighlighted || isPathLine ? 1 : 0.6);
+          let stroke = baseColor;
+          let width = isHighlighted || isPathLine ? 3 : isRelatedToSelection ? 2 : 1.5;
+          let opacity = isDimmed ? 0.05 : (isHighlighted || isPathLine ? 1 : isRelatedToSelection ? 0.3 : 0.6);
 
           lines.push(
              <g key={relationId} className="transition-all duration-300">
