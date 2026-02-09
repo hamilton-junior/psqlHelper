@@ -53,14 +53,9 @@ async function setupSession(client) {
     
     serverLog('SESSION', '-', `Encoding detectado no servidor: ${serverEncoding}`);
 
-    if (serverEncoding === 'SQL_ASCII') {
-      // Se o banco é ASCII, ele aceita lixo. Definimos o cliente como UTF8 
-      // mas teremos que converter campos de texto manualmente nas queries de metadados.
-      await client.query("SET client_encoding TO 'UTF8'");
-    } else {
-      await client.query("SET client_encoding TO 'UTF8'");
-    }
-
+    // Em bancos SQL_ASCII, forçamos o cliente a UTF8.
+    // O segredo está na forma como pedimos os dados nas queries de sistema.
+    await client.query("SET client_encoding TO 'UTF8'");
     await client.query("SET datestyle TO 'ISO, MDY'");
     await client.query("SET work_mem TO '64MB'");
     
@@ -82,11 +77,15 @@ app.post('/api/connect', async (req, res) => {
     const serverEncoding = await setupSession(client);
     
     // Patch para descrições em bancos SQL_ASCII
-    const descExpr = serverEncoding === 'SQL_ASCII' 
-      ? `convert_from(obj_description((table_schema || '.' || table_name)::regclass)::text::bytea, 'LATIN1')`
-      : `obj_description((table_schema || '.' || table_name)::regclass)`;
+    // Usamos convert_to para extrair bytes brutos e convert_from para interpretar como LATIN1 (o padrão de bancos legados PT-BR)
+    const wrapSql = (field) => {
+       if (serverEncoding === 'SQL_ASCII') {
+          return `convert_from(convert_to(COALESCE(${field}, ''), 'SQL_ASCII'), 'LATIN1')`;
+       }
+       return field;
+    };
 
-    const tablesRes = await client.query(`SELECT table_schema, table_name, ${descExpr} as description FROM information_schema.tables WHERE table_schema NOT IN ('information_schema', 'pg_catalog') AND table_type = 'BASE TABLE' ORDER BY table_schema, table_name;`);
+    const tablesRes = await client.query(`SELECT table_schema, table_name, ${wrapSql('obj_description((table_schema || \'.\' || table_name)::regclass)')} as description FROM information_schema.tables WHERE table_schema NOT IN ('information_schema', 'pg_catalog') AND table_type = 'BASE TABLE' ORDER BY table_schema, table_name;`);
     const columnsRes = await client.query(`SELECT c.table_schema, c.table_name, c.column_name, c.data_type, (SELECT COUNT(*) > 0 FROM information_schema.key_column_usage kcu JOIN information_schema.table_constraints tc ON kcu.constraint_name = tc.constraint_name AND kcu.table_schema = tc.table_schema WHERE kcu.table_name = c.table_name AND kcu.column_name = c.column_name AND tc.constraint_type = 'PRIMARY KEY') as is_primary FROM information_schema.columns c WHERE c.table_schema NOT IN ('information_schema', 'pg_catalog') ORDER BY c.ordinal_position;`);
     const fkRes = await client.query(`SELECT tc.table_schema, tc.table_name, kcu.column_name, ccu.table_schema AS foreign_table_schema, ccu.table_name AS foreign_table_name, ccu.column_name AS foreign_column_name FROM information_schema.table_constraints AS tc JOIN information_schema.key_column_usage AS kcu ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema JOIN information_schema.constraint_column_usage AS ccu ON ccu.constraint_name = tc.constraint_name AND ccu.table_schema = tc.table_schema WHERE tc.constraint_type = 'FOREIGN KEY';`);
     
@@ -113,14 +112,15 @@ app.post('/api/objects', async (req, res) => {
     await client.connect();
     const serverEncoding = await setupSession(client);
     
-    serverLog('POST', '/api/objects', 'Buscando funções e triggers...');
+    serverLog('POST', '/api/objects', 'Buscando funções e triggers com patch de encoding...');
 
-    // Se o banco for SQL_ASCII, precisamos forçar a conversão de bytea para UTF8 assumindo LATIN1
+    // Se o banco for SQL_ASCII, precisamos re-interpretar os bytes
     const wrapSql = (field) => {
       if (serverEncoding === 'SQL_ASCII') {
-        // Explicação: Convertemos o resultado da função do sistema para bytea (bytes puros) 
-        // e então dizemos ao Postgres: "interprete esses bytes como LATIN1 e me dê o texto em UTF8"
-        return `convert_from(${field}::text::bytea, 'LATIN1')`;
+        // COALESCE evita erro se o campo for nulo
+        // convert_to transforma o texto em bytes brutos (sem validar encoding)
+        // convert_from pega esses bytes e interpreta como LATIN1 gerando um UTF8 limpo
+        return `convert_from(convert_to(COALESCE(${field}, ''), 'SQL_ASCII'), 'LATIN1')`;
       }
       return `${field}::text`;
     };
