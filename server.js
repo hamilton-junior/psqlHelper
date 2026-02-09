@@ -53,8 +53,8 @@ async function setupSession(client) {
     
     serverLog('SESSION', '-', `Encoding detectado no servidor: ${serverEncoding}`);
 
-    // Em bancos SQL_ASCII, forçamos o cliente a UTF8.
-    // O segredo está na forma como pedimos os dados nas queries de sistema.
+    // Em bancos SQL_ASCII, o servidor não valida os bytes. 
+    // Definimos o client_encoding como UTF8, mas faremos a conversão manual nas queries de metadados.
     await client.query("SET client_encoding TO 'UTF8'");
     await client.query("SET datestyle TO 'ISO, MDY'");
     await client.query("SET work_mem TO '64MB'");
@@ -77,10 +77,10 @@ app.post('/api/connect', async (req, res) => {
     const serverEncoding = await setupSession(client);
     
     // Patch para descrições em bancos SQL_ASCII
-    // Usamos convert_to para extrair bytes brutos e convert_from para interpretar como LATIN1 (o padrão de bancos legados PT-BR)
+    // Usamos convert_to para extrair bytes brutos e convert_from para interpretar como LATIN1
     const wrapSql = (field) => {
        if (serverEncoding === 'SQL_ASCII') {
-          return `convert_from(convert_to(COALESCE(${field}, ''), 'SQL_ASCII'), 'LATIN1')`;
+          return `convert_from(convert_to(COALESCE(${field}::text, ''), 'SQL_ASCII'), 'LATIN1')`;
        }
        return field;
     };
@@ -114,13 +114,10 @@ app.post('/api/objects', async (req, res) => {
     
     serverLog('POST', '/api/objects', 'Buscando funções e triggers com patch de encoding...');
 
-    // Se o banco for SQL_ASCII, precisamos re-interpretar os bytes
+    // Se o banco for SQL_ASCII, precisamos re-interpretar os bytes para UTF8 via LATIN1
     const wrapSql = (field) => {
       if (serverEncoding === 'SQL_ASCII') {
-        // COALESCE evita erro se o campo for nulo
-        // convert_to transforma o texto em bytes brutos (sem validar encoding)
-        // convert_from pega esses bytes e interpreta como LATIN1 gerando um UTF8 limpo
-        return `convert_from(convert_to(COALESCE(${field}, ''), 'SQL_ASCII'), 'LATIN1')`;
+        return `convert_from(convert_to(COALESCE(${field}::text, ''), 'SQL_ASCII'), 'LATIN1')`;
       }
       return `${field}::text`;
     };
@@ -364,7 +361,6 @@ app.post('/api/storage-stats', async (req, res) => {
        } else {
           // Windows Fallback using wmic
           const { stdout } = await execAsync(`wmic logicaldisk get size,freespace,caption`);
-          // Note: Windows wmic parsing is more complex, returning first disk for now
           const lines = stdout.trim().split('\n').filter(l => l.includes(':'));
           if (lines.length > 0) {
              const parts = lines[0].trim().replace(/\s+/g, ' ').split(' ');
