@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useMemo } from 'react';
+
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   HeartPulse, Activity, Database, Users, Clock, 
   RefreshCw, Trash2, Search, AlertCircle, 
@@ -159,8 +160,8 @@ const ServerHealthStep: React.FC<ServerHealthStepProps> = ({ credentials }) => {
   const [terminatingPid, setTerminatingPid] = useState<number | null>(null);
   const [optimizingItems, setOptimizingItems] = useState<Set<string>>(new Set());
   const [showIndexWarningInfo, setShowIndexWarningInfo] = useState(false);
+  const initialFetchDone = useRef(false);
 
-  // Settings for quota trigger
   const [appSettings, setAppSettings] = useState<AppSettings>(() => {
     try {
       const saved = localStorage.getItem('psqlBuddy-settings');
@@ -188,7 +189,6 @@ const ServerHealthStep: React.FC<ServerHealthStepProps> = ({ credentials }) => {
     }
     
     if (isManual || !stats) {
-        console.log(`[HEALTH] Iniciando busca ${isManual ? 'manual' : 'inicial'} de dados.`);
         setLoading(true);
     }
 
@@ -211,22 +211,17 @@ const ServerHealthStep: React.FC<ServerHealthStepProps> = ({ credentials }) => {
          }];
          return next.slice(-100); 
       });
-
-      // Fetch storage separately to avoid blocking summary UI
-      if (!storage || isManual) {
-        syncStorage();
-      }
-
     } catch (err: any) {
       console.error("[HEALTH] Falha na sincronização:", err);
       setError(err.message || "Falha ao sincronizar telemetria.");
     } finally {
       setLoading(false);
+      initialFetchDone.current = true;
     }
   };
 
   const syncStorage = async () => {
-    if (!credentials) return;
+    if (!credentials || credentials.host === 'simulated') return;
     setStorageLoading(true);
     try {
       const storageData = await fetchStorageStats(credentials);
@@ -239,7 +234,8 @@ const ServerHealthStep: React.FC<ServerHealthStepProps> = ({ credentials }) => {
   };
 
   useEffect(() => { 
-    fetchHealth(false); 
+    fetchHealth(true);
+    syncStorage(); 
   }, [credentials]);
 
   useEffect(() => {
@@ -255,7 +251,6 @@ const ServerHealthStep: React.FC<ServerHealthStepProps> = ({ credentials }) => {
   const handleAiDiagnosis = async () => {
      if (!stats || processes.length === 0) return;
      setIsDiagnosing(true);
-     console.log("[HEALTH] Gerando diagnóstico via Gemini 3 Pro...");
      try {
         const res = await getHealthDiagnosis(stats, processes);
         setAiDiagnosis(res);
@@ -268,7 +263,6 @@ const ServerHealthStep: React.FC<ServerHealthStepProps> = ({ credentials }) => {
   const executeKill = async (pid: number) => {
     if (!credentials) return;
     setTerminatingPid(pid);
-    console.log(`[HEALTH] Finalizando processo PID ${pid}.`);
     try {
       await terminateProcess(credentials, pid);
       toast.success(`Processo ${pid} encerrado.`);
@@ -556,7 +550,7 @@ const ServerHealthStep: React.FC<ServerHealthStepProps> = ({ credentials }) => {
                         {rootBlockers.length > 0 && <span className="bg-rose-500 text-white text-[8px] px-1.5 py-0.5 rounded-full">{rootBlockers.length}</span>}
                      </button>
                      <button 
-                        onClick={() => { setActiveSubTab('storage'); if(!storage) syncStorage(); }}
+                        onClick={() => setActiveSubTab('storage')}
                         className={`px-6 py-4 text-xs font-black uppercase tracking-widest border-b-2 transition-all flex items-center gap-2
                            ${activeSubTab === 'storage' ? 'border-amber-600 text-amber-600 bg-white dark:bg-slate-800' : 'border-transparent text-slate-400 hover:text-slate-600'}
                         `}

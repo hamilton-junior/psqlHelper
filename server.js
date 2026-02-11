@@ -6,6 +6,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import os from 'os';
 
 const execAsync = promisify(exec);
 const { Client, types } = pg;
@@ -42,7 +43,6 @@ const scrubString = (val) => {
     let clean = val.replace(/\0/g, '');
     const buffer = Buffer.from(clean, 'binary');
     const decoder = new TextDecoder('utf-8', { fatal: false });
-    // O TextDecoder com fatal:false insere o caractere  (\uFFFD) automaticamente
     return decoder.decode(buffer).replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]/g, ' ');
   } catch (e) {
     return val.replace(/[^\x20-\x7E]/g, '?');
@@ -50,8 +50,7 @@ const scrubString = (val) => {
 };
 
 /**
- * Sanitização de Resultados:
- * Agora também verifica se a string contém o caractere de substituição 
+ * Sanitização de Resultados
  */
 const sanitizeRows = (rows) => {
   if (!Array.isArray(rows)) return rows;
@@ -72,7 +71,6 @@ const sanitizeRows = (rows) => {
       }
     }
     
-    // Injetamos metadados de sanitização se necessário
     if (rowWasSanitized) {
       sanitized._is_sanitized = true;
     }
@@ -92,15 +90,10 @@ app.get('/api/ping', (req, res) => {
   res.json({ status: 'online', timestamp: new Date().toISOString(), ipv4: true });
 });
 
-/**
- * Configura a sessão em SQL_ASCII de forma mandatória.
- * Isso silencia o erro "invalid byte sequence" no lado do Banco.
- */
 async function setupSession(client) {
   try {
     await client.query("SET client_encoding TO 'SQL_ASCII'");
     await client.query("SET datestyle TO 'ISO, MDY'");
-    serverLog('SESSION', '-', 'Codificação SQL_ASCII forçada.');
   } catch (e) {
     serverError('SESSION', 'FATAL', e);
   }
@@ -139,49 +132,62 @@ app.post('/api/connect', async (req, res) => {
 });
 
 app.post('/api/objects', async (req, res) => {
-  let { credentials } = req.body;
+  let { credentials, limit = 50, offset = 0, searchTerm = '', filterType = 'all' } = req.body;
   if (credentials.host === 'localhost') credentials.host = '127.0.0.1';
   const client = new Client(credentials);
   try {
     await client.connect();
     await setupSession(client);
     
-    serverLog('POST', '/api/objects', 'Buscando objetos em modo ASCII...');
+    serverLog('POST', '/api/objects', `Buscando página (limit:${limit}, offset:${offset}) em modo ASCII...`);
 
-    const funcQuery = `
-      SELECT p.oid::text as id, n.nspname as schema, p.proname as name, pg_get_functiondef(p.oid) as definition,
-        CASE when p.prokind = 'f' then 'function' when p.prokind = 'p' then 'procedure' else 'function' END as type,
-        pg_get_function_result(p.oid) as return_type, pg_get_function_arguments(p.oid) as args
-      FROM pg_proc p JOIN pg_namespace n ON p.pronamespace = n.oid
-      WHERE n.nspname NOT IN ('pg_catalog', 'information_schema') 
-      AND p.prokind IN ('f', 'p')
-      ORDER BY n.nspname, p.proname;`;
-    
-    const triggerQuery = `
-      SELECT trig.tgrelid::text || '-' || trig.tgname as id, n.nspname as schema, trig.tgname as name, pg_get_triggerdef(trig.oid) as definition, 'trigger' as type, rel.relname as table_name
-      FROM pg_trigger trig JOIN pg_class rel ON trig.tgrelid = rel.oid JOIN pg_namespace n ON rel.relnamespace = n.oid
-      WHERE n.nspname NOT IN ('pg_catalog', 'information_schema') AND trig.tgisinternal = false
-      ORDER BY n.nspname, rel.relname, trig.tgname;`;
+    // Construção da query unificada para suportar paginação global
+    const query = `
+      WITH all_objects AS (
+        -- Funções e Procedures
+        SELECT p.oid::text as id, n.nspname as schema, p.proname as name, pg_get_functiondef(p.oid) as definition,
+          CASE when p.prokind = 'f' then 'function' when p.prokind = 'p' then 'procedure' else 'function' END as type,
+          pg_get_function_result(p.oid) as return_type, pg_get_function_arguments(p.oid) as args,
+          NULL as table_name
+        FROM pg_proc p JOIN pg_namespace n ON p.pronamespace = n.oid
+        WHERE n.nspname NOT IN ('pg_catalog', 'information_schema') 
+        AND p.prokind IN ('f', 'p')
 
-    const viewsQuery = `SELECT table_schema as schema, table_name as name, view_definition as definition, 'view' as type FROM information_schema.views WHERE table_schema NOT IN ('pg_catalog', 'information_schema');`;
-    const matViewsQuery = `SELECT schemaname as schema, matviewname as name, definition as definition, 'mview' as type FROM pg_matviews WHERE schemaname NOT IN ('pg_catalog', 'information_schema');`;
+        UNION ALL
 
-    const [f, t, v, m] = await Promise.all([
-      client.query(funcQuery),
-      client.query(triggerQuery),
-      client.query(viewsQuery),
-      client.query(matViewsQuery)
-    ]);
+        -- Triggers
+        SELECT trig.tgrelid::text || '-' || trig.tgname as id, n.nspname as schema, trig.tgname as name, pg_get_triggerdef(trig.oid) as definition, 'trigger' as type,
+          NULL as return_type, NULL as args, rel.relname as table_name
+        FROM pg_trigger trig JOIN pg_class rel ON trig.tgrelid = rel.oid JOIN pg_namespace n ON rel.relnamespace = n.oid
+        WHERE n.nspname NOT IN ('pg_catalog', 'information_schema') AND trig.tgisinternal = false
 
-    const results = [
-      ...sanitizeRows(f.rows),
-      ...sanitizeRows(t.rows),
-      ...sanitizeRows(v.rows).map(x => ({...x, id: `${x.schema}.${x.name}`})),
-      ...sanitizeRows(m.rows).map(x => ({...x, id: `${x.schema}.${x.name}`}))
-    ];
+        UNION ALL
 
-    // Mapear o flag _is_sanitized para isSanitized do objeto final
-    const finalObjects = results.map(obj => ({
+        -- Views
+        SELECT table_schema || '.' || table_name as id, table_schema as schema, table_name as name, view_definition as definition, 'view' as type,
+          NULL as return_type, NULL as args, NULL as table_name
+        FROM information_schema.views 
+        WHERE table_schema NOT IN ('pg_catalog', 'information_schema')
+
+        UNION ALL
+
+        -- Mat Views
+        SELECT schemaname || '.' || matviewname as id, schemaname as schema, matviewname as name, definition as definition, 'mview' as type,
+          NULL as return_type, NULL as args, NULL as table_name
+        FROM pg_matviews 
+        WHERE schemaname NOT IN ('pg_catalog', 'information_schema')
+      )
+      SELECT * FROM all_objects
+      WHERE ($3 = '' OR name ILIKE $3 OR schema ILIKE $3 OR table_name ILIKE $3)
+      AND ($4 = 'all' OR type = $4)
+      ORDER BY schema, name
+      LIMIT $1 OFFSET $2;
+    `;
+
+    const results = await client.query(query, [limit, offset, searchTerm ? `%${searchTerm}%` : '', filterType]);
+    const sanitized = sanitizeRows(results.rows);
+
+    const finalObjects = sanitized.map(obj => ({
        ...obj,
        isSanitized: !!obj._is_sanitized
     }));
@@ -287,12 +293,38 @@ app.post('/api/storage-stats', async (req, res) => {
   try {
     await client.connect();
     await setupSession(client);
+    
     const dirRes = await client.query("SHOW data_directory;");
+    const dataDir = dirRes.rows[0].data_directory;
     const dbSizeRes = await client.query(`SELECT datname as name, pg_database_size(datname) as size_bytes FROM pg_database WHERE datistemplate = false;`);
+    
+    let diskStats = { total: 0, used: 0, free: 0, percent: 0, mount: '/' };
+    
+    try {
+        if (os.platform() === 'win32') {
+            const drive = dataDir.substring(0, 2); // Ex: C:
+            const { stdout } = await execAsync(`wmic logicaldisk where "DeviceID='${drive}'" get FreeSpace,Size /format:list`);
+            const lines = stdout.split('\n').filter(l => l.trim());
+            const free = parseInt(lines.find(l => l.includes('FreeSpace'))?.split('=')[1]) || 0;
+            const total = parseInt(lines.find(l => l.includes('Size'))?.split('=')[1]) || 1;
+            const used = total - free;
+            diskStats = { total, used, free, percent: Math.round((used / total) * 100), mount: drive };
+        } else {
+            const { stdout } = await execAsync(`df -Pk "${dataDir}" | tail -1`);
+            const parts = stdout.trim().split(/\s+/);
+            const total = parseInt(parts[1]) * 1024;
+            const used = parseInt(parts[2]) * 1024;
+            const free = parseInt(parts[3]) * 1024;
+            diskStats = { total, used, free, percent: parseInt(parts[4]), mount: parts[5] };
+        }
+    } catch (e) {
+        console.warn("[STORAGE] Falha ao ler disco do SO, usando fallback simulado.");
+    }
+
     res.json({
-       partition: { total: 0, used: 0, free: 0, percent: 0, mount: '/' },
-       databases: sanitizeRows(dbSizeRes.rows).map(r => ({ name: r.name, size: parseInt(r.size_bytes), prettySize: r.pretty_size })),
-       dataDirectory: dirRes.rows[0].data_directory
+       partition: diskStats,
+       databases: sanitizeRows(dbSizeRes.rows).map(r => ({ name: r.name, size: parseInt(r.size_bytes) })),
+       dataDirectory: dataDir
     });
   } catch (err) {
     serverError('POST', '/api/storage-stats', err);

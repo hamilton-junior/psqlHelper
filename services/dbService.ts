@@ -33,14 +33,26 @@ export const connectToDatabase = async (creds: DbCredentials): Promise<DatabaseS
   }
 };
 
-export const fetchDatabaseObjects = async (creds: DbCredentials): Promise<DatabaseObject[]> => {
+export const fetchDatabaseObjects = async (
+  creds: DbCredentials, 
+  limit: number = 50, 
+  offset: number = 0,
+  searchTerm: string = '',
+  filterType: string = 'all'
+): Promise<DatabaseObject[]> => {
   const normalizedCreds = ensureIpv4(creds);
-  logger('FETCH_OBJECTS', 'Iniciando busca de funções e triggers...');
+  logger('FETCH_OBJECTS', `Buscando lote de objetos (offset: ${offset}, termo: "${searchTerm}")...`);
   try {
     const response = await fetch(`${API_URL}/objects`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ credentials: normalizedCreds })
+      body: JSON.stringify({ 
+        credentials: normalizedCreds,
+        limit,
+        offset,
+        searchTerm,
+        filterType
+      })
     });
     if (!response.ok) {
       const err = await response.json();
@@ -258,11 +270,9 @@ export const fetchIntersectionDetail = async (
 const mapExplainNode = (pgNode: any, totalExecutionTime?: number): ExplainNode => {
   const children = pgNode['Plans'] ? pgNode['Plans'].map((p: any) => mapExplainNode(p, totalExecutionTime)) : [];
   
-  // O "Actual Total Time" do PG é inclusivo (inclui filhos)
   const actualTotalTime = pgNode['Actual Total Time'] || 0;
   const childrenTotalTime = children.reduce((acc: number, child: ExplainNode) => acc + (child.actualTime?.total || 0), 0);
   
-  // Exclusive time is node total minus children total
   const exclusiveTime = Math.max(0, actualTotalTime - childrenTotalTime);
   const exclusivePercent = totalExecutionTime ? (exclusiveTime / totalExecutionTime) * 100 : 0;
 
@@ -281,14 +291,6 @@ const mapExplainNode = (pgNode: any, totalExecutionTime?: number): ExplainNode =
     },
     exclusiveTime,
     exclusivePercent,
-    buffers: {
-      sharedHit: pgNode['Shared Hit Blocks'],
-      sharedRead: pgNode['Shared Read Blocks'],
-      localHit: pgNode['Local Hit Blocks'],
-      localRead: pgNode['Local Read Blocks'],
-      tempHit: pgNode['Temp Hit Blocks'],
-      tempRead: pgNode['Temp Read Blocks'],
-    },
     children: children.length > 0 ? children : undefined
   };
 };

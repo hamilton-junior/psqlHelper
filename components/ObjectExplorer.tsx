@@ -1,8 +1,8 @@
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { DatabaseObject, DbCredentials } from '../types';
 import { fetchDatabaseObjects } from '../services/dbService';
-import { Boxes, Search, Filter, Code2, Play, Hash, Terminal, Box, Cog, ChevronRight, Loader2, Copy, Check, FileCode, Workflow, Eye, DatabaseZap, FileWarning, AlertTriangle } from 'lucide-react';
+import { Boxes, Search, Code2, Hash, Terminal, Box, ChevronRight, Loader2, Copy, Check, Workflow, Eye, DatabaseZap, FileWarning, AlertTriangle } from 'lucide-react';
 import Editor from '@monaco-editor/react';
 import { toast } from 'react-hot-toast';
 
@@ -10,41 +10,76 @@ interface ObjectExplorerProps {
   credentials: DbCredentials | null;
 }
 
+const LIMIT = 40;
+
 const ObjectExplorer: React.FC<ObjectExplorerProps> = ({ credentials }) => {
   const [objects, setObjects] = useState<DatabaseObject[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+  const [offset, setOffset] = useState(0);
+  
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedObjectId, setSelectedObjectId] = useState<string | null>(null);
   const [filterType, setFilterType] = useState<string>('all');
+  const [selectedObjectId, setSelectedObjectId] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
-  useEffect(() => {
-    const load = async () => {
-      if (!credentials) return;
-      setLoading(true);
-      console.log("[OBJECT_EXPLORER] Iniciando carga de objetos...");
-      try {
-        const data = await fetchDatabaseObjects(credentials);
-        setObjects(data);
-        console.log(`[OBJECT_EXPLORER] ${data.length} objetos carregados.`);
-      } catch (e: any) {
-        toast.error(e.message);
-      } finally {
-        setLoading(false);
-      }
-    };
-    load();
-  }, [credentials]);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const searchTimeoutRef = useRef<any>(null);
 
-  const filteredObjects = useMemo(() => {
-    return objects.filter(obj => {
-      const matchesSearch = obj.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-                            obj.schema.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                            (obj.tableName || '').toLowerCase().includes(searchTerm.toLowerCase());
-      const matchesType = filterType === 'all' || obj.type === filterType;
-      return matchesSearch && matchesType;
-    });
-  }, [objects, searchTerm, filterType]);
+  // Carrega lote inicial ou nova página
+  const loadBatch = useCallback(async (isInitial: boolean = false) => {
+    if (!credentials || loading || (loadingMore && !isInitial)) return;
+    
+    if (isInitial) {
+      setLoading(true);
+      setOffset(0);
+      setHasMore(true);
+      setObjects([]);
+    } else {
+      setLoadingMore(true);
+    }
+
+    const currentOffset = isInitial ? 0 : offset;
+
+    try {
+      console.log(`[OBJECT_EXPLORER] Buscando lote: offset ${currentOffset}, search: "${searchTerm}"`);
+      const data = await fetchDatabaseObjects(credentials, LIMIT, currentOffset, searchTerm, filterType);
+      
+      if (isInitial) {
+        setObjects(data);
+      } else {
+        setObjects(prev => [...prev, ...data]);
+      }
+
+      setHasMore(data.length === LIMIT);
+      setOffset(currentOffset + LIMIT);
+    } catch (e: any) {
+      toast.error(`Falha ao carregar objetos: ${e.message}`);
+    } finally {
+      setLoading(false);
+      setLoadingMore(false);
+    }
+  }, [credentials, searchTerm, filterType, offset, loading, loadingMore]);
+
+  // Listener para scroll infinito
+  const handleScroll = useCallback(() => {
+    if (!scrollContainerRef.current || loading || loadingMore || !hasMore) return;
+    
+    const { scrollTop, scrollHeight, clientHeight } = scrollContainerRef.current;
+    if (scrollTop + clientHeight >= scrollHeight - 300) {
+      loadBatch(false);
+    }
+  }, [loading, loadingMore, hasMore, loadBatch]);
+
+  // Resetar ao mudar filtros ou busca
+  useEffect(() => {
+    if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+    searchTimeoutRef.current = setTimeout(() => {
+      loadBatch(true);
+    }, 400);
+    return () => clearTimeout(searchTimeoutRef.current);
+  }, [searchTerm, filterType, credentials]);
 
   const selectedObject = useMemo(() => 
     objects.find(o => o.id === selectedObjectId), 
@@ -81,7 +116,7 @@ const ObjectExplorer: React.FC<ObjectExplorerProps> = ({ credentials }) => {
 
   return (
     <div className="flex h-full gap-6 animate-in fade-in duration-500 overflow-hidden">
-      {/* Sidebar de Objetos */}
+      {/* Sidebar de Objetos com Scroll Infinito */}
       <div className="w-80 flex flex-col bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-[2.5rem] shadow-sm overflow-hidden shrink-0">
         <div className="p-5 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/20">
            <h3 className="text-xs font-black text-slate-400 uppercase tracking-[0.2em] mb-4 flex items-center gap-2">
@@ -120,43 +155,63 @@ const ObjectExplorer: React.FC<ObjectExplorerProps> = ({ credentials }) => {
            </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-1">
+        <div 
+          ref={scrollContainerRef}
+          onScroll={handleScroll}
+          className="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-1"
+        >
            {loading ? (
               <div className="flex flex-col items-center justify-center h-full gap-3 opacity-50">
                  <Loader2 className="w-6 h-6 animate-spin text-indigo-500" />
                  <span className="text-[10px] font-black uppercase tracking-widest">Indexando...</span>
               </div>
-           ) : filteredObjects.length === 0 ? (
+           ) : objects.length === 0 ? (
               <div className="text-center py-10 opacity-30">
                  <Search className="w-8 h-8 mx-auto mb-2" />
                  <p className="text-[10px] font-black uppercase">Nenhum objeto encontrado</p>
               </div>
-           ) : filteredObjects.map(obj => (
-              <button
-                key={obj.id}
-                onClick={() => setSelectedObjectId(obj.id)}
-                className={`w-full text-left p-3 rounded-2xl transition-all border flex items-center gap-3 group
-                  ${selectedObjectId === obj.id 
-                    ? 'bg-indigo-600 border-indigo-500 text-white shadow-lg shadow-indigo-900/20' 
-                    : 'bg-transparent border-transparent text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 hover:border-slate-100 dark:hover:border-slate-700'}
-                  ${obj.isSanitized ? 'border-amber-300 dark:border-amber-900/50' : ''}
-                `}
-              >
-                <div className={`p-2 rounded-xl transition-colors ${selectedObjectId === obj.id ? 'bg-white/20' : 'bg-slate-100 dark:bg-slate-800'}`}>
-                   {obj.isSanitized ? <AlertTriangle className="w-4 h-4 text-amber-500" /> : getObjectIcon(obj.type)}
-                </div>
-                <div className="flex-1 min-w-0">
-                   <div className="flex items-center gap-2">
-                      <div className="font-bold text-xs truncate">{obj.name}</div>
-                      {obj.isSanitized && <span className="text-[7px] bg-amber-500 text-white px-1 rounded-sm font-black">BYTE ERROR</span>}
+           ) : (
+              <>
+                {objects.map(obj => (
+                  <button
+                    key={obj.id}
+                    onClick={() => setSelectedObjectId(obj.id)}
+                    className={`w-full text-left p-3 rounded-2xl transition-all border flex items-center gap-3 group
+                      ${selectedObjectId === obj.id 
+                        ? 'bg-indigo-600 border-indigo-500 text-white shadow-lg shadow-indigo-900/20' 
+                        : 'bg-transparent border-transparent text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 hover:border-slate-100 dark:hover:border-slate-700'}
+                      ${obj.isSanitized ? 'border-amber-300 dark:border-amber-900/50' : ''}
+                    `}
+                  >
+                    <div className={`p-2 rounded-xl transition-colors ${selectedObjectId === obj.id ? 'bg-white/20' : 'bg-slate-100 dark:bg-slate-800'}`}>
+                       {obj.isSanitized ? <AlertTriangle className="w-4 h-4 text-amber-500" /> : getObjectIcon(obj.type)}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                       <div className="flex items-center gap-2">
+                          <div className="font-bold text-xs truncate">{obj.name}</div>
+                          {obj.isSanitized && <span className="text-[7px] bg-amber-500 text-white px-1 rounded-sm font-black">BYTE ERROR</span>}
+                       </div>
+                       <div className={`text-[9px] font-black uppercase tracking-tighter mt-0.5 ${selectedObjectId === obj.id ? 'text-indigo-200' : 'text-slate-400'}`}>
+                          {obj.schema} • {obj.type}
+                       </div>
+                    </div>
+                    <ChevronRight className={`w-4 h-4 transition-transform ${selectedObjectId === obj.id ? 'translate-x-1 opacity-100' : 'opacity-0'}`} />
+                  </button>
+                ))}
+                
+                {loadingMore && (
+                  <div className="py-4 flex justify-center opacity-50">
+                    <Loader2 className="w-5 h-5 animate-spin text-indigo-500" />
+                  </div>
+                )}
+                
+                {!hasMore && objects.length > 0 && (
+                   <div className="py-4 text-center text-[9px] font-black text-slate-300 uppercase tracking-widest">
+                      Fim da lista
                    </div>
-                   <div className={`text-[9px] font-black uppercase tracking-tighter mt-0.5 ${selectedObjectId === obj.id ? 'text-indigo-200' : 'text-slate-400'}`}>
-                      {obj.schema} • {obj.type}
-                   </div>
-                </div>
-                <ChevronRight className={`w-4 h-4 transition-transform ${selectedObjectId === obj.id ? 'translate-x-1 opacity-100' : 'opacity-0'}`} />
-              </button>
-           ))}
+                )}
+              </>
+           )}
         </div>
       </div>
 
@@ -236,7 +291,7 @@ const ObjectExplorer: React.FC<ObjectExplorerProps> = ({ credentials }) => {
          ) : (
             <div className="flex-1 flex flex-col items-center justify-center text-slate-600 gap-6 opacity-30">
                <div className="p-10 bg-white/5 rounded-full border border-white/5">
-                  <FileCode className="w-24 h-24" />
+                  <Boxes className="w-24 h-24" />
                </div>
                <div className="text-center max-w-sm">
                   <h4 className="text-xl font-black uppercase tracking-tight mb-2 text-white">Nenhum objeto selecionado</h4>
