@@ -1,3 +1,4 @@
+
 import { app, BrowserWindow, ipcMain, shell, utilityProcess } from 'electron';
 import path from 'path';
 import fs from 'fs';
@@ -22,16 +23,16 @@ autoUpdater.logger = console;
 const STORAGE_FILE = path.join(app.getPath('userData'), 'psqlbuddy_storage.json');
 
 function getCalculatedAppVersion() {
-  if (app.isPackaged) return app.getVersion();
+  if (app.isPackaged) return `v${app.getVersion()}`;
   try {
     const commitCount = execSync('git rev-list --count HEAD').toString().trim();
     const count = parseInt(commitCount, 10) || 0;
     const major = Math.floor(count / 1000);
     const minor = Math.floor((count % 1000) / 100);
     const patch = count % 100;
-    return `${major}.${minor}.${patch}`;
+    return `v${major}.${minor}.${patch}`;
   } catch (e) {
-    return app.getVersion();
+    return `v${app.getVersion()}`;
   }
 }
 
