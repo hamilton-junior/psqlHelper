@@ -38,8 +38,8 @@ interface ManualLink {
 interface ResultsStepProps {
   data: any[];
   sql: string;
-  onBackToBuilder: void;
-  onNewConnection: void;
+  onBackToBuilder: () => void;
+  onNewConnection: () => void;
   settings: AppSettings;
   onShowToast: (message: string, type?: string) => void;
   credentials: DbCredentials | null;
@@ -278,7 +278,6 @@ const RowInspector: React.FC<{ row: any, onClose: () => void }> = ({ row, onClos
    );
 };
 
-// Define VirtualTableProps only once
 interface VirtualTableProps {
    data: any[];
    columns: string[];
@@ -300,7 +299,6 @@ const ColumnProfiler: React.FC<{ data: any[], column: string, onClose: () => voi
    return (<div className="w-64 bg-white dark:bg-slate-800 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-700 p-4 animate-in fade-in zoom-in-95 origin-top-left" onMouseLeave={onClose}><div className="flex items-center justify-between mb-2 pb-1 border-b border-slate-100 dark:border-slate-700"><h4 className="font-bold text-xs text-slate-800 dark:text-white truncate">{column}</h4></div><div className="grid grid-cols-2 gap-2 text-[10px]"><div className="bg-slate-50 dark:bg-slate-900 p-2 rounded"><span className="block text-slate-400 mb-0.5">Únicos</span><span className="font-mono font-bold text-slate-700 dark:text-slate-300">{stats.distinct}</span></div><div className="bg-slate-50 dark:bg-slate-900 p-2 rounded"><span className="block text-slate-400 mb-0.5">Nulos</span><span className={`font-mono font-bold ${stats.nulls > 0 ? 'text-amber-500' : 'text-emerald-500'}`}>{stats.nulls}</span></div></div></div>);
 };
 
-// Define VirtualTable component only once
 const VirtualTable = ({ data, columns, highlightMatch, onRowClick, isAdvancedMode, onUpdateCell, onOpenJson, onDrillDown, schema, defaultTableName, credentials, pendingEdits = {}, settings }: VirtualTableProps) => {
    const [currentPage, setCurrentPage] = useState(1);
    const [rowsPerPage, setRowsPerPage] = useState(25);
@@ -315,7 +313,7 @@ const VirtualTable = ({ data, columns, highlightMatch, onRowClick, isAdvancedMod
    const [manualMappings, setManualMappings] = useState<Record<string, ManualLink[]>>(() => { try { const stored = localStorage.getItem('psql-buddy-manual-drilldown-links-v2'); return stored ? JSON.parse(stored) : {}; } catch { return {}; } });
 
    const [orderedColumns, setOrderedColumns] = useState<string[]>(columns);
-   const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
+   const [columnWidths, setColumnWidthWidths] = useState<Record<string, number>>({});
    const [draggedColIndex, setDraggedColIndex] = useState<number | null>(null);
    const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
    const resizingRef = useRef<{ col: string, startX: number, startWidth: number } | null>(null);
@@ -327,7 +325,7 @@ const VirtualTable = ({ data, columns, highlightMatch, onRowClick, isAdvancedMod
          setOrderedColumns(columns);
          const initialWidths: Record<string, number> = {};
          columns.forEach(c => initialWidths[c] = 180);
-         setColumnWidths(initialWidths);
+         setColumnWidthWidths(initialWidths);
       }
    }, [columns]);
 
@@ -348,7 +346,7 @@ const VirtualTable = ({ data, columns, highlightMatch, onRowClick, isAdvancedMod
       const { col, startX, startWidth } = resizingRef.current;
       const delta = e.pageX - startX;
       const newWidth = Math.max(80, startWidth + delta);
-      setColumnWidths(prev => ({ ...prev, [col]: newWidth }));
+      setColumnWidthWidths(prev => ({ ...prev, [col]: newWidth }));
    };
 
    const handleResizeStop = () => {
@@ -357,6 +355,31 @@ const VirtualTable = ({ data, columns, highlightMatch, onRowClick, isAdvancedMod
       document.removeEventListener('mouseup', handleResizeStop);
       document.body.style.cursor = '';
       console.log(`[RESIZE] Redimensionamento finalizado.`);
+   };
+
+   // Auto-dimensionamento da coluna baseado no maior valor nela contido
+   const handleAutoResize = (e: React.MouseEvent, col: string) => {
+      e.preventDefault();
+      e.stopPropagation();
+      
+      // Heurística baseada no nome da coluna (cabeçalho)
+      // Multiplicador estimado de 8px por caractere + padding para ícones
+      let maxWidth = col.length * 8 + 70; 
+
+      // Verifica todos os dados carregados para essa coluna
+      data.forEach(row => {
+         const val = row[col];
+         const valStr = val === null ? 'NULL' : (typeof val === 'object' ? JSON.stringify(val) : String(val));
+         const estimatedWidth = valStr.length * 7.5 + 32; // ~7.5px por char + padding da célula
+         if (estimatedWidth > maxWidth) maxWidth = estimatedWidth;
+      });
+
+      // Aplica limites de segurança (min 80, max 600)
+      const finalWidth = Math.min(Math.max(maxWidth, 80), 600);
+      
+      setColumnWidthWidths(prev => ({ ...prev, [col]: finalWidth }));
+      console.log(`[RESIZE] Auto-ajuste para coluna: ${col} -> ${finalWidth}px`);
+      toast.success(`Auto-ajuste: ${col}`, { id: 'auto-resize', duration: 800 });
    };
 
    const handleSaveManualLinks = (colName: string, links: ManualLink[]) => { const newMappings = { ...manualMappings }; if (links.length === 0) { delete newMappings[colName]; } else { newMappings[colName] = links; } setManualMappings(newMappings); localStorage.setItem('psql-buddy-manual-drilldown-links-v2', JSON.stringify(newMappings)); };
@@ -433,14 +456,10 @@ const VirtualTable = ({ data, columns, highlightMatch, onRowClick, isAdvancedMod
       if (typeof displayVal === 'boolean') { return (<span className={`text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded border ${displayVal ? 'bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400 dark:border-emerald-800' : 'bg-rose-100 text-rose-700 border-rose-200 dark:bg-rose-900/30 dark:text-rose-400 dark:border-rose-800'} ${isPending ? 'ring-1 ring-orange-500' : ''}`}>{String(displayVal)}</span>); }
       
       if (typeof displayVal === 'object') {
-         // Tenta verificar se é um objeto vazio ou se tem propriedades. 
-         // Se for um objeto com chaves, mostra o botão JSON.
          const keys = Object.keys(displayVal);
          if (keys.length > 0) {
             return <button onClick={(e) => { e.stopPropagation(); onOpenJson(displayVal); }} className="text-xs text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded flex items-center gap-1 hover:bg-indigo-100 transition-colors"><Braces className="w-3 h-3" /> JSON</button>;
          }
-         // Se for objeto vazio {}, provavelmente é uma data que foi mal sanitizada ou um objeto sem propriedades enumeráveis.
-         // Tratamos como string para evitar [object Object].
          return <span className="text-slate-400 italic text-[11px]">{JSON.stringify(displayVal)}</span>;
       }
       
@@ -548,8 +567,9 @@ const VirtualTable = ({ data, columns, highlightMatch, onRowClick, isAdvancedMod
                               {/* Separador de redimensionamento */}
                               <div 
                                  onMouseDown={(e) => handleResizeStart(e, col)}
+                                 onDoubleClick={(e) => handleAutoResize(e, col)}
                                  className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-indigo-500/30 active:bg-indigo-500 transition-colors z-20"
-                                 title="Arraste para redimensionar coluna"
+                                 title="Arraste para redimensionar ou clique duplo para auto-ajuste"
                               />
 
                               {activeMappingCol === col && schema && (
