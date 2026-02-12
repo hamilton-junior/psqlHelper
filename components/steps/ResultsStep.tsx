@@ -1,7 +1,7 @@
-
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { ArrowLeft, ArrowRight, Database, ChevronLeft, ChevronRight, FileSpreadsheet, Search, Copy, Check, BarChart2, MessageSquare, Download, Activity, LayoutGrid, FileText, Pin, AlertCircle, Info, MoreHorizontal, FileJson, FileCode, Hash, Type, Filter, Plus, X, Trash2, SlidersHorizontal, Clock, Maximize2, Minimize2, ExternalLink, Braces, PenTool, Save, Eye, Anchor, Link as LinkIcon, Settings2, Loader2, Folder, Terminal as TerminalIcon, ChevronDown, ChevronUp, Layers, Target, CornerDownRight, AlertTriangle, Undo2, ShieldAlert, Pencil, ArrowUp, ArrowDown, ArrowUpDown, History, RotateCcw, FileWarning, Gauge, Camera, Settings, EyeOff, GripVertical } from 'lucide-react';
-import { AppSettings, ExplainNode, DatabaseSchema, Table, QueryProfilingSnapshot, DbCredentials, ResultTab, FilterRule, TabResultsState } from '../../types';
+// Add Terminal to the lucide-react imports to fix 'TerminalIcon' not found error
+import { ArrowLeft, ArrowRight, Database, ChevronLeft, ChevronRight, FileSpreadsheet, Search, Copy, Check, BarChart2, MessageSquare, Download, Activity, LayoutGrid, FileText, Info, FileJson, FileCode, Hash, Filter, Plus, X, Trash2, Clock, Maximize2, Minimize2, ExternalLink, Braces, PenTool, Save, Eye, Anchor, Link as LinkIcon, Loader2, Layers, AlertTriangle, Undo2, ShieldAlert, Pencil, ArrowUp, ArrowDown, ArrowUpDown, History, RotateCcw, FileWarning, Gauge, Settings, EyeOff, GripVertical, Terminal } from 'lucide-react';
+import { AppSettings, ExplainNode, DatabaseSchema, DbCredentials, ResultTab, FilterRule, TabResultsState } from '../../types';
 import DataVisualizer from '../DataVisualizer';
 import DataAnalysisChat from '../DataAnalysisChat';
 import CodeSnippetModal from '../CodeSnippetModal';
@@ -14,12 +14,6 @@ import { addToHistory } from '../../services/historyService';
 import { executeQueryReal, explainQueryReal, fetchDetailedProfiling } from '../../services/dbService';
 import BeginnerTip from '../BeginnerTip';
 import { toast } from 'react-hot-toast';
-import { Skeleton } from '../common/Skeleton';
-
-const resultsLogger = (context: string, message: string, data?: any) => {
-  const timestamp = new Date().toLocaleTimeString();
-  console.log(`[${timestamp}] [RESULTS:${context}] ${message}`, data || '');
-};
 
 const getTableId = (t: any) => `${t.schema || 'public'}.${t.name}`;
 
@@ -247,7 +241,7 @@ const ManualMappingPopover: React.FC<{ column: string, schema: DatabaseSchema, o
 };
 
 const RowInspector: React.FC<{ row: any, onClose: () => void }> = ({ row, onClose }) => {
-   const [searchTerm, setSearchTerm] = useState('');
+   const [searchTerm] = useState('');
    const [viewMode, setViewMode] = useState<'table' | 'json'>('table');
    const entries = Object.entries(row || {});
    const filteredEntries = entries.filter(([key, val]) => key.toLowerCase().includes(searchTerm.toLowerCase()) || String(val || '').toLowerCase().includes(searchTerm.toLowerCase()));
@@ -278,6 +272,17 @@ const RowInspector: React.FC<{ row: any, onClose: () => void }> = ({ row, onClos
    );
 };
 
+interface ColumnProfilerProps {
+    data: any[];
+    column: string;
+    onClose: () => void;
+}
+
+const ColumnProfiler: React.FC<ColumnProfilerProps> = ({ data, column, onClose }) => {
+   const stats = useMemo(() => { const values = data.map(r => r[column]); const nonNulls = values.filter(v => v !== null && v !== undefined && v !== ''); const distinct = new Set(nonNulls).size; const nulls = values.length - nonNulls.length; return { count: values.length, distinct, nulls }; }, [data, column]);
+   return (<div className="w-64 bg-white dark:bg-slate-800 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-700 p-4 animate-in fade-in zoom-in-95 origin-top-left" onMouseLeave={onClose}><div className="flex items-center justify-between mb-2 pb-1 border-b border-slate-100 dark:border-slate-700"><h4 className="font-bold text-xs text-slate-800 dark:text-white truncate">{column}</h4></div><div className="grid grid-cols-2 gap-2 text-[10px]"><div className="bg-slate-50 dark:bg-slate-900 p-2 rounded"><span className="block text-slate-400 mb-0.5">Únicos</span><span className="font-mono font-bold text-slate-700 dark:text-slate-300">{stats.distinct}</span></div><div className="bg-slate-50 dark:bg-slate-900 p-2 rounded"><span className="block text-slate-400 mb-0.5">Nulos</span><span className={`font-mono font-bold ${stats.nulls > 0 ? 'text-amber-500' : 'text-emerald-500'}`}>{stats.nulls}</span></div></div></div>);
+};
+
 interface VirtualTableProps {
    data: any[];
    columns: string[];
@@ -294,12 +299,7 @@ interface VirtualTableProps {
    settings?: AppSettings;
 }
 
-const ColumnProfiler: React.FC<{ data: any[], column: string, onClose: () => void }> = ({ data, column, onClose }) => {
-   const stats = useMemo(() => { const values = data.map(r => r[column]); const nonNulls = values.filter(v => v !== null && v !== undefined && v !== ''); const distinct = new Set(nonNulls).size; const nulls = values.length - nonNulls.length; return { count: values.length, distinct, nulls }; }, [data, column]);
-   return (<div className="w-64 bg-white dark:bg-slate-800 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-700 p-4 animate-in fade-in zoom-in-95 origin-top-left" onMouseLeave={onClose}><div className="flex items-center justify-between mb-2 pb-1 border-b border-slate-100 dark:border-slate-700"><h4 className="font-bold text-xs text-slate-800 dark:text-white truncate">{column}</h4></div><div className="grid grid-cols-2 gap-2 text-[10px]"><div className="bg-slate-50 dark:bg-slate-900 p-2 rounded"><span className="block text-slate-400 mb-0.5">Únicos</span><span className="font-mono font-bold text-slate-700 dark:text-slate-300">{stats.distinct}</span></div><div className="bg-slate-50 dark:bg-slate-900 p-2 rounded"><span className="block text-slate-400 mb-0.5">Nulos</span><span className={`font-mono font-bold ${stats.nulls > 0 ? 'text-amber-500' : 'text-emerald-500'}`}>{stats.nulls}</span></div></div></div>);
-};
-
-const VirtualTable = ({ data, columns, highlightMatch, onRowClick, isAdvancedMode, onUpdateCell, onOpenJson, onDrillDown, schema, defaultTableName, credentials, pendingEdits = {}, settings }: VirtualTableProps) => {
+const VirtualTable = ({ data, columns, highlightMatch, onRowClick, isAdvancedMode, onUpdateCell, onOpenJson, onDrillDown, schema, credentials, pendingEdits = {}, settings }: VirtualTableProps) => {
    const [currentPage, setCurrentPage] = useState(1);
    const [rowsPerPage, setRowsPerPage] = useState(25);
    const [activeProfileCol, setActiveProfileCol] = useState<string | null>(null);
@@ -313,7 +313,7 @@ const VirtualTable = ({ data, columns, highlightMatch, onRowClick, isAdvancedMod
    const [manualMappings, setManualMappings] = useState<Record<string, ManualLink[]>>(() => { try { const stored = localStorage.getItem('psql-buddy-manual-drilldown-links-v2'); return stored ? JSON.parse(stored) : {}; } catch { return {}; } });
 
    const [orderedColumns, setOrderedColumns] = useState<string[]>(columns);
-   const [columnWidths, setColumnWidthWidths] = useState<Record<string, number>>({});
+   const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
    const [draggedColIndex, setDraggedColIndex] = useState<number | null>(null);
    const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
    const resizingRef = useRef<{ col: string, startX: number, startWidth: number } | null>(null);
@@ -325,7 +325,7 @@ const VirtualTable = ({ data, columns, highlightMatch, onRowClick, isAdvancedMod
          setOrderedColumns(columns);
          const initialWidths: Record<string, number> = {};
          columns.forEach(c => initialWidths[c] = 180);
-         setColumnWidthWidths(initialWidths);
+         setColumnWidths(initialWidths);
       }
    }, [columns]);
 
@@ -338,7 +338,6 @@ const VirtualTable = ({ data, columns, highlightMatch, onRowClick, isAdvancedMod
       document.addEventListener('mousemove', handleResizeMove);
       document.addEventListener('mouseup', handleResizeStop);
       document.body.style.cursor = 'col-resize';
-      console.log(`[RESIZE] Iniciando redimensionamento da coluna: ${col}`);
    };
 
    const handleResizeMove = (e: MouseEvent) => {
@@ -346,7 +345,7 @@ const VirtualTable = ({ data, columns, highlightMatch, onRowClick, isAdvancedMod
       const { col, startX, startWidth } = resizingRef.current;
       const delta = e.pageX - startX;
       const newWidth = Math.max(80, startWidth + delta);
-      setColumnWidthWidths(prev => ({ ...prev, [col]: newWidth }));
+      setColumnWidths(prev => ({ ...prev, [col]: newWidth }));
    };
 
    const handleResizeStop = () => {
@@ -354,31 +353,25 @@ const VirtualTable = ({ data, columns, highlightMatch, onRowClick, isAdvancedMod
       document.removeEventListener('mousemove', handleResizeMove);
       document.removeEventListener('mouseup', handleResizeStop);
       document.body.style.cursor = '';
-      console.log(`[RESIZE] Redimensionamento finalizado.`);
    };
 
-   // Auto-dimensionamento da coluna baseado no maior valor nela contido
    const handleAutoResize = (e: React.MouseEvent, col: string) => {
       e.preventDefault();
       e.stopPropagation();
       
-      // Heurística baseada no nome da coluna (cabeçalho)
-      // Multiplicador estimado de 8px por caractere + padding para ícones
-      let maxWidth = col.length * 8 + 70; 
+      const headerTextWidth = col.length * 9;
+      const headerIconsBuffer = 90;
+      let maxWidth = headerTextWidth + headerIconsBuffer;
 
-      // Verifica todos os dados carregados para essa coluna
       data.forEach(row => {
          const val = row[col];
          const valStr = val === null ? 'NULL' : (typeof val === 'object' ? JSON.stringify(val) : String(val));
-         const estimatedWidth = valStr.length * 7.5 + 32; // ~7.5px por char + padding da célula
-         if (estimatedWidth > maxWidth) maxWidth = estimatedWidth;
+         const estimatedDataWidth = valStr.length * 7.5 + 32; 
+         if (estimatedDataWidth > maxWidth) maxWidth = estimatedDataWidth;
       });
 
-      // Aplica limites de segurança (min 80, max 600)
-      const finalWidth = Math.min(Math.max(maxWidth, 80), 600);
-      
-      setColumnWidthWidths(prev => ({ ...prev, [col]: finalWidth }));
-      console.log(`[RESIZE] Auto-ajuste para coluna: ${col} -> ${finalWidth}px`);
+      const finalWidth = Math.min(Math.max(maxWidth, 100), 600);
+      setColumnWidths(prev => ({ ...prev, [col]: finalWidth }));
       toast.success(`Auto-ajuste: ${col}`, { id: 'auto-resize', duration: 800 });
    };
 
@@ -564,7 +557,6 @@ const VirtualTable = ({ data, columns, highlightMatch, onRowClick, isAdvancedMod
                                  </div>
                               </div>
                               
-                              {/* Separador de redimensionamento */}
                               <div 
                                  onMouseDown={(e) => handleResizeStart(e, col)}
                                  onDoubleClick={(e) => handleAutoResize(e, col)}
@@ -622,7 +614,7 @@ const VirtualTable = ({ data, columns, highlightMatch, onRowClick, isAdvancedMod
 };
 
 const ResultsStep: React.FC<ResultsStepProps> = ({ data, sql, onBackToBuilder, onNewConnection, settings, onShowToast, credentials, executionDuration, schema, resultsState, onResultsStateChange }) => {
-  const [localData, setLocalData] = useState(data); 
+  const [localData] = useState(data); 
   const columns = useMemo(() => (localData.length > 0 ? Object.keys(localData[0]) : []), [localData]);
   
   const { activeTab, filters, search: localSearch } = resultsState;
@@ -679,10 +671,71 @@ const ResultsStep: React.FC<ResultsStepProps> = ({ data, sql, onBackToBuilder, o
 
   const highlightMatch = (text: string) => { const term = localSearch || filters.find(f => f.operator === 'contains')?.value || ''; if (!term) return text; const escapedSearch = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); const parts = text.split(new RegExp(`(${escapedSearch})`, 'gi')); return <>{parts.map((part, i) => part.toLowerCase() === term.toLowerCase() ? <span key={i} className="bg-yellow-200/20 text-slate-900 dark:white font-semibold rounded px-0.5">{part}</span> : part)}</>; };
   const handleUpdateCell = (rowIdx: number, colKey: string, newValue: string) => { if (!settings.advancedMode) return; const editKey = `${rowIdx}-${colKey}`; setPendingEdits(prev => ({ ...prev, [editKey]: newValue })); };
-  const auditLog = useMemo(() => { const logs: Array<{ rowIdx: number, col: string, oldVal: any, newVal: string, pkVal: any }> = []; (Object.entries(pendingEdits) as Array<[string, string]>).forEach(([key, val]) => { const [rowIdx] = key.split('-').map(Number); const col = key.split('-').slice(1).join('-'); const row = localData[rowIdx]; logs.push({ rowIdx, col, oldVal: row[col], newVal: val, pkVal: row[finalPkColumn] }); }); return logs; }, [pendingEdits, localData, finalPkColumn]);
-  const sqlStatementsPreview = useMemo(() => { if (Object.keys(pendingEdits).length === 0 || !finalPkColumn) return ""; const tableName = mainTableName || "table_name"; let lines = ["BEGIN; -- Início da transação de auditoria"]; const editsByRow: Record<number, Record<string, string>> = {}; (Object.entries(pendingEdits) as Array<[string, string]>).forEach(([key, val]) => { const [rowIdx] = key.split('-').map(Number); const col = key.split('-').slice(1).join('-'); if (!editsByRow[rowIdx]) editsByRow[rowIdx] = {}; editsByRow[rowIdx][col] = val; }); for (const [rowIdxStr, cols] of Object.entries(editsByRow)) { const rowIdx = Number(rowIdxStr); const row = localData[rowIdx]; const pkVal = row[finalPkColumn]; if (pkVal === undefined || pkVal === null) continue; const setClause = (Object.entries(cols) as Array<[string, string]>).map(([col, val]) => `"${col}" = '${val.replace(/'/g, "''")}'`).join(', '); const formattedPkVal = typeof pkVal === 'string' ? `'${pkVal.replace(/'/g, "''")}'` : pkVal; lines.push(`UPDATE ${tableName} SET ${setClause} WHERE "${finalPkColumn}" = ${formattedPkVal};`); } lines.push("COMMIT; -- Persistência definitiva"); return lines.join('\n'); }, [pendingEdits, localData, mainTableName, finalPkColumn]);
-  const rollbackStatements = useMemo(() => { if (Object.keys(pendingEdits).length === 0 || !finalPkColumn) return ""; const tableName = mainTableName || "table_name"; let lines = ["BEGIN; -- Script de Reversão Automático"]; const editsByRow: Record<number, Record<string, string>> = {}; (Object.entries(pendingEdits) as Array<[string, string]>).forEach(([key, val]) => { const [rowIdx] = key.split('-').map(Number); const col = key.split('-').slice(1).join('-'); if (!editsByRow[rowIdx]) editsByRow[rowIdx] = {}; editsByRow[rowIdx][col] = val; }); for (const [rowIdxStr, cols] of Object.entries(editsByRow)) { const rowIdx = Number(rowIdxStr); const row = localData[rowIdx]; const pkVal = row[finalPkColumn]; if (pkVal === undefined || pkVal === null) continue; const rollbackClauses = Object.keys(cols).map(col => { const originalVal = row[col]; const formattedVal = originalVal === null ? 'NULL' : `'${String(originalVal).replace(/'/g, "''")}'`; return `"${col}" = ${formattedVal}`; }).join(', '); const formattedPkVal = typeof pkVal === 'string' ? `'${pkVal.replace(/'/g, "''")}'` : pkVal; lines.push(`UPDATE ${tableName} SET ${rollbackClauses} WHERE "${finalPkColumn}" = ${formattedPkVal};`); } lines.push("COMMIT;"); return lines.join('\n'); }, [pendingEdits, localData, mainTableName, finalPkColumn]);
-  const handleSaveChanges = async () => { if (!credentials || !sqlStatementsPreview) return; setIsSaving(true); try { await executeQueryReal(credentials, sqlStatementsPreview); const newData = [...localData]; (Object.entries(pendingEdits) as Array<[string, string]>).forEach(([key, val]) => { const [rowIdx] = key.split('-').map(Number); const col = key.split('-').slice(1).join('-'); newData[rowIdx] = { ...newData[rowIdx], [col]: val }; }); setPendingEdits({}); onShowToast("Transação concluída e alterações salvas.", "success"); } catch (e: any) { onShowToast(`Erro ao salvar: ${e.message}`, "error"); } finally { setIsSaving(false); setShowConfirmation(false); } };
+  
+  const auditLog = useMemo(() => { 
+     const logs: Array<{ rowIdx: number, col: string, oldVal: any, newVal: string, pkVal: any }> = []; 
+     (Object.entries(pendingEdits) as Array<[string, string]>).forEach(([key, val]) => { 
+        const [rowIdx] = key.split('-').map(Number); 
+        const col = key.split('-').slice(1).join('-'); 
+        const row = localData[rowIdx]; 
+        logs.push({ rowIdx, col, oldVal: row[col], newVal: val, pkVal: row[finalPkColumn] }); 
+     }); 
+     return logs; 
+  }, [pendingEdits, localData, finalPkColumn]);
+
+  const sqlStatementsPreview = useMemo(() => { 
+     if (Object.keys(pendingEdits).length === 0 || !finalPkColumn) return ""; 
+     const tableName = mainTableName || "table_name"; 
+     let lines = ["BEGIN; -- Início da transação de auditoria"]; 
+     const editsByRow: Record<number, Record<string, string>> = {}; 
+     (Object.entries(pendingEdits) as Array<[string, string]>).forEach(([key, val]) => { 
+        const [rowIdx] = key.split('-').map(Number); 
+        const col = key.split('-').slice(1).join('-'); 
+        if (!editsByRow[rowIdx]) editsByRow[rowIdx] = {}; 
+        editsByRow[rowIdx][col] = val; 
+     }); 
+     for (const [rowIdxStr, cols] of Object.entries(editsByRow)) { 
+        const rowIdx = Number(rowIdxStr); 
+        const row = localData[rowIdx]; 
+        const pkVal = row[finalPkColumn]; 
+        if (pkVal === undefined || pkVal === null) continue; 
+        const setClause = (Object.entries(cols) as Array<[string, string]>).map(([col, val]) => `"${col}" = '${val.replace(/'/g, "''")}'`).join(', '); 
+        const formattedPkVal = typeof pkVal === 'string' ? `'${pkVal.replace(/'/g, "''")}'` : pkVal; 
+        lines.push(`UPDATE ${tableName} SET ${setClause} WHERE "${finalPkColumn}" = ${formattedPkVal};`); 
+     } 
+     lines.push("COMMIT; -- Persistência definitiva"); 
+     return lines.join('\n'); 
+  }, [pendingEdits, localData, mainTableName, finalPkColumn]);
+
+  const rollbackStatements = useMemo(() => { 
+     if (Object.keys(pendingEdits).length === 0 || !finalPkColumn) return ""; 
+     const tableName = mainTableName || "table_name"; 
+     let lines = ["BEGIN; -- Script de Reversão Automático"]; 
+     const editsByRow: Record<number, Record<string, string>> = {}; 
+     (Object.entries(pendingEdits) as Array<[string, string]>).forEach(([key, val]) => { 
+        const [rowIdx] = key.split('-').map(Number); 
+        const col = key.split('-').slice(1).join('-'); 
+        if (!editsByRow[rowIdx]) editsByRow[rowIdx] = {}; 
+        editsByRow[rowIdx][col] = val; 
+     }); 
+     for (const [rowIdxStr, cols] of Object.entries(editsByRow)) { 
+        const rowIdx = Number(rowIdxStr); 
+        const row = localData[rowIdx]; 
+        const pkVal = row[finalPkColumn]; 
+        if (pkVal === undefined || pkVal === null) continue; 
+        const rollbackClauses = Object.keys(cols).map(col => { 
+           const originalVal = row[col]; 
+           const formattedVal = originalVal === null ? 'NULL' : `'${String(originalVal).replace(/'/g, "''")}'`; 
+           return `"${col}" = ${formattedVal}`; 
+        }).join(', '); 
+        const formattedPkVal = typeof pkVal === 'string' ? `'${pkVal.replace(/'/g, "''")}'` : pkVal; 
+        lines.push(`UPDATE ${tableName} SET ${rollbackClauses} WHERE "${finalPkColumn}" = ${formattedPkVal};`); 
+     } 
+     lines.push("COMMIT;"); 
+     return lines.join('\n'); 
+  }, [pendingEdits, localData, mainTableName, finalPkColumn]);
+
+  const handleSaveChanges = async () => { if (!credentials || !sqlStatementsPreview) return; setIsSaving(true); try { await executeQueryReal(credentials, sqlStatementsPreview); onShowToast("Transação concluída e alterações salvas.", "success"); setPendingEdits({}); } catch (e: any) { onShowToast(`Erro ao salvar: ${e.message}`, "error"); } finally { setIsSaving(false); setShowConfirmation(false); } };
   const handleChartDrillDown = (col: string, val: any) => { if (mainTableName) setDrillDownTarget({ table: mainTableName, col, val }); }; 
   const handleExportInsert = () => { if (filteredData.length === 0) return; const tableName = mainTableName || "exported_data"; const cols = columns.join(', '); const statements: string = filteredData.map((row: any): string => { const values = columns.map((col: string): string => { const val = row[col]; if (val === null) return 'NULL'; if (typeof val === 'string') return `'${val.replace(/'/g, "''")}'`; return String(val); }).join(', '); return `INSERT INTO ${tableName} (${cols}) VALUES (${values});`; }).join('\n'); navigator.clipboard.writeText(statements); setShowExportMenu(false); onShowToast("SQL INSERTs copiados!", "success"); }; 
   const handleExportCSV = () => { if (filteredData.length === 0) return; const headers = columns.join(','); const rows: string = filteredData.map((row: any): string => columns.map((col: string): string => { let val = row[col]; if (val === null) return ''; val = String(val).replace(/"/g, '""'); return `"${val}"`; }).join(',')).join('\n'); const csvContent = `${headers}\n${rows}`; const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' }); const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.setAttribute("href", url); link.setAttribute("download", `results_${new Date().getTime()}.csv`); document.body.appendChild(link); link.click(); document.body.removeChild(link); setShowExportMenu(false); onShowToast("CSV exportado!", "success"); };
@@ -700,8 +753,8 @@ const ResultsStep: React.FC<ResultsStepProps> = ({ data, sql, onBackToBuilder, o
       {showProfilingHistory && <ProfilingSnapshotModal onClose={() => setShowProfilingHistory(false)} />}
       {showAdvancedExport && (<AdvancedExportModal data={filteredData} columns={columns} tableName={mainTableName} onClose={() => setShowAdvancedExport(false)} />)}
       {showConfirmation && (<div className="fixed inset-0 z-[200] bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-4"><div className="bg-white dark:bg-slate-800 w-full max-w-4xl overflow-hidden animate-in zoom-in-95 flex flex-col max-h-[85vh]"><div className="p-6 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center bg-slate-50 dark:bg-slate-900/30"><div className="flex items-start gap-3"><div className="p-3 bg-red-100 dark:bg-red-900/30 rounded-2xl"><ShieldAlert className="w-8 h-8 text-red-600" /></div><div><h3 className="text-xl font-black text-slate-800 dark:text-white uppercase tracking-tight">Revisão de Auditoria DML</h3><p className="text-xs text-slate-500 font-bold uppercase tracking-widest">{Object.keys(pendingEdits).length} campos alterados em {mainTableName}</p></div></div><button onClick={() => setShowConfirmation(false)} className="p-2 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl transition-all"><X className="w-6 h-6 text-slate-400" /></button></div><div className="flex bg-slate-100 dark:bg-slate-900/50 p-1 mx-6 mt-6 rounded-xl border border-slate-200 dark:border-slate-700 shrink-0"><button onClick={() => setReviewTab('audit')} className={`flex-1 py-2 text-xs font-black uppercase tracking-widest rounded-lg transition-all ${reviewTab === 'audit' ? 'bg-white dark:bg-slate-700 text-indigo-600 shadow-sm' : 'text-slate-50'}`}>Log de Alterações</button><button onClick={() => setReviewTab('script')} className={`flex-1 py-2 text-xs font-black uppercase tracking-widest rounded-lg transition-all ${reviewTab === 'script' ? 'bg-white dark:bg-slate-700 text-indigo-600 shadow-sm' : 'text-slate-50'}`}>Script SQL (Update)</button><button onClick={() => setReviewTab('rollback')} className={`flex-1 py-2 text-xs font-black uppercase tracking-widest rounded-lg transition-all ${reviewTab === 'rollback' ? 'bg-white dark:bg-slate-700 text-amber-600 shadow-sm' : 'text-slate-50'}`}>Rollback (Desfazer)</button></div><div className="flex-1 overflow-y-auto p-6 custom-scrollbar">{reviewTab === 'audit' && (<div className="space-y-4">{!finalPkColumn && (<div className="p-4 bg-amber-50 dark:bg-amber-950/40 rounded-2xl border border-amber-100 dark:border-amber-800 animate-in zoom-in-95"><AlertTriangle className="w-6 h-6 text-amber-600 shrink-0" /><div><h4 className="font-black text-sm text-amber-800 dark:text-amber-200 uppercase tracking-tight mb-1">Selecione o Identificador Único</h4><p className="text-xs text-amber-700 dark:text-amber-300 mb-3">Não detectamos uma chave primária nos resultados. Escolha uma coluna para garantir que o UPDATE altere o registro correto.</p><select value={userSelectedPk} onChange={e => setUserSelectedPk(e.target.value)} className="w-full p-2.5 bg-white dark:bg-slate-800 border border-amber-300 dark:border-amber-700 rounded-xl text-sm outline-none focus:ring-2 focus:ring-amber-500 font-bold"><option value="">-- Escolher Coluna ID --</option>{columns.map(c => <option key={c} value={c}>{c}</option>)}</select></div></div>)}<div className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-2xl overflow-hidden shadow-sm"><table className="w-full text-left border-collapse"><thead className="bg-slate-50 dark:bg-slate-800 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] border-b border-slate-100 dark:border-slate-800"><tr><th className="px-4 py-3 border-r border-slate-100 dark:border-slate-800">Campo ({finalPkColumn})</th><th className="px-4 py-3">Original</th><th className="px-4 py-3 w-8 text-center"><ArrowRight className="w-3 h-3 mx-auto" /></th><th className="px-4 py-3">Novo Valor</th></tr></thead><tbody className="text-xs font-mono">{auditLog.map((log, i) => (<tr key={i} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 border-b border-slate-50 last:border-0 dark:border-slate-800"><td className="px-4 py-3 border-r border-slate-100 dark:border-slate-800"><div className="flex flex-col"><span className="font-black text-slate-800 dark:text-slate-200">{log.col}</span><span className="text-[9px] text-slate-400">ID: {log.pkVal ?? '???'}</span></div></td><td className="px-4 py-3 text-rose-500 bg-rose-50/20 dark:bg-rose-900/5 line-through italic opacity-70">{String(log.oldVal ?? 'null')}</td><td className="px-4 py-3 text-center text-slate-300">→</td><td className="px-4 py-3 text-emerald-600 bg-emerald-50/20 dark:bg-emerald-900/10 font-bold">{log.newVal}</td></tr>))}</tbody></table></div></div>)}{reviewTab === 'script' && (<div className="h-full flex flex-col gap-4"><div className="flex-1 bg-slate-950 rounded-2xl p-4 border border-slate-800 shadow-inner relative group"><div className="absolute top-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity"><button onClick={() => { navigator.clipboard.writeText(sqlStatementsPreview); toast.success("Script copiado!"); }} className="p-2 bg-slate-800 text-slate-400 hover:text-white rounded-lg"><Copy className="w-4 h-4" /></button></div><pre className="font-mono text-[11px] text-emerald-400 whitespace-pre-wrap h-full overflow-auto custom-scrollbar leading-relaxed">{sqlStatementsPreview}</pre></div><div className="flex items-center gap-2 text-[10px] text-slate-400 italic"><Info className="w-3 h-3" /> Este script será executado em uma única transação atômica.</div></div>)}{reviewTab === 'rollback' && (<div className="h-full flex flex-col gap-4"><div className="p-4 bg-amber-50 dark:bg-amber-950/40 rounded-2xl border border-amber-100 dark:border-amber-800 animate-in zoom-in-95"><RotateCcw className="w-6 h-6 text-amber-600 shrink-0" /><div><h4 className="text-xs font-black text-amber-800 dark:text-amber-300 uppercase tracking-widest">Plano de Desastre</h4><p className="text-[10px] text-amber-700 dark:text-amber-400 font-medium">Copie este script antes de confirmar o commit para ter uma saída de emergência caso os novos dados causem problemas na aplicação.</p></div></div><div className="flex-1 bg-slate-950 rounded-2xl p-4 border border-slate-800 shadow-inner relative group"><div className="absolute top-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity"><button onClick={() => { navigator.clipboard.writeText(rollbackStatements); toast.success("Rollback copiado!"); }} className="p-2 bg-slate-800 text-slate-400 hover:text-white rounded-lg"><Copy className="w-4 h-4" /></button></div><pre className="font-mono text-[11px] text-emerald-400 whitespace-pre-wrap h-full overflow-auto custom-scrollbar leading-relaxed">{rollbackStatements}</pre></div></div>)}</div><div className="p-6 border-t border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50 flex justify-between items-center gap-4 shrink-0"><div className="flex items-center gap-2 text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-900/20 px-4 py-2 rounded-xl border border-rose-100 dark:border-rose-900 shadow-sm max-w-md"><FileWarning className="w-5 h-5 shrink-0" /><p className="text-[10px] font-black uppercase leading-tight tracking-tighter">Atenção: A gravação é imediata no banco de dados após o clique em confirmar.</p></div><div className="flex gap-3"><button onClick={() => setShowConfirmation(false)} className="px-6 py-3 bg-white dark:bg-slate-800 text-slate-500 hover:text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 rounded-2xl font-black uppercase tracking-widest text-xs transition-all active:scale-95 shadow-sm">Cancelar</button><button onClick={handleSaveChanges} disabled={isSaving || !finalPkColumn} className="px-8 py-3 bg-red-600 hover:bg-red-700 text-white rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl shadow-red-900/20 transition-all active:scale-95 flex items-center justify-center gap-3 disabled:opacity-50">{isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />} Sim, Efetivar Alterações</button></div></div></div></div>)}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 shrink-0"><div className="flex items-center gap-4">{isFullscreen && <button onClick={toggleFullscreen} className="p-2 bg-slate-100 dark:bg-slate-800 rounded-lg hover:bg-slate-200 transition-colors"><Minimize2 className="w-5 h-5 text-slate-600 dark:text-slate-300" /></button>}<div><h2 className="text-xl font-bold text-slate-800 dark:text-white flex items-center gap-3">Resultados<span className="text-xs font-normal text-slate-500 bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded-full border border-slate-200 dark:border-slate-700 shadow-sm">{filteredData.length} registros</span>{settings?.advancedMode && <span className="text-[10px] bg-orange-100 text-orange-700 px-2 py-0.5 rounded font-bold border border-orange-200 flex items-center gap-1"><PenTool className="w-3 h-3" /> Modo Edição</span>}</h2></div></div><div className="flex bg-white dark:bg-slate-800 p-1 rounded-lg border border-slate-200 dark:border-slate-700 shadow-sm overflow-x-auto">{[{ id: 'table', icon: <FileSpreadsheet className="w-4 h-4" />, label: 'Tabela' }, { id: 'terminal', icon: <TerminalIcon className="w-4 h-4" />, label: 'Terminal (ANSI)' }, { id: 'chart', icon: <BarChart2 className="w-4 h-4" />, label: 'Gráficos' }, { id: 'analysis', icon: <MessageSquare className="w-4 h-4" />, label: 'AI Analyst' }, { id: 'explain', icon: <Activity className="w-4 h-4" />, label: 'Performance' }].map(tab => (<button key={tab.id} onClick={() => { if(tab.id === 'explain') handleExplain(); else onResultsStateChange({ activeTab: tab.id as ResultTab }); }} className={`flex items-center gap-2 px-4 py-1.5 rounded-md text-sm font-medium transition-all whitespace-nowrap ${activeTab === tab.id ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/50 dark:text-indigo-300' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}>{tab.icon} {tab.label}</button>))}</div><div className="flex items-center gap-2">{activeTab === 'explain' && (<button onClick={() => setShowProfilingHistory(true)} className="flex items-center gap-2 px-3 py-1.5 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-bold text-slate-600 dark:text-slate-300 hover:border-indigo-400 transition-all shadow-sm"><History className="w-3.5 h-3.5" /> Ver Snapshots</button>)}{hasPendingEdits && (<div className="flex items-center gap-2 animate-in slide-in-from-right-2"><button onClick={() => setPendingEdits({})} className="flex items-center gap-2 px-3 py-1.5 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-bold text-slate-500 hover:bg-slate-200 transition-all"><Undo2 className="w-4 h-4" /> Descartar</button><button onClick={() => { setReviewTab('audit'); setShowConfirmation(true); }} className="flex items-center gap-2 px-4 py-1.5 bg-orange-500 hover:bg-orange-600 text-white rounded-lg text-sm font-bold shadow-lg shadow-orange-200 dark:shadow-none transition-all"><Save className="w-4 h-4" /> Revisar & Salvar</button></div>)}{activeTab === 'table' && !hasPendingEdits && (<div className="flex items-center gap-2"><SmartFilterBar columns={columns} filters={filters} onChange={(f) => onResultsStateChange({ filters: f })} onClear={() => onResultsStateChange({ filters: [] })} />{filters.length === 0 && (<div className="relative group"><Search className="absolute left-3 top-2.5 w-3.5 h-3.5 text-slate-400 group-focus-within:text-indigo-500 transition-colors" /><input type="text" placeholder="Busca rápida..." value={localSearch} onChange={(e) => onResultsStateChange({ search: e.target.value })} className="pl-8 pr-4 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none w-48" /></div>)}</div>)}<div className="relative"><button onClick={() => setShowExportMenu(!showExportMenu)} className={`flex items-center gap-2 px-3 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-medium hover:bg-slate-50 dark:hover:bg-slate-700 shadow-sm transition-colors text-slate-700 dark:text-slate-300 ${showExportMenu ? 'ring-2 ring-indigo-500' : ''}`}><Download className="w-4 h-4" /> Exportar</button>{showExportMenu && (<div className="absolute right-0 top-full mt-2 w-56 bg-white dark:bg-slate-800 rounded-xl shadow-xl border border-slate-200 dark:border-slate-700 z-[90] overflow-hidden animate-in fade-in zoom-in-95" onClick={() => setShowExportMenu(false)}><div className="p-2 border-b border-slate-100 dark:border-slate-700"><button onClick={() => setShowAdvancedExport(true)} className="w-full text-left px-2 py-1.5 text-xs hover:bg-indigo-50 dark:hover:bg-indigo-900/30 rounded flex items-center gap-2 text-indigo-600 font-black uppercase tracking-wider"><Settings className="w-3.5 h-3.5" /> Exportação Avançada</button></div><div className="p-2 border-b border-slate-100 dark:border-slate-700"><button onClick={() => { setShowCodeModal(true); setShowExportMenu(false); }} className="w-full text-left px-2 py-1.5 text-xs hover:bg-slate-50 dark:hover:bg-slate-700 rounded flex items-center gap-2 text-slate-600 dark:text-slate-300"><FileCode className="w-3.5 h-3.5" /> Exportar Código</button><button onClick={handleExportInsert} className="w-full text-left px-2 py-1.5 text-xs hover:bg-slate-50 dark:hover:bg-slate-700 rounded flex items-center gap-2 text-slate-600 dark:text-slate-300"><Database className="w-3.5 h-3.5" /> Copy as SQL INSERT</button><button onClick={handleExportCSV} className="w-full text-left px-2 py-1.5 text-xs hover:bg-slate-50 dark:hover:bg-slate-700 rounded flex items-center gap-2 text-slate-600 dark:text-slate-300"><FileSpreadsheet className="w-3.5 h-3.5" /> Export as CSV</button></div><div className="p-2"><button onClick={() => { navigator.clipboard.writeText(JSON.stringify(filteredData)); onShowToast("JSON copiado!", "success"); }} className="w-full text-left px-2 py-1.5 text-xs hover:bg-slate-50 dark:hover:bg-slate-700 rounded flex items-center gap-2 text-slate-600 dark:text-slate-300"><FileJson className="w-3.5 h-3.5" /> Copy JSON Raw</button></div></div>)}</div>{!isFullscreen && <button onClick={toggleFullscreen} className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors" title="Tela Cheia"><Maximize2 className="w-5 h-5" /></button>}</div></div>
-      <div id="results-content" className="flex-1 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden flex flex-col relative">{filteredData.length === 0 && data.length > 0 ? (<div className="flex-1 flex flex-col items-center justify-center text-slate-400 p-8"><Filter className="w-12 h-12 opacity-30 mb-4" /> <p>Nenhum resultado corresponde aos filtros atuais.</p></div>) : data.length === 0 ? (<div className="flex-1 flex flex-col items-center justify-center text-slate-400 p-8"><Database className="w-12 h-12 opacity-30 mb-4" /><p>Nenhum resultado retornado</p></div>) : (<>{activeTab === 'table' && (<VirtualTable data={filteredData} columns={columns} highlightMatch={highlightMatch} onRowClick={(row: any) => !settings?.advancedMode && setSelectedRow(row)} isAdvancedMode={settings?.advancedMode} onUpdateCell={handleUpdateCell} onOpenJson={setViewJson} onDrillDown={(table: string, col: string, val: any, allLinks?: ManualLink[]) => setDrillDownTarget({ table, col, val, allLinks })} schema={schema} defaultTableName={mainTableName} credentials={credentials} pendingEdits={pendingEdits} settings={settings} />)}{activeTab === 'terminal' && <AnsiTerminal text={ansiTableString} />}{activeTab === 'chart' && <div className="p-6 h-full w-full relative"><DataVisualizer data={filteredData} chartConfig={resultsState.chartConfig} onConfigChange={(cfg) => onResultsStateChange({ chartConfig: cfg })} onDrillDown={handleChartDrillDown} /> </div>}{activeTab === 'analysis' && <div className="flex-1 h-full"><DataAnalysisChat data={filteredData} sql={sql} messages={resultsState.chatMessages} chatInput={resultsState.chatInput} onMessagesChange={(m) => onResultsStateChange({ chatMessages: m })} onChatInputChange={(v) => onResultsStateChange({ chatInput: v })} /></div>}{activeTab === 'explain' && <ExplainVisualizer plan={explainPlan} loading={loadingExplain} error={explainError} onCaptureProfiling={handleCaptureProfiling} sql={sql} />}</>)}</div>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 shrink-0"><div className="flex items-center gap-4">{isFullscreen && <button onClick={toggleFullscreen} className="p-2 bg-slate-100 dark:bg-slate-800 rounded-lg hover:bg-slate-200 transition-colors"><Minimize2 className="w-5 h-5 text-slate-600 dark:text-slate-300" /></button>}<div><h2 className="text-xl font-bold text-slate-800 dark:text-white flex items-center gap-3">Resultados<span className="text-xs font-normal text-slate-500 bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded-full border border-slate-200 dark:border-slate-700 shadow-sm">{filteredData.length} registros</span>{settings?.advancedMode && <span className="text-[10px] bg-orange-100 text-orange-700 px-2 py-0.5 rounded font-bold border border-orange-200 flex items-center gap-1"><PenTool className="w-3 h-3" /> Modo Edição</span>}</h2></div></div><div className="flex bg-white dark:bg-slate-800 p-1 rounded-lg border border-slate-200 dark:border-slate-700 shadow-sm overflow-x-auto">{[{ id: 'table', icon: <FileSpreadsheet className="w-4 h-4" />, label: 'Tabela' }, { id: 'terminal', icon: <Terminal className="w-4 h-4" />, label: 'Terminal (ANSI)' }, { id: 'chart', icon: <BarChart2 className="w-4 h-4" />, label: 'Gráficos' }, { id: 'analysis', icon: <MessageSquare className="w-4 h-4" />, label: 'AI Analyst' }, { id: 'explain', icon: <Activity className="w-4 h-4" />, label: 'Performance' }].map(tab => (<button key={tab.id} onClick={() => { if(tab.id === 'explain') handleExplain(); else onResultsStateChange({ activeTab: tab.id as ResultTab }); }} className={`flex items-center gap-2 px-4 py-1.5 rounded-md text-sm font-medium transition-all whitespace-nowrap ${activeTab === tab.id ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/50 dark:text-indigo-300' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}>{tab.icon} {tab.label}</button>))}</div><div className="flex items-center gap-2">{activeTab === 'explain' && (<button onClick={() => setShowProfilingHistory(true)} className="flex items-center gap-2 px-3 py-1.5 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-bold text-slate-600 dark:text-slate-300 hover:border-indigo-400 transition-all shadow-sm"><History className="w-3.5 h-3.5" /> Ver Snapshots</button>)}{hasPendingEdits && (<div className="flex items-center gap-2 animate-in slide-in-from-right-2"><button onClick={() => setPendingEdits({})} className="flex items-center gap-2 px-3 py-1.5 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-bold text-slate-500 hover:bg-slate-200 transition-all"><Undo2 className="w-4 h-4" /> Descartar</button><button onClick={() => { setReviewTab('audit'); setShowConfirmation(true); }} className="flex items-center gap-2 px-4 py-1.5 bg-orange-500 hover:bg-orange-600 text-white rounded-lg text-sm font-bold shadow-lg shadow-orange-200 dark:shadow-none transition-all"><Save className="w-4 h-4" /> Revisar & Salvar</button></div>)}{activeTab === 'table' && !hasPendingEdits && (<div className="flex items-center gap-2"><SmartFilterBar columns={columns} filters={filters} onChange={(f) => onResultsStateChange({ filters: f })} onClear={() => onResultsStateChange({ filters: [] })} />{filters.length === 0 && (<div className="relative group"><Search className="absolute left-3 top-2.5 w-3.5 h-3.5 text-slate-400 group-focus-within:text-indigo-500 transition-colors" /><input type="text" placeholder="Busca rápida..." value={localSearch} onChange={(e) => onResultsStateChange({ search: e.target.value })} className="pl-8 pr-4 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none w-48" /></div>)}</div>)}<div className="relative"><button onClick={() => setShowExportMenu(!showExportMenu)} className={`flex items-center gap-2 px-3 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-medium hover:bg-slate-50 dark:hover:bg-slate-700 shadow-sm transition-colors text-slate-700 dark:text-slate-300 ${showExportMenu ? 'ring-2 ring-indigo-500' : ''}`}><Download className="w-4 h-4" /> Exportar</button>{showExportMenu && (<div className="absolute right-0 top-full mt-2 w-56 bg-white dark:bg-slate-800 rounded-xl shadow-xl border border-slate-200 dark:border-slate-700 z-[90] overflow-hidden animate-in fade-in zoom-in-95" onClick={() => setShowExportMenu(false)}><div className="p-2 border-b border-slate-100 dark:border-slate-700"><button onClick={() => setShowAdvancedExport(true)} className="w-full text-left px-2 py-1.5 text-xs hover:bg-indigo-50 dark:hover:bg-indigo-900/30 rounded flex items-center gap-2 text-indigo-600 font-black uppercase tracking-wider"><Settings className="w-3.5 h-3.5" /> Exportação Avançada</button></div><div className="p-2 border-b border-slate-100 dark:border-slate-700"><button onClick={() => { setShowCodeModal(true); setShowExportMenu(false); }} className="w-full text-left px-2 py-1.5 text-xs hover:bg-slate-50 dark:hover:bg-slate-700 rounded flex items-center gap-2 text-slate-600 dark:text-slate-300"><FileCode className="w-3.5 h-3.5" /> Exportar Código</button><button onClick={handleExportInsert} className="w-full text-left px-2 py-1.5 text-xs hover:bg-slate-50 dark:hover:bg-slate-700 rounded flex items-center gap-2 text-slate-600 dark:text-slate-300"><Database className="w-3.5 h-3.5" /> Copy as SQL INSERT</button><button onClick={handleExportCSV} className="w-full text-left px-2 py-1.5 text-xs hover:bg-slate-50 dark:hover:bg-slate-700 rounded flex items-center gap-2 text-slate-600 dark:text-slate-300"><FileSpreadsheet className="w-3.5 h-3.5" /> Export as CSV</button></div><div className="p-2"><button onClick={() => { navigator.clipboard.writeText(JSON.stringify(filteredData)); onShowToast("JSON copiado!", "success"); }} className="w-full text-left px-2 py-1.5 text-xs hover:bg-slate-50 dark:hover:bg-slate-700 rounded flex items-center gap-2 text-slate-600 dark:text-slate-300"><FileJson className="w-3.5 h-3.5" /> Copy JSON Raw</button></div></div>)}</div>{!isFullscreen && <button onClick={toggleFullscreen} className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors" title="Tela Cheia"><Maximize2 className="w-5 h-5" /></button>}</div></div>
+      <div id="results-content" className="flex-1 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden flex flex-col relative">{filteredData.length === 0 && data.length > 0 ? (<div className="flex-1 flex flex-col items-center justify-center text-slate-400 p-8"><Filter className="w-12 h-12 opacity-30 mb-4" /> <p>Nenhum resultado corresponde aos filtros atuais.</p></div>) : data.length === 0 ? (<div className="flex-1 flex flex-col items-center justify-center text-slate-400 p-8"><Database className="w-12 h-12 opacity-30 mb-4" /><p>Nenhum resultado retornado</p></div>) : (<>{activeTab === 'table' && (<VirtualTable data={filteredData} columns={columns} highlightMatch={highlightMatch} onRowClick={(row: any) => !settings?.advancedMode && setSelectedRow(row)} isAdvancedMode={settings?.advancedMode} onUpdateCell={handleUpdateCell} onOpenJson={setViewJson} onDrillDown={(table: string, col: string, val: any, allLinks?: ManualLink[]) => setDrillDownTarget({ table, col, val, allLinks })} schema={schema} credentials={credentials} pendingEdits={pendingEdits} settings={settings} />)}{activeTab === 'terminal' && <AnsiTerminal text={ansiTableString} />}{activeTab === 'chart' && <div className="p-6 h-full w-full relative"><DataVisualizer data={filteredData} chartConfig={resultsState.chartConfig} onConfigChange={(cfg) => onResultsStateChange({ chartConfig: cfg })} onDrillDown={handleChartDrillDown} /> </div>}{activeTab === 'analysis' && <div className="flex-1 h-full"><DataAnalysisChat data={filteredData} sql={sql} messages={resultsState.chatMessages} chatInput={resultsState.chatInput} onMessagesChange={(m) => onResultsStateChange({ chatMessages: m })} onChatInputChange={(v) => onResultsStateChange({ chatInput: v })} /></div>}{activeTab === 'explain' && <ExplainVisualizer plan={explainPlan} loading={loadingExplain} error={explainError} onCaptureProfiling={handleCaptureProfiling} sql={sql} />}</>)}</div>
       {!isFullscreen && (<div className="flex items-center justify-between shrink-0"><div className="flex items-center gap-4"><button onClick={onNewConnection} className="text-slate-400 hover:text-slate-600 text-sm flex items-center gap-2 px-2 py-1"><Database className="w-4 h-4" /> Nova Conexão</button>{executionDuration !== undefined && executionDuration > 0 && (<span className="text-xs text-slate-400 flex items-center gap-1 bg-slate-50 dark:bg-slate-800 px-2 py-1 rounded border border-slate-200 dark:border-slate-700"><Clock className="w-3 h-3" /> Executado em {executionDuration.toFixed(0)}ms</span>)}</div><button onClick={onBackToBuilder} className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-bold shadow-lg flex items-center gap-2"><ArrowLeft className="w-4 h-4" /> Voltar</button></div>)}
     </div>
   );
