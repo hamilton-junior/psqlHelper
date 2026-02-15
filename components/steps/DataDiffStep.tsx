@@ -112,7 +112,9 @@ const DataDiffStep: React.FC<DataDiffStepProps> = ({ schema, credentials, simula
           const fakeState: BuilderState = { selectedTables: [tableName], selectedColumns: [], aggregations: {}, joins: [], filters: [], groupBy: [], orderBy: [], limit };
           return executeOfflineQuery(schema, simulationData, fakeState);
         }
-        return await executeQueryReal(credentials!, sql);
+        // Fix: executeQueryReal result is an object { rows, audit }. Returning .rows.
+        const res = await executeQueryReal(credentials!, sql);
+        return res.rows;
       };
 
       const [dataA, dataB] = await Promise.all([fetchData(tableA), fetchData(tableB)]);
@@ -210,8 +212,9 @@ const DataDiffStep: React.FC<DataDiffStepProps> = ({ schema, credentials, simula
           ) b ON a.key = b.key
           WHERE a.val IS DISTINCT FROM b.val;
         `;
+        // Fix: executeQueryReal result is an object { rows, audit }. Accessing .rows.
         const res = await executeQueryReal(credentials, sql);
-        setRecordDiffs(res.map(r => ({ column: r.column_name, valA: r.val_a, valB: r.val_b })));
+        setRecordDiffs(res.rows.map(r => ({ column: r.column_name, valA: r.val_a, valB: r.val_b })));
       }
       setShowHelp(false);
     } catch (e: any) {
@@ -358,7 +361,7 @@ const DataDiffStep: React.FC<DataDiffStepProps> = ({ schema, credentials, simula
                     <button onClick={() => setFilterStatus('all')} className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all ${filterStatus === 'all' ? 'bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 shadow-sm' : 'border-transparent text-slate-500 hover:bg-slate-200/50'}`}>Tudo ({diffResults.length})</button>
                     <button onClick={() => setFilterStatus('added')} className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all ${filterStatus === 'added' ? 'bg-emerald-100 dark:bg-emerald-900/30 border-emerald-200 text-emerald-800 dark:text-emerald-200 shadow-sm' : 'border-transparent text-slate-500 hover:bg-emerald-50'}`}>Novos</button>
                     <button onClick={() => setFilterStatus('removed')} className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all ${filterStatus === 'removed' ? 'bg-red-100 dark:bg-red-900/30 border-red-200 text-red-800 dark:text-red-200 shadow-sm' : 'border-transparent text-slate-500 hover:bg-red-50'}`}>Removidos</button>
-                    <button onClick={() => setFilterStatus('modified')} className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all ${filterStatus === 'modified' ? 'bg-amber-100 dark:bg-amber-900/30 border-amber-200 text-amber-800 dark:text-amber-200 shadow-sm' : 'border-transparent text-slate-500 hover:bg-amber-50'}`}>Divergências</button>
+                    <button onClick={() => setFilterStatus('modified')} className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all ${filterStatus === 'modified' ? 'bg-amber-100 dark:bg-amber-900/30 border-emerald-200 text-emerald-800 dark:text-emerald-200 shadow-sm' : 'border-transparent text-slate-500 hover:bg-emerald-50'}`}>Divergências</button>
                  </div>
                  <div className="text-[10px] font-mono text-slate-400 flex items-center gap-2">
                     <Settings2 className="w-3 h-3" /> Mostrando até {limit} registros carregados.

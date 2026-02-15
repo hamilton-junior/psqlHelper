@@ -148,6 +148,22 @@ export interface QueryTab {
   resultsState: TabResultsState;
 }
 
+export interface TransactionStep {
+  sql: string;
+  tabName: string;
+  timestamp: number;
+}
+
+export interface TransactionInfo {
+  isActive: boolean;
+  sessionId: string | null;
+  startTime: number | null;
+  statementCount: number;
+  affectedTabs: string[]; 
+  steps: TransactionStep[]; // Rastro de comandos
+  stagedSimulationData?: Record<string, any[]>; // Backup para rollback simulado
+}
+
 export interface ConnectionGroup {
   id: string;
   name: string;
@@ -157,6 +173,7 @@ export interface ConnectionGroup {
   simulationData: Record<string, any[]>;
   tabs: QueryTab[];
   activeTabId: string;
+  transaction: TransactionInfo;
 }
 
 export interface AppSettings {
@@ -362,6 +379,23 @@ export interface IntersectionResult {
   matchPercentage?: number;
 }
 
+export interface AuditMetadata {
+  client: {
+    ip: string;
+    os: string;
+    userAgent: string;
+  };
+  performance: {
+    totalMs: number;
+    serverProcessMs: number;
+  };
+  server: {
+    dbUser: string;
+    sessionId?: string;
+    rawErrorStack?: string;
+  };
+}
+
 export interface QueryHistoryItem {
   id: string;
   sql: string;
@@ -370,6 +404,7 @@ export interface QueryHistoryItem {
   status: 'success' | 'error';
   timestamp: number;
   schemaName: string;
+  audit?: AuditMetadata; 
 }
 
 export interface DiffRow {
@@ -448,73 +483,8 @@ export const SAMPLE_SCHEMA: DatabaseSchema = {
       columns: [
         { name: 'grid', type: 'integer', isPrimaryKey: true },
         { name: 'name', type: 'varchar(150)' },
-        { name: 'category_id', type: 'integer', isForeignKey: true, references: 'public.categories.grid' },
-        { name: 'supplier_id', type: 'integer', isForeignKey: true, references: 'public.suppliers.grid' },
         { name: 'price', type: 'numeric(10,2)' },
         { name: 'stock_quantity', type: 'integer' },
-        { name: 'created_at', type: 'timestamp' }
-      ]
-    },
-    {
-      name: 'orders',
-      schema: 'public',
-      description: 'Cabeçalho de pedidos realizados pelos usuários.',
-      columns: [
-        { name: 'grid', type: 'integer', isPrimaryKey: true },
-        { name: 'user_id', type: 'integer', isForeignKey: true, references: 'public.users.grid' },
-        { name: 'address_id', type: 'integer', isForeignKey: true, references: 'public.addresses.grid' },
-        { name: 'amount', type: 'numeric(10,2)' },
-        { name: 'status', type: 'varchar(20)' },
-        { name: 'created_at', type: 'timestamp' }
-      ]
-    },
-    {
-      name: 'order_items',
-      schema: 'public',
-      description: 'Detalhamento de produtos contidos em cada pedido.',
-      columns: [
-        { name: 'grid', type: 'integer', isPrimaryKey: true },
-        { name: 'product_id', type: 'integer', isForeignKey: true, references: 'public.products.grid' },
-        { name: 'order_id', type: 'integer', isForeignKey: true, references: 'public.orders.grid' },
-        { name: 'quantity', type: 'integer' },
-        { name: 'unit_price', type: 'numeric(10,2)' }
-      ]
-    },
-    {
-      name: 'payments',
-      schema: 'public',
-      description: 'Informações financeiras das transações dos pedidos.',
-      columns: [
-        { name: 'grid', type: 'integer', isPrimaryKey: true },
-        { name: 'order_id', type: 'integer', isForeignKey: true, references: 'public.orders.grid' },
-        { name: 'payment_method', type: 'varchar(50)' },
-        { name: 'amount_paid', type: 'numeric(10,2)' },
-        { name: 'transaction_status', type: 'varchar(20)' },
-        { name: 'processed_at', type: 'timestamp' }
-      ]
-    },
-    {
-      name: 'reviews',
-      schema: 'public',
-      description: 'Avaliações e comentários dos clientes sobre produtos.',
-      columns: [
-        { name: 'grid', type: 'integer', isPrimaryKey: true },
-        { name: 'product_id', type: 'integer', isForeignKey: true, references: 'public.products.grid' },
-        { name: 'user_id', type: 'integer', isForeignKey: true, references: 'public.users.grid' },
-        { name: 'rating', type: 'integer' },
-        { name: 'comment', type: 'text' },
-        { name: 'created_at', type: 'timestamp' }
-      ]
-    },
-    {
-      name: 'user_logs',
-      schema: 'public',
-      description: 'Logs de atividades e segurança dos usuários.',
-      columns: [
-        { name: 'grid', type: 'integer', isPrimaryKey: true },
-        { name: 'user_id', type: 'integer', isForeignKey: true, references: 'public.users.grid' },
-        { name: 'action', type: 'varchar(50)' },
-        { name: 'metadata', type: 'jsonb' },
         { name: 'created_at', type: 'timestamp' }
       ]
     }

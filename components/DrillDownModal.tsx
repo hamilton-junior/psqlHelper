@@ -64,11 +64,12 @@ const DrillDownModal: React.FC<DrillDownModalProps> = ({ targetTable, filterColu
     const safeValue = String(filterValue).replace(/'/g, "''");
     try {
       const sql = `SELECT * FROM ${link.table} WHERE "${link.keyCol}"::text = '${safeValue}' LIMIT 100`;
+      // Fix: executeQueryReal result is an object { rows, audit }. Accessing .rows and checking .rows.length.
       const results = await executeQueryReal(credentials, sql);
       return {
-         data: results,
+         data: results.rows,
          loading: false,
-         error: results.length === 0 ? `Registro "${filterValue}" não localizado em ${link.table}.` : null,
+         error: results.rows.length === 0 ? `Registro "${filterValue}" não localizado em ${link.table}.` : null,
          activeSearchCol: link.keyCol
       };
     } catch (e: any) {
@@ -359,7 +360,7 @@ const DrillDownModal: React.FC<DrillDownModalProps> = ({ targetTable, filterColu
         </div>
         
         {/* Footer */}
-        <div className="p-4 bg-white dark:bg-slate-900 border-t border-slate-100 dark:border-slate-800 flex justify-between items-center shrink-0">
+        <div className="p-4 bg-white dark:bg-slate-800 border-t border-slate-100 dark:border-slate-700 flex justify-between items-center shrink-0">
            <div className="flex items-center gap-2 text-xs text-slate-400">
               {settings?.backgroundLoadLinks ? <DatabaseZap className="w-3.5 h-3.5 text-indigo-500" /> : <Target className="w-3.5 h-3.5 text-slate-300" />}
               <span>{settings?.backgroundLoadLinks ? 'Vínculos pré-carregados (Thread-safe)' : `Ativo: ${activeLink?.table}`}</span>
