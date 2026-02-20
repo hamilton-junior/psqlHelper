@@ -227,6 +227,90 @@
           "addedInVersion": "v0.2.44"
         }
       ]
+    },
+    {
+      "title": "Futuro & Inovação",
+      "icon": "Lightbulb",
+      "items": [
+        {
+          "title": "Wiki do Banco (Documentação Automática)",
+          "desc": "IA que gera automaticamente uma documentação completa do banco de dados em Markdown, explicando tabelas, campos e sugerindo consultas comuns.",
+          "status": "Em Desenvolvimento",
+          "size": "Médio",
+          "progress": 10,
+          "votes": 0,
+          "addedInVersion": "v0.3.0",
+          "implementationPlan": [
+            "Análise semântica do schema via Gemini.",
+            "Geração de descrições para tabelas e colunas.",
+            "Sugestão de queries de exemplo baseadas no contexto.",
+            "Interface de visualização estilo Wiki/Markdown."
+          ]
+        },
+        {
+          "title": "SQL Quests (Gamificação)",
+          "desc": "Modo de aprendizado com desafios e conquistas baseados no banco de dados conectado.",
+          "status": "Planejado",
+          "size": "Médio",
+          "progress": 0,
+          "votes": 0,
+          "addedInVersion": "v0.3.0"
+        },
+        {
+          "title": "Voice-to-SQL (Interface de Voz)",
+          "desc": "Comandos de voz para geração de consultas e visualização de dados.",
+          "status": "Planejado",
+          "size": "Médio",
+          "progress": 0,
+          "votes": 0,
+          "addedInVersion": "v0.3.0"
+        },
+        {
+          "title": "Pair Querying (Colaboração em Tempo Real)",
+          "desc": "Edição colaborativa de queries e compartilhamento de resultados em tempo real.",
+          "status": "Planejado",
+          "size": "Grande",
+          "progress": 0,
+          "votes": 0,
+          "addedInVersion": "v0.3.0"
+        },
+        {
+          "title": "Excel to DB (Engenharia Reversa)",
+          "desc": "Importação inteligente de planilhas com criação automática de schema e tabelas.",
+          "status": "Planejado",
+          "size": "Médio",
+          "progress": 0,
+          "votes": 0,
+          "addedInVersion": "v0.3.0"
+        },
+        {
+          "title": "Prototipagem de API",
+          "desc": "Geração instantânea de endpoints REST/GraphQL a partir de queries salvas.",
+          "status": "Planejado",
+          "size": "Médio",
+          "progress": 0,
+          "votes": 0,
+          "addedInVersion": "v0.3.0"
+        },
+        {
+          "title": "IA Search (Busca Semântica)",
+          "desc": "Busca por conceito e sentimento dentro dos dados das tabelas utilizando embeddings.",
+          "status": "Planejado",
+          "size": "Grande",
+          "progress": 0,
+          "votes": 0,
+          "addedInVersion": "v0.3.0"
+        },
+        {
+          "title": "Smart Insert (Preenchimento Preditivo)",
+          "desc": "Sugestões inteligentes de valores durante a inserção de dados baseadas em padrões existentes.",
+          "status": "Planejado",
+          "size": "Pequeno",
+          "progress": 0,
+          "votes": 0,
+          "addedInVersion": "v0.3.0"
+        }
+      ]
     }
   ]
 }

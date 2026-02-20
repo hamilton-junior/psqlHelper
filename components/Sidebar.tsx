@@ -23,6 +23,7 @@ interface SidebarProps {
   onOpenLogAnalyzer: () => void;
   onOpenTemplates: () => void;
   onOpenSqlExtractor: () => void;
+  onOpenWiki: () => void;
   onCheckUpdate: () => void;
 }
 
@@ -39,7 +40,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   currentStep, onNavigate, schema, hasResults = false, onOpenSettings, 
   onOpenDiagram, onOpenHistory, onOpenShortcuts, onOpenCheatSheet, 
   onOpenVirtualRelations, onOpenLogAnalyzer, onOpenTemplates, 
-  onOpenSqlExtractor, onCheckUpdate
+  onOpenSqlExtractor, onOpenWiki, onCheckUpdate
 }) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
 
@@ -135,6 +136,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                 </div>
               )}
               {toolItem('Templates SQL', <FileText className="w-4.5 h-4.5" />, onOpenTemplates)}
+              {toolItem('Wiki do Banco', <BookOpen className="w-4.5 h-4.5" />, onOpenWiki)}
               {toolItem('Extrator de SQL', <Scissors className="w-4.5 h-4.5" />, onOpenSqlExtractor)}
               {toolItem('Analisador de Logs', <FileSearch className="w-4.5 h-4.5" />, onOpenLogAnalyzer)}
               {toolItem('Vínculos Manuais', <Link className="w-4.5 h-4.5" />, onOpenVirtualRelations)}

@@ -28,6 +28,7 @@ import VirtualRelationsModal from '@/components/VirtualRelationsModal';
 import LogAnalyzerModal from '@/components/LogAnalyzerModal';
 import TemplateModal from '@/components/TemplateModal';
 import SqlExtractorModal from '@/components/SqlExtractorModal';
+import SchemaWikiModal from '@/components/SchemaWikiModal';
 import UpdateModal from '@/components/UpdateModal';
 import { generateSqlFromBuilderState } from '@/services/geminiService';
 import { generateLocalSql } from '@/services/localSqlService';
@@ -108,6 +109,7 @@ const App: React.FC = () => {
   const [showLogAnalyzer, setShowLogAnalyzer] = useState(false);
   const [showTemplates, setShowTemplates] = useState(false);
   const [showSqlExtractor, setShowSqlExtractor] = useState(false);
+  const [showWiki, setShowWiki] = useState(false);
   
   const [updateInfo, setUpdateInfo] = useState<any>(null);
   const [remoteVersions, setRemoteVersions] = useState<any>(null);
@@ -308,6 +310,7 @@ const App: React.FC = () => {
         onOpenCheatSheet={() => setShowCheatSheet(true)} onOpenVirtualRelations={() => setShowVirtualRelations(true)}
         onOpenLogAnalyzer={() => setShowLogAnalyzer(true)} onOpenTemplates={() => setShowTemplates(true)}
         onOpenSqlExtractor={() => setShowSqlExtractor(true)} 
+        onOpenWiki={() => setShowWiki(true)}
         onCheckUpdate={() => (window as any).electron?.send('check-update', settings.updateBranch)}
       />
       
@@ -416,6 +419,7 @@ const App: React.FC = () => {
       {showLogAnalyzer && activeConnection?.schema && <LogAnalyzerModal schema={activeConnection.schema} onClose={() => setShowLogAnalyzer(false)} onRunSql={sql => { updateActiveQuery(() => ({ queryResult: { sql, explanation: '', tips: [] }, currentStep: 'preview' })); setGlobalStep('query'); }} />}
       {showTemplates && <TemplateModal onClose={() => setShowTemplates(false)} onRunTemplate={sql => { updateActiveQuery(() => ({ queryResult: { sql, explanation: '', tips: [] }, currentStep: 'preview' })); setGlobalStep('query'); }} />}
       {showSqlExtractor && <SqlExtractorModal onClose={() => setShowSqlExtractor(false)} onRunSql={sql => { updateActiveQuery(() => ({ queryResult: { sql, explanation: '', tips: [] }, currentStep: 'preview' })); setGlobalStep('query'); }} settings={settings} />}
+      {showWiki && activeConnection?.schema && <SchemaWikiModal schema={activeConnection.schema} onClose={() => setShowWiki(false)} />}
       {updateInfo && <UpdateModal updateInfo={updateInfo} downloadProgress={downloadProgress} isReady={updateReady} onClose={() => setUpdateInfo(null)} onStartDownload={() => (window as any).electron.send('start-download')} onInstall={() => (window as any).electron.send('install-update')} onIgnore={() => setUpdateInfo(null)} />}
     </div>
   );

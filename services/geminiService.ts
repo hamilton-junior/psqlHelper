@@ -253,3 +253,34 @@ export const extractSqlFromLogs = async (logText: string): Promise<string[]> => 
     throw e;
   }
 };
+
+export const generateDatabaseWiki = async (schema: DatabaseSchema): Promise<string> => {
+  console.log("[GEMINI_SERVICE] Gerando Wiki do Banco de Dados...");
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const prompt = `
+    Como um DBA Sênior e Arquiteto de Dados, gere uma documentação técnica completa em formato Markdown para o seguinte schema de banco de dados:
+    
+    SCHEMA: ${JSON.stringify(schema)}
+    
+    A documentação deve conter:
+    1. Introdução: Visão geral do propósito do banco de dados.
+    2. Dicionário de Dados: Para cada tabela, explique seu propósito, descreva as colunas principais e identifique chaves primárias e estrangeiras.
+    3. Relacionamentos: Explique como as tabelas se conectam.
+    4. Consultas de Exemplo: Forneça 3 a 5 exemplos de consultas SQL úteis baseadas neste schema, com explicações do que elas fazem.
+    5. Recomendações: Sugestões de índices ou boas práticas para este modelo específico.
+    
+    Use Markdown elegante, com tabelas e blocos de código. Responda em Português.
+  `;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-3.1-pro-preview',
+      contents: prompt,
+    });
+    console.log("[GEMINI_SERVICE] Wiki gerada com sucesso.");
+    return response.text || "Não foi possível gerar a Wiki.";
+  } catch (e: any) {
+    console.error("[GEMINI_SERVICE] Erro ao gerar Wiki:", e);
+    throw e;
+  }
+};

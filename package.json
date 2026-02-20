@@ -15,6 +15,7 @@
     "start": "npm run dev:all",
     "dev:all": "concurrently -n \"VITE,SERVER,APP\" -c \"blue,green,magenta\" \"npm run dev\" \"npm run server\" \"cross-env SKIP_BACKEND=1 npm run electron\"",
     "build": "tsc && vite build",
+    "lint": "tsc --noEmit",
     "preview": "vite preview",
     "dist": "cross-env PUBLISH_MODE=never npm run _dist_worker",
     "publish": "cross-env PUBLISH_MODE=always npm run _dist_worker",
@@ -35,6 +36,7 @@
     "react": "19.0.0",
     "react-dom": "19.0.0",
     "react-hot-toast": "2.5.1",
+    "react-markdown": "^10.1.0",
     "recharts": "2.15.0"
   },
   "devDependencies": {
